@@ -7,8 +7,6 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 # One shared library: build/libcalculate-core.so.0.1.0 (+ soname symlinks).
 add_library(calculate-core SHARED
-    src/trig.cpp
-    src/stats.cpp
     src/algebra.cpp
 )
 
@@ -29,7 +27,15 @@ set_target_properties(calculate-core PROPERTIES
     VERSION   ${PROJECT_VERSION}
     SOVERSION ${PROJECT_VERSION_MAJOR}
 
-    # Hide every symbol unless it is tagged CALCULATE_CORE_API. 
+    # Hide every symbol unless it is tagged CALCULATE_CORE_API.
     CXX_VISIBILITY_PRESET     hidden
     VISIBILITY_INLINES_HIDDEN ON
 )
+
+# ---- Tests ----
+# Defines the BUILD_TESTING option (default ON) and enables CTest.
+# Skip building tests with:  cmake -S . -B build -DBUILD_TESTING=OFF
+include(CTest)
+if(BUILD_TESTING)
+    add_subdirectory(tests)
+endif()
