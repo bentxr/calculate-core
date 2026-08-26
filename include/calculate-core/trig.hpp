@@ -1,6 +1,6 @@
 #pragma once
 
-#include "calculate-core/export.hpp"
+#include "export.hpp"
 
 namespace calculate_core {
 

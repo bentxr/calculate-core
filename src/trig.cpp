@@ -1,4 +1,4 @@
-#include "calculate-core/trig.hpp"
+#include "../include/calculate-core/trig.hpp"
 
 namespace calculate_core {
 

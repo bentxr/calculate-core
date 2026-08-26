@@ -1,4 +1,4 @@
-#include "calculate-core/algebra.hpp"
+#include "../include/calculate-core/algebra.hpp"
 
 namespace calculate_core {
 

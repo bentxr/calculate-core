@@ -1,4 +1,4 @@
-#include "calculate-core/stats.hpp"
+#include "../include/calculate-core/stats.hpp"
 
 namespace calculate_core {
 
