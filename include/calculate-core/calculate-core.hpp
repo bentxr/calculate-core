@@ -49,6 +49,16 @@ struct TypeInfo {
 
 std::vector<TypeInfo> numberTypes();
 
+// A function of the language, for keypads: its name, arity (-1: any) and Exact availability.
+struct FunctionDescription {
+    std::string name;
+    int minArgs;
+    int maxArgs;
+    bool exact;
+};
+
+std::vector<FunctionDescription> functions();
+
 // value = (negative ? -1 : 1) * d1.d2d3... * 10^exponent10: every digit, nothing truncated.
 struct Digits {
     bool negative = false;

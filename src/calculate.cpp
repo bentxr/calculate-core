@@ -114,6 +114,18 @@ std::vector<TypeInfo> numberTypes() {
     };
 }
 
+std::vector<FunctionDescription> functions() {
+    std::vector<FunctionDescription> list;
+    for (int i = 0; i < functionCount; ++i) {
+        const FunctionInfo& info = functionInfo(static_cast<FunctionId>(i));
+        if (info.name.empty() || info.id == FunctionId::LogBase) continue;  // log covers both arities
+        list.push_back({std::string(info.name), info.minArgs, info.id == FunctionId::Log10 ? 2 : info.maxArgs, info.exact});
+    }
+    for (const char* name : {"mean", "varp", "stdevp"}) list.push_back({name, 1, -1, true});
+    for (const char* name : {"var", "stdev"}) list.push_back({name, 2, -1, true});
+    return list;
+}
+
 Result evaluate(std::string_view expression, const Options& options) {
     return evaluateWithNames(expression, options, {});
 }

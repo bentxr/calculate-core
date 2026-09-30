@@ -150,3 +150,18 @@ TEST(Api, ACalculatorSizedExpressionIsFastInEveryType) {
         RecordProperty(t.label + "_ms", static_cast<int>(ms));
     }
 }
+
+TEST(Api, FunctionsForKeypads) {
+    const std::vector<FunctionDescription> list = functions();
+    auto find = [&](const std::string& name) {
+        for (const FunctionDescription& f : list) if (f.name == name) return f;
+        return FunctionDescription{"", 0, 0, false};
+    };
+    EXPECT_FALSE(find("sin").exact);
+    EXPECT_TRUE(find("sqrt").exact);
+    EXPECT_EQ(find("log").minArgs, 1);
+    EXPECT_EQ(find("log").maxArgs, 2);
+    EXPECT_EQ(find("mean").maxArgs, -1);
+    EXPECT_EQ(find("var").minArgs, 2);
+    EXPECT_FALSE(find("pi").exact);
+}
