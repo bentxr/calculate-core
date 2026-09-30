@@ -39,6 +39,17 @@ target_include_directories(calculate-core
     PRIVATE ${PROJECT_SOURCE_DIR}/src)
 target_link_libraries(calculate-core PRIVATE calculate-core-boost calculate-core-warnings)
 
+add_library(calc-cli STATIC cli/cli.cpp)
+target_include_directories(calc-cli PUBLIC ${PROJECT_SOURCE_DIR}/cli)
+target_compile_definitions(calc-cli PRIVATE CALCULATE_VERSION="${PROJECT_VERSION}")
+target_link_libraries(calc-cli PUBLIC calculate-core PRIVATE calculate-core-warnings)
+
+add_executable(calc cli/main.cpp)
+target_link_libraries(calc PRIVATE calc-cli calculate-core-warnings)
+if(EMSCRIPTEN)
+    target_link_options(calc PRIVATE -sALLOW_MEMORY_GROWTH=1 -sSTACK_SIZE=1048576 -sNODERAWFS=1)
+endif()
+
 include(CTest)
 if(BUILD_TESTING AND PROJECT_IS_TOP_LEVEL)
     add_subdirectory(tests)

@@ -20,10 +20,11 @@ add_executable(calculate-core-tests
     test_kernels.cpp
     test_parser.cpp
     test_api.cpp
+    test_cli.cpp
 )
 target_include_directories(calculate-core-tests PRIVATE ${PROJECT_SOURCE_DIR}/src)
 target_link_libraries(calculate-core-tests PRIVATE
-    calculate-core calculate-core-boost calculate-core-warnings GTest::gtest_main)
+    calculate-core calc-cli calculate-core-boost calculate-core-warnings GTest::gtest_main)
 if(EMSCRIPTEN)
     target_link_options(calculate-core-tests PRIVATE -sALLOW_MEMORY_GROWTH=1 -sSTACK_SIZE=1048576)
 endif()
