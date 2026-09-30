@@ -137,3 +137,35 @@ TYPED_TEST(ExactDigitsTest, DigitsReproduceTheValueExactly) {
         EXPECT_EQ(d.negative ? -value : value, toRational(x));
     }
 }
+
+static void expectFraction(const Rational& q, bool negative, const char* numerator,
+                           const char* denominator, bool hasDecimal, const char* integerPart,
+                           const char* fractionDigits, const char* repeatingDigits) {
+    const FractionDigits f = exactFraction(q);
+    EXPECT_EQ(f.negative, negative);
+    EXPECT_EQ(f.numerator, numerator);
+    EXPECT_EQ(f.denominator, denominator);
+    EXPECT_EQ(f.hasDecimal, hasDecimal);
+    if (hasDecimal) {
+        EXPECT_EQ(f.integerPart, integerPart);
+        EXPECT_EQ(f.fractionDigits, fractionDigits);
+        EXPECT_EQ(f.repeatingDigits, repeatingDigits);
+    }
+}
+
+TEST(ExactFraction, TerminatingAndRepeating) {
+    expectFraction(Rational(1, 3), false, "1", "3", true, "0", "", "3");
+    expectFraction(Rational(1, 6), false, "1", "6", true, "0", "1", "6");
+    expectFraction(Rational(22, 7), false, "22", "7", true, "3", "", "142857");
+    expectFraction(Rational(3, 8), false, "3", "8", true, "0", "375", "");
+    expectFraction(Rational(-5, 2), true, "5", "2", true, "2", "5", "");
+    expectFraction(Rational(10), false, "10", "1", true, "10", "", "");
+    expectFraction(Rational(0), false, "0", "1", true, "0", "", "");
+    expectFraction(Rational(-54767, 66192), true, "54767", "66192", false, "", "", "");  // period > 60
+}
+
+TEST(ExactFraction, LongPeriodFallsBackToTheFraction) {
+    EXPECT_FALSE(exactFraction(Rational(1, 97)).hasDecimal);  // period 96
+    EXPECT_TRUE(exactFraction(Rational(1, 97), 96).hasDecimal);
+    EXPECT_EQ(exactFraction(Rational(1, 97), 96).repeatingDigits.size(), 96u);
+}

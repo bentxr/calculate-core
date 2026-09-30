@@ -281,4 +281,57 @@ DecimalDigits exactDigits(const T& x) {
     return d;
 }
 
+// Sign separate; numerator/denominator reduced, denominator >= 1. When hasDecimal:
+// value = integerPart . fractionDigits (repeatingDigits repeated forever).
+struct FractionDigits {
+    bool negative = false;
+    std::string numerator;
+    std::string denominator;
+    bool hasDecimal = false;
+    std::string integerPart;
+    std::string fractionDigits;
+    std::string repeatingDigits;
+};
+
+// Long division: the factors 2 and 5 of the denominator give the digits before the period;
+// the period ends when the remainder comes back. Periods longer than maxPeriod are not shown.
+inline FractionDigits exactFraction(const Rational& q, int maxPeriod = 60) {
+    FractionDigits f;
+    f.negative = q < 0;
+    const Integer n = abs(numerator(q));
+    const Integer d = denominator(q);  // >= 1
+    f.numerator = n.str();
+    f.denominator = d.str();
+    Integer rest = d;
+    int twos = 0;
+    int fives = 0;
+    for (; rest % 2 == 0; rest /= 2) ++twos;
+    for (; rest % 5 == 0; rest /= 5) ++fives;
+    const auto nextDigit = [&d](Integer& r) {
+        r *= 10;
+        const Integer digit = r / d;
+        r %= d;
+        return digit.str();
+    };
+    f.integerPart = Integer(n / d).str();
+    Integer r = n % d;
+    for (int i = 0; i < std::max(twos, fives); ++i) f.fractionDigits += nextDigit(r);
+    if (r == 0) {
+        f.hasDecimal = true;
+        return f;
+    }
+    const Integer start = r;
+    for (int i = 0; i < maxPeriod; ++i) {
+        f.repeatingDigits += nextDigit(r);
+        if (r == start) {
+            f.hasDecimal = true;
+            return f;
+        }
+    }
+    f.integerPart.clear();
+    f.fractionDigits.clear();
+    f.repeatingDigits.clear();
+    return f;
+}
+
 }  // namespace calculate_core::detail
