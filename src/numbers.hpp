@@ -1,5 +1,7 @@
 #pragma once
 
+#include "constants.hpp"
+
 #include <boost/multiprecision/cpp_bin_float.hpp>
 #include <boost/multiprecision/cpp_int.hpp>
 
@@ -332,6 +334,31 @@ inline FractionDigits exactFraction(const Rational& q, int maxPeriod = 60) {
     f.fractionDigits.clear();
     f.repeatingDigits.clear();
     return f;
+}
+
+enum class ConstantId { Pi, TwoOverPi, Ln2, Ln10, E };
+
+// The table's hex digits as an integer: the constant times 2^constantFractionBits, truncated.
+inline Integer constantMantissa(ConstantId id) {
+    const char* hex = id == ConstantId::Pi          ? piHex
+                    : id == ConstantId::TwoOverPi ? twoOverPiHex
+                    : id == ConstantId::Ln2       ? ln2Hex
+                    : id == ConstantId::Ln10      ? ln10Hex
+                                                  : eHex;
+    Integer m = 0;
+    for (const char* c = hex; *c; ++c) m = m * 16 + (*c <= '9' ? *c - '0' : *c - 'A' + 10);
+    return m;
+}
+
+// The table value exactly.
+inline Rational constantRational(ConstantId id) {
+    return scaleByPowerOfTwo(Rational(constantMantissa(id)), -constantFractionBits);
+}
+
+// The constant correctly rounded into T.
+template <class T>
+T constantValue(ConstantId id) {
+    return fromRational<T>(constantRational(id));
 }
 
 }  // namespace calculate_core::detail
