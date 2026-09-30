@@ -122,3 +122,33 @@ TEST(LocalError, LibraryFunctionsUseTheirClaim) {
                          * exactCast<Ruler>(r.value);
     EXPECT_EQ(localError<double>(FunctionId::Exp, {0.5}, r), expected);
 }
+
+TEST(ExactFunctions, RootsAndPowersThatAreRational) {
+    const auto value = [](FunctionId id, std::vector<Rational> args) {
+        const Applied<Rational> r = applyFunction<Rational>(id, args);
+        EXPECT_FALSE(r.error) << static_cast<int>(id);
+        return r.value;
+    };
+    EXPECT_EQ(value(FunctionId::Sqrt, {Rational(9, 4)}), Rational(3, 2));
+    EXPECT_EQ(value(FunctionId::Cbrt, {Rational(-27, 8)}), Rational(-3, 2));
+    EXPECT_EQ(value(FunctionId::Root, {Rational(27), Rational(3)}), Rational(3));
+    EXPECT_EQ(value(FunctionId::Power, {Rational(4), Rational(1, 2)}), Rational(2));
+    EXPECT_EQ(value(FunctionId::Power, {Rational(8), Rational(2, 3)}), Rational(4));
+    EXPECT_EQ(value(FunctionId::Power, {Rational(-8), Rational(1, 3)}), Rational(-2));
+    EXPECT_EQ(value(FunctionId::Power, {Rational(2), Rational(-3)}), Rational(1, 8));
+    EXPECT_EQ(value(FunctionId::Power, {Rational(2, 3), Rational(0)}), Rational(1));
+}
+
+TEST(ExactFunctions, IrrationalOrUndefinedResultsAreErrors) {
+    const auto code = [](FunctionId id, std::vector<Rational> args) {
+        const Applied<Rational> r = applyFunction<Rational>(id, args);
+        EXPECT_TRUE(r.error) << static_cast<int>(id);
+        return r.error.value_or(ErrorCode::Cancelled);
+    };
+    EXPECT_EQ(code(FunctionId::Sqrt, {Rational(2)}), ErrorCode::IrrationalResult);
+    EXPECT_EQ(code(FunctionId::Power, {Rational(2), Rational(1, 2)}), ErrorCode::IrrationalResult);
+    EXPECT_EQ(code(FunctionId::Power, {Rational(-4), Rational(1, 2)}), ErrorCode::DomainError);
+    EXPECT_EQ(code(FunctionId::Power, {Rational(0), Rational(-1)}), ErrorCode::DivisionByZero);
+    EXPECT_EQ(code(FunctionId::Sin, {Rational(1)}), ErrorCode::NotAvailableInExact);
+    EXPECT_EQ(code(FunctionId::Ln, {Rational(1)}), ErrorCode::NotAvailableInExact);
+}

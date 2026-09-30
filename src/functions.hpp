@@ -8,6 +8,7 @@
 
 #include <array>
 #include <atomic>
+#include <limits>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -154,6 +155,77 @@ bool isOdd(const T& x) {
         if (abs(x) >= ldexp(T(1), precisionBits<T>())) return false;
         return trunc(x / 2) * 2 != x;
     }
+}
+
+// n >= 0: the integer q-th root of n, if n is a perfect q-th power (Newton's method from above).
+inline std::optional<Integer> integerRoot(const Integer& n, unsigned q) {
+    if (n < 2 || q == 1) return n;
+    Integer y = pow(Integer(2), (static_cast<unsigned>(msb(n)) + q) / q);  // >= the root
+    for (;;) {
+        const Integer next = ((q - 1) * y + n / pow(y, q - 1)) / q;
+        if (next >= y) break;
+        y = next;
+    }
+    if (pow(y, q) == n) return y;
+    return std::nullopt;
+}
+
+// x^(1/q) exactly, or the reason it is not rational.
+inline std::optional<ErrorCode> exactRoot(const Rational& x, const Integer& q, Rational& out) {
+    if (x == 0 || x == 1) {
+        out = x;
+        return std::nullopt;
+    }
+    const bool negative = x < 0;
+    if (negative && (q & 1) == 0) return ErrorCode::DomainError;
+    if (q > (1u << 20)) return ErrorCode::IrrationalResult;  // no rational root of that order matters
+    const unsigned order = q.convert_to<unsigned>();
+    const auto n = integerRoot(abs(numerator(x)), order);
+    const auto d = integerRoot(denominator(x), order);
+    if (!n || !d) return ErrorCode::IrrationalResult;
+    out = Rational(*n, *d);  // *d >= 1
+    if (negative) out = -out;
+    return std::nullopt;
+}
+
+inline std::optional<ErrorCode> exactPower(const Rational& x, const Rational& y, Rational& out) {
+    if (y == 0) {
+        out = 1;
+        return std::nullopt;
+    }
+    if (x == 0) {
+        if (y < 0) return ErrorCode::DivisionByZero;
+        out = 0;
+        return std::nullopt;
+    }
+    Rational base = x;
+    if (denominator(y) != 1)
+        if (const auto e = exactRoot(x, denominator(y), base)) return e;
+    const Integer p = abs(numerator(y));
+    if (p > std::numeric_limits<unsigned>::max()) return ErrorCode::Overflow;  // cannot be stored
+    const unsigned e = p.convert_to<unsigned>();
+    out = Rational(pow(numerator(base), e), pow(denominator(base), e));
+    if (y < 0) out = 1 / out;  // base != 0
+    return std::nullopt;
+}
+
+// Roots and powers in the Exact type: exact when the result is rational, an error otherwise.
+template <class T>
+Applied<T> exactFunction(FunctionId id, const std::vector<Rational>& a) {
+    Rational out;
+    std::optional<ErrorCode> e;
+    switch (id) {
+    case FunctionId::Power: e = exactPower(a[0], a[1], out); break;
+    case FunctionId::Sqrt: e = exactRoot(a[0], Integer(2), out); break;
+    case FunctionId::Cbrt: e = exactRoot(a[0], Integer(3), out); break;
+    case FunctionId::Root:
+        if (a[1] == 0) return fail<T>(ErrorCode::DomainError);
+        e = exactPower(a[0], 1 / a[1], out);
+        break;
+    default: return fail<T>(ErrorCode::NotAvailableInExact);
+    }
+    if (e) return fail<T>(*e);
+    return ok<T>(out);
 }
 
 // The elementary functions, for inexact T: every result computed in T through double words.
@@ -306,7 +378,7 @@ Applied<T> applyFunction(FunctionId id, const std::vector<T>& a, const std::atom
     default:
         if constexpr (isExact<T>) {
             if (!functionInfo(id).exact) return impl::fail<T>(ErrorCode::NotAvailableInExact);
-            return impl::fail<T>(ErrorCode::DomainError);
+            return impl::exactFunction<T>(id, a);
         } else {
             r = impl::kernel<T>(id, a);
             if (r.error) return r;
