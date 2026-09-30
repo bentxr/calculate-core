@@ -33,3 +33,18 @@ TEST(Cli, UsageErrors) {
     EXPECT_EQ(invoke({"--angle", "turns"}).code, 2);
     EXPECT_EQ(invoke({"--color", "sometimes"}).code, 2);
 }
+
+TEST(Cli, FormatsEveryDigitWithTheTrustedOnesMarked) {
+    const Digits tenths{false, "3000000000000000444089209850062616169452667236328125", -1};
+    EXPECT_EQ(calc::formatValue(tenths, 15, false), "0.300000000000000|0444089209850062616169452667236328125");
+    EXPECT_EQ(calc::formatValue(tenths, 52, false), "0.3000000000000000444089209850062616169452667236328125");
+    EXPECT_EQ(calc::formatValue(tenths, 15, true),
+              "0.300000000000000|\x1b[2m0444089209850062616169452667236328125\x1b[0m");
+    EXPECT_EQ(calc::formatValue({false, "1", 20}, 1, false), "100000000000000000000");
+    EXPECT_EQ(calc::formatValue({false, "1", 21}, 1, false), "1e+21");
+    EXPECT_EQ(calc::formatValue({true, "25", 0}, 1, false), "-2.|5");
+    EXPECT_EQ(calc::formatValue({false, "123", -10}, 1, false), "1.|23e-10");
+    EXPECT_EQ(calc::formatValue({false, "5", -3}, 1, false), "0.005");
+    EXPECT_EQ(calc::formatValue({false, "0", 0}, 0, false), "|0");
+    EXPECT_EQ(calc::formatValue({false, "0", 0}, 1, false), "0");
+}

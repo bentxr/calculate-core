@@ -10,6 +10,9 @@ using namespace calculate_core;
 
 namespace {
 
+constexpr const char* dim = "\x1b[2m";
+constexpr const char* reset = "\x1b[0m";
+
 struct TypeName {
     const char* option;
     NumberType type;
@@ -49,6 +52,40 @@ struct Settings {
 };
 
 }  // namespace
+
+std::string formatValue(const Digits& value, int trustedDigits, bool color) {
+    const std::string& sig = value.digits;
+    const long long n = static_cast<long long>(sig.size());
+    const long long e = value.exponent10;
+    const long long trusted = trustedDigits < n ? trustedDigits : n;
+    const auto digit = [&](long long i) {
+        std::string d;
+        if (i == trusted && trusted < n) d += color ? std::string("|") + dim : "|";  // the bar is always there
+        d += sig[static_cast<std::size_t>(i)];
+        return d;
+    };
+    const std::string end = color && trusted < n ? reset : "";
+    std::string text = value.negative ? "-" : "";
+    if (e >= -7 && e < 21) {  // positional
+        if (e < 0) {
+            text += "0." + std::string(static_cast<std::size_t>(-e - 1), '0');
+            for (long long i = 0; i < n; ++i) text += digit(i);
+        } else {
+            for (long long i = 0; i <= e; ++i) text += i < n ? digit(i) : "0";
+            if (n > e + 1) {
+                text += ".";
+                for (long long i = e + 1; i < n; ++i) text += digit(i);
+            }
+        }
+        return text + end;
+    }
+    text += digit(0);  // scientific
+    if (n > 1) {
+        text += ".";
+        for (long long i = 1; i < n; ++i) text += digit(i);
+    }
+    return text + end + "e" + (e < 0 ? "-" : "+") + std::to_string(e < 0 ? -e : e);
+}
 
 int run(const std::vector<std::string>& args, std::istream& /*in*/, std::ostream& out, std::ostream& err,
         bool terminal) {
