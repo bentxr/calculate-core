@@ -163,3 +163,42 @@ TEST(Format, TrustedDigits) {
     EXPECT_EQ(trustedDigits(Ruler(1), Ruler(0.05), 10), 1);
     EXPECT_EQ(trustedDigits(Ruler(1), Ruler(1e-30), 10), 10);
 }
+
+TEST(Report, PointOnePlusPointTwo) {
+    const Evaluation<double> ev = evaluate<double>(sum("0.1", "0.2"));
+    ASSERT_FALSE(ev.error);
+    EXPECT_EQ(ev.value, 0.1 + 0.2);
+    const Report& r = ev.report;
+    // Each term is rounded into the ruler, then summed: that is how the engine adds them.
+    const Ruler input = fromRational<Ruler>(abs(toRational(0.1) - Rational(1, 10)))
+                      + fromRational<Ruler>(abs(toRational(0.2) - Rational(2, 10)));
+    const Rational rounding = abs(toRational(0.1) + toRational(0.2) - toRational(ev.value));
+    EXPECT_EQ(r.input, input);
+    EXPECT_EQ(r.rounding, fromRational<Ruler>(rounding));
+    EXPECT_EQ(r.library, 0);
+    EXPECT_EQ(r.bound, r.input + r.rounding);
+    EXPECT_EQ(r.measured, fromRational<Ruler>(abs(toRational(ev.value) - Rational(3, 10))));
+    EXPECT_TRUE(test::covers(r.bound, r.measured));
+    EXPECT_TRUE(r.measuredAvailable);
+    EXPECT_TRUE(r.reliable);
+    EXPECT_EQ(r.roundingOperations, 1);
+    EXPECT_GE(r.condition, 1);
+    EXPECT_LT(r.condition, Ruler(1) + Ruler(1e-15));
+}
+
+TEST(Report, ExactOperationsHaveZeroBound) {
+    const Evaluation<double> ev = evaluate<double>(sum("2", "2"));
+    EXPECT_EQ(ev.report.bound, 0);
+    EXPECT_EQ(ev.report.measured, 0);
+    EXPECT_EQ(ev.report.roundingOperations, 0);
+}
+
+TEST(Report, CatastrophicCancellation) {
+    AstBuilder b;
+    b.literal("1e16") + b.literal("1") - b.literal("1e16");
+    const Evaluation<double> ev = evaluate<double>(b.ast());
+    EXPECT_EQ(ev.value, 0.0);
+    EXPECT_EQ(ev.report.measured, 1);
+    EXPECT_TRUE(test::covers(ev.report.bound, ev.report.measured));
+    EXPECT_EQ(ev.report.condition, Ruler(20000000000000001LL));  // (1e16 + 1 + 1e16) / 1
+}

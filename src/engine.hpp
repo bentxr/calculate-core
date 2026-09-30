@@ -7,6 +7,7 @@
 #include <calculate-core/calculate-core.hpp>
 
 #include <atomic>
+#include <limits>
 #include <optional>
 #include <string>
 #include <utility>
@@ -195,6 +196,85 @@ inline int trustedDigits(const Ruler& absValue, const Ruler& error, int digitCou
     int t = 0;
     for (; t < digitCount && q * 10 <= 1; ++t) q *= 10;
     return t;
+}
+
+struct Report {
+    Ruler input = 0;
+    Ruler rounding = 0;
+    Ruler library = 0;
+    Ruler bound = 0;     // guaranteed to first order: input + rounding + library
+    Ruler measured = 0;  // |value - reference|
+    Ruler condition = 0;
+    bool measuredAvailable = false;
+    bool reliable = false;
+    bool boundComplete = true;
+    int roundingOperations = 0;
+};
+
+template <class T>
+struct Evaluation {
+    std::optional<Error> error;
+    T value{};
+    Report report;
+};
+
+// The value in T and its error report: local errors weighted by the adjoints, the shadow
+// evaluations for the measured error, and the condition number.
+template <class T>
+Evaluation<T> evaluate(const Ast& ast, const Options& options = {}) {
+    using std::abs;
+    Evaluation<T> ev;
+    const Forward<T> fw = forward<T>(ast, options.cancel);
+    if (fw.error) {
+        ev.error = fw.error;
+        return ev;
+    }
+    ev.value = fw.values.back();
+    const std::vector<Ruler> locals = localErrors<T>(ast, fw);
+    const Adjoints adj = adjoints(ast, nodePartials<T>(ast, fw));
+
+    Report& r = ev.report;
+    Ruler weighted = 0;  // sum over the inputs of |d root / d input| * |input|
+    for (std::size_t i = 0; i < ast.nodes.size(); ++i) {
+        const Ruler term = adj.absoluteAdj[i] * locals[i];
+        switch (functionInfo(ast.nodes[i].function).errorClass) {
+        case ErrorClass::Input:
+            r.input += term;
+            weighted += abs(adj.signedAdj[i] * exactCast<Ruler>(fw.values[i]));
+            break;
+        case ErrorClass::Library: r.library += term; break;
+        case ErrorClass::Exact: break;
+        default:
+            r.rounding += term;
+            if (locals[i] != 0) ++r.roundingOperations;
+        }
+    }
+    r.bound = r.input + r.rounding + r.library;
+
+    Rational reference = toRational(ev.value);
+    if constexpr (isExact<T>) {
+        r.measuredAvailable = true;
+        r.reliable = true;
+    } else {
+        const Forward<Ruler> shadow = forward<Ruler>(ast, options.cancel);
+        const Forward<RulerCheck> check = forward<RulerCheck>(ast, options.cancel);
+        if (!shadow.error && !check.error) {
+            reference = toRational(check.values.back());
+            const Rational value = toRational(ev.value);
+            const Rational measured = abs(value - reference);
+            r.measured = fromRational<Ruler>(measured);
+            r.measuredAvailable = true;
+            // Reliable when the two shadows agree far below both the measured error and T's
+            // resolution at the value (a tolerance relative to the reference fails when it is 0).
+            const Rational floor = toRational((std::numeric_limits<T>::min)());
+            const Rational resolution = toRational(unitRoundoff<T>()) * (abs(value) > floor ? abs(value) : floor);
+            const Rational tolerance = scaleByPowerOfTwo(measured > resolution ? measured : resolution, -8);
+            r.reliable = agree(toRational(shadow.values.back()), reference, tolerance);
+        }
+    }
+    r.condition = reference == 0 ? std::numeric_limits<Ruler>::infinity()
+                                 : Ruler(weighted / abs(fromRational<Ruler>(reference)));
+    return ev;
 }
 
 }  // namespace calculate_core::detail
