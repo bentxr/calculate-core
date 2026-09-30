@@ -129,4 +129,17 @@ inline Adjoints adjoints(const Ast& ast, const std::vector<std::vector<Ruler>>& 
     return adj;
 }
 
+// First-order error bound of every node's value, computed forwards (Higham's running error bound).
+inline std::vector<Ruler> forwardBounds(const Ast& ast, const std::vector<std::vector<Ruler>>& partials,
+                                        const std::vector<Ruler>& locals) {
+    using std::abs;
+    std::vector<Ruler> bounds(ast.nodes.size(), Ruler(0));
+    for (std::size_t i = 0; i < ast.nodes.size(); ++i) {
+        bounds[i] = locals[i];
+        for (std::size_t k = 0; k < ast.nodes[i].args.size(); ++k)
+            bounds[i] += abs(partials[i][k]) * bounds[ast.nodes[i].args[k]];
+    }
+    return bounds;
+}
+
 }  // namespace calculate_core::detail

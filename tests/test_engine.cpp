@@ -94,3 +94,19 @@ TEST(Adjoints, AbsoluteAdjointsIgnoreSigns) {
     EXPECT_EQ(adj.signedAdj[0], -1);
     EXPECT_EQ(adj.absoluteAdj[0], 3);
 }
+
+TEST(ForwardBounds, ExactResultsHaveZeroBound) {
+    AstBuilder b;
+    b.literal("5") + b.literal("1");
+    const Forward<double> fw = forward<double>(b.ast());
+    const auto bounds = forwardBounds(b.ast(), nodePartials<double>(b.ast(), fw), localErrors<double>(b.ast(), fw));
+    EXPECT_EQ(bounds.back(), 0);
+}
+
+TEST(ForwardBounds, InexactResultsHavePositiveBound) {
+    AstBuilder b;
+    b.literal("0.1") * b.literal("30");
+    const Forward<double> fw = forward<double>(b.ast());
+    const auto bounds = forwardBounds(b.ast(), nodePartials<double>(b.ast(), fw), localErrors<double>(b.ast(), fw));
+    EXPECT_GT(bounds.back(), 0);
+}
