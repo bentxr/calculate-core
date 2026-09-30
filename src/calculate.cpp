@@ -130,4 +130,30 @@ Result evaluate(std::string_view expression, const Options& options) {
     return evaluateWithNames(expression, options, {});
 }
 
+Result Session::evaluate(std::string_view expression, const Options& options) {
+    Names names;
+    if (!answer_.empty()) names["Ans"] = answer_;
+    if (!memory_.empty()) names["M"] = memory_;
+    Result r = evaluateWithNames(expression, options, names);
+    if (!r.error) {
+        answer_ = r.expression;
+        history_.push_back({std::string(expression), r});
+    }
+    return r;
+}
+
+bool Session::memoryAdd() {
+    if (answer_.empty()) return false;
+    memory_ = memory_.empty() ? answer_ : memory_ + "+(" + answer_ + ")";
+    return true;
+}
+
+bool Session::memorySubtract() {
+    if (answer_.empty()) return false;
+    memory_ += "-(" + answer_ + ")";
+    return true;
+}
+
+void Session::memoryClear() { memory_.clear(); }
+
 }  // namespace calculate_core

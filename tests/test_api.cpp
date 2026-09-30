@@ -165,3 +165,45 @@ TEST(Api, FunctionsForKeypads) {
     EXPECT_EQ(find("var").minArgs, 2);
     EXPECT_FALSE(find("pi").exact);
 }
+
+TEST(Session, AnsIsThePreviousExpression) {
+    Session s;
+    EXPECT_EQ(s.evaluate("Ans").error->code, ErrorCode::UnknownName);
+    EXPECT_FALSE(s.evaluate("1 + 2").error);
+    EXPECT_EQ(s.answer(), "1 + 2");
+    const Result r = s.evaluate("Ans*2");
+    EXPECT_EQ(r.value.digits, "6");
+    EXPECT_EQ(r.expression, "(1 + 2)*2");
+    EXPECT_EQ(s.answer(), "(1 + 2)*2");
+    EXPECT_TRUE(s.evaluate("1/0").error);
+    EXPECT_EQ(s.answer(), "(1 + 2)*2");  // errors change nothing
+    EXPECT_EQ(s.history().size(), 2u);
+}
+
+TEST(Session, AnsIsRecomputedInTheNewType) {
+    Session s;
+    s.evaluate("0.1 + 0.2");
+    const Result exact = s.evaluate("Ans", as(NumberType::Exact));
+    ASSERT_TRUE(exact.exact);
+    EXPECT_EQ(exact.exact->numerator, "3");
+    EXPECT_EQ(exact.exact->denominator, "10");
+}
+
+TEST(Session, Memory) {
+    Session s;
+    EXPECT_FALSE(s.memoryAdd());
+    s.evaluate("2");
+    EXPECT_TRUE(s.memoryAdd());
+    EXPECT_EQ(s.memory(), "2");
+    s.evaluate("3");
+    EXPECT_TRUE(s.memoryAdd());
+    s.evaluate("10");
+    EXPECT_TRUE(s.memorySubtract());
+    EXPECT_EQ(s.memory(), "2+(3)-(10)");
+    EXPECT_EQ(s.evaluate("M").value.digits, "5");
+    EXPECT_TRUE(s.evaluate("M").value.negative);
+    s.memoryClear();
+    EXPECT_EQ(s.evaluate("M").error->code, ErrorCode::UnknownName);
+    s.clearHistory();
+    EXPECT_TRUE(s.history().empty());
+}

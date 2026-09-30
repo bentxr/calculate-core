@@ -99,4 +99,28 @@ struct Result {
 
 Result evaluate(std::string_view expression, const Options& options = {});
 
+// History, Ans and memory. Ans and M are stored as expression text, so a later evaluation in
+// another type recomputes them in that type, with their error analysis intact.
+class Session {
+public:
+    struct Entry {
+        std::string input;
+        Result result;
+    };
+
+    Result evaluate(std::string_view expression, const Options& options = {});
+    bool memoryAdd();       // M = M + Ans; false when there is no Ans
+    bool memorySubtract();  // M = M - Ans; false when there is no Ans
+    void memoryClear();
+    const std::string& answer() const { return answer_; }
+    const std::string& memory() const { return memory_; }
+    const std::vector<Entry>& history() const { return history_; }
+    void clearHistory() { history_.clear(); }
+
+private:
+    std::string answer_;
+    std::string memory_;
+    std::vector<Entry> history_;
+};
+
 }  // namespace calculate_core
