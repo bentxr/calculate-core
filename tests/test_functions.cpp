@@ -234,3 +234,59 @@ TEST(LocalError, CountedFunctions) {
     EXPECT_EQ(localError<double>(FunctionId::Factorial, {25.0}, r),
               Ruler(r.roundings) * exactCast<Ruler>(unitRoundoff<double>()) * exactCast<Ruler>(r.value));
 }
+
+namespace {
+
+// Central difference of the oracle at 2017 bits: h^2 truncation, far below the tolerance.
+test::Oracle centralDifference(FunctionId id, std::vector<test::Oracle> args, std::size_t k) {
+    using O = test::Oracle;
+    const O h = ldexp(O(1), -400);
+    std::vector<O> up = args, down = args;
+    up[k] += h;
+    down[k] -= h;
+    const O y1 = up.size() > 1 ? up[1] : O(0), y0 = down.size() > 1 ? down[1] : O(0);
+    return (test::oracle(id, up[0], y1) - test::oracle(id, down[0], y0)) / (2 * h);
+}
+
+}  // namespace
+
+TEST(Partials, EveryRuleMatchesAFiniteDifference) {
+    using O = test::Oracle;
+    const std::pair<FunctionId, std::vector<double>> cases[] = {
+        {FunctionId::Exp, {0.7}},   {FunctionId::Ln, {0.7}},    {FunctionId::Log10, {0.7}},
+        {FunctionId::Sin, {0.7}},   {FunctionId::Cos, {0.7}},   {FunctionId::Tan, {0.7}},
+        {FunctionId::Asin, {0.3}},  {FunctionId::Acos, {0.3}},  {FunctionId::Atan, {0.7}},
+        {FunctionId::Sinh, {0.7}},  {FunctionId::Cosh, {0.7}},  {FunctionId::Tanh, {0.7}},
+        {FunctionId::Asinh, {0.7}}, {FunctionId::Acosh, {1.7}}, {FunctionId::Atanh, {0.3}},
+        {FunctionId::Sqrt, {0.7}},  {FunctionId::Cbrt, {0.7}},  {FunctionId::Power, {0.7, 2.5}},
+        {FunctionId::LogBase, {0.7, 3.0}}, {FunctionId::Root, {0.7, 3.0}}};
+    for (const auto& [id, point] : cases) {
+        std::vector<Ruler> args;
+        std::vector<O> oracleArgs;
+        for (double p : point) {
+            args.push_back(Ruler(p));
+            oracleArgs.push_back(O(p));
+        }
+        const Ruler value = applyFunction<Ruler>(id, args).value;
+        const std::vector<Ruler> d = partials<Ruler>(id, args, value);
+        ASSERT_EQ(d.size(), args.size());
+        for (std::size_t k = 0; k < args.size(); ++k) {
+            const O expected = centralDifference(id, oracleArgs, k);
+            EXPECT_LE(abs(exactCast<O>(d[k]) - expected), ldexp(O(1), -200) * (abs(expected) + 1))
+                << static_cast<int>(id) << " argument " << k;
+        }
+    }
+}
+
+TEST(Partials, SingularPointsAreInfiniteNotNan) {
+    const std::vector<Ruler> d = partials<Ruler>(FunctionId::Sqrt, {Ruler(0)}, Ruler(0));
+    EXPECT_FALSE(isFinite(d[0]));
+    EXPECT_GT(d[0], 0);
+}
+
+TEST(Partials, DiscreteFunctionsHaveZeroDerivatives) {
+    EXPECT_EQ(partials<Ruler>(FunctionId::Factorial, {Ruler(5)}, Ruler(120)), (std::vector<Ruler>{Ruler(0)}));
+    EXPECT_EQ(partials<Ruler>(FunctionId::Median, {Ruler(3), Ruler(1), Ruler(2)}, Ruler(2)),
+              (std::vector<Ruler>{Ruler(0), Ruler(0), Ruler(1)}));
+    EXPECT_EQ(partials<Ruler>(FunctionId::Mod, {Ruler(7), Ruler(3)}, Ruler(1)), (std::vector<Ruler>{Ruler(1), Ruler(-2)}));
+}

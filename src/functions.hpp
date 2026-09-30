@@ -473,6 +473,12 @@ Applied<T> applyFunction(FunctionId id, const std::vector<T>& a, const std::atom
 // d f / d arg_k at the computed arguments, in any type R.
 template <class R>
 std::vector<R> partials(FunctionId id, const std::vector<R>& a, const R& v) {
+    using std::abs;
+    using std::sqrt;
+    using std::trunc;
+    const R inf = std::numeric_limits<R>::infinity();
+    const auto f = [](FunctionId g, const R& x) { return applyFunction<R>(g, {x}).value; };
+    const R x = a.empty() ? R(0) : a[0];
     switch (id) {
     case FunctionId::Add: return {R(1), R(1)};
     case FunctionId::Subtract: return {R(1), R(-1)};
@@ -482,7 +488,50 @@ std::vector<R> partials(FunctionId id, const std::vector<R>& a, const R& v) {
     case FunctionId::Percent: return {R(1) / R(100)};
     case FunctionId::Square: return {R(2) * a[0]};
     case FunctionId::Cube: return {R(3) * a[0] * a[0]};
-    default: return std::vector<R>(a.size(), R(0));
+    case FunctionId::Power: {
+        const R y = a[1];
+        const R dx = x == 0 ? (y == 1 ? R(1) : y > 1 ? R(0) : inf) : R(y * v / x);
+        return {dx, x > 0 ? R(v * f(FunctionId::Ln, x)) : R(0)};
+    }
+    case FunctionId::Sqrt: return {v == 0 ? inf : R(R(1) / (2 * v))};
+    case FunctionId::Cbrt: return {x == 0 ? inf : R(v / (3 * x))};
+    case FunctionId::Root: {
+        const R n = a[1];
+        if (x == 0) return {inf, R(0)};
+        return {R(v / (n * x)), R(-v * f(FunctionId::Ln, abs(x)) / (n * n))};
+    }
+    case FunctionId::Exp: return {v};
+    case FunctionId::Ln: return {R(1) / x};
+    case FunctionId::Log10: return {R(1) / (x * constantValue<R>(ConstantId::Ln10))};
+    case FunctionId::LogBase: {
+        const R lnb = f(FunctionId::Ln, a[1]);
+        return {R(1) / (x * lnb), R(-v / (a[1] * lnb))};
+    }
+    case FunctionId::Sin: return {f(FunctionId::Cos, x)};
+    case FunctionId::Cos: return {R(-f(FunctionId::Sin, x))};
+    case FunctionId::Tan: return {R(1) + v * v};
+    case FunctionId::Asin: return {abs(x) == 1 ? inf : R(R(1) / sqrt(R(1) - x * x))};
+    case FunctionId::Acos: return {abs(x) == 1 ? R(-inf) : R(R(-1) / sqrt(R(1) - x * x))};
+    case FunctionId::Atan: return {R(1) / (R(1) + x * x)};
+    case FunctionId::Sinh: return {f(FunctionId::Cosh, x)};
+    case FunctionId::Cosh: return {f(FunctionId::Sinh, x)};
+    case FunctionId::Tanh: return {R(1) - v * v};
+    case FunctionId::Asinh: return {R(1) / sqrt(x * x + 1)};
+    case FunctionId::Acosh: return {x == 1 ? inf : R(R(1) / sqrt(x * x - 1))};
+    case FunctionId::Atanh: return {R(1) / (R(1) - x * x)};
+    case FunctionId::Abs: return {x < 0 ? R(-1) : R(1)};
+    case FunctionId::Mod: return {R(1), R(-trunc(a[0] / a[1]))};
+    case FunctionId::Median: {  // the selected element (or the two middle ones) gets the weight
+        std::vector<int> order(a.size());
+        for (std::size_t i = 0; i < a.size(); ++i) order[i] = static_cast<int>(i);
+        std::stable_sort(order.begin(), order.end(), [&a](int i, int j) { return a[i] < a[j]; });
+        std::vector<R> d(a.size(), R(0));
+        const std::size_t n = a.size();
+        if (n % 2) d[order[n / 2]] = 1;
+        else d[order[n / 2 - 1]] = d[order[n / 2]] = R(0.5);
+        return d;
+    }
+    default: return std::vector<R>(a.size(), R(0));  // discrete functions and constants
     }
 }
 
