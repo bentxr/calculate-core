@@ -87,6 +87,17 @@ std::string formatValue(const Digits& value, int trustedDigits, bool color) {
     return text + end + "e" + (e < 0 ? "-" : "+") + std::to_string(e < 0 ? -e : e);
 }
 
+std::string formatFraction(const Fraction& f) {
+    const std::string sign = f.negative ? "-" : "";
+    if (f.denominator == "1") return sign + f.numerator;
+    std::string s = sign + f.numerator + "/" + f.denominator;
+    if (f.hasDecimal) {
+        s += " = " + sign + f.integerPart + "." + f.fractionDigits;
+        if (!f.repeatingDigits.empty()) s += "(" + f.repeatingDigits + ")";
+    }
+    return s;
+}
+
 int run(const std::vector<std::string>& args, std::istream& /*in*/, std::ostream& out, std::ostream& err,
         bool terminal) {
     Settings s;

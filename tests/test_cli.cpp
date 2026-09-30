@@ -48,3 +48,11 @@ TEST(Cli, FormatsEveryDigitWithTheTrustedOnesMarked) {
     EXPECT_EQ(calc::formatValue({false, "0", 0}, 0, false), "|0");
     EXPECT_EQ(calc::formatValue({false, "0", 0}, 1, false), "0");
 }
+
+TEST(Cli, FormatsFractions) {
+    EXPECT_EQ(calc::formatFraction({false, "1", "3", true, "0", "", "3"}), "1/3 = 0.(3)");
+    EXPECT_EQ(calc::formatFraction({false, "3", "8", true, "0", "375", ""}), "3/8 = 0.375");
+    EXPECT_EQ(calc::formatFraction({true, "54767", "66192", false, "", "", ""}), "-54767/66192");
+    EXPECT_EQ(calc::formatFraction({false, "10", "1", true, "10", "", ""}), "10");
+    EXPECT_EQ(calc::formatFraction({true, "1", "6", true, "0", "1", "6"}), "-1/6 = -0.1(6)");
+}
