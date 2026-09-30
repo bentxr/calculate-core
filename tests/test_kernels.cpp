@@ -57,3 +57,17 @@ TYPED_TEST(KernelTest, LogarithmEdges) {
     ASSERT_TRUE(baseOne.error);
     EXPECT_EQ(*baseOne.error, ErrorCode::DomainError);
 }
+
+TEST(Reduction, HugeDoubleArgument) {
+    // 1e22 = n pi/2 + r: check r against the oracle's pi at 2017 bits.
+    const auto reduced = reduceHalfPi(1e22);
+    ASSERT_TRUE(reduced);
+    using O = test::Oracle;
+    const O halfPi = acos(O(-1)) / 2;
+    const O x = exactCast<O>(1e22);
+    const O n = round(x / halfPi);
+    const O r = x - n * halfPi;
+    EXPECT_EQ(reduced->quadrant, static_cast<int>(fmod(n, O(4)).convert_to<long long>()));
+    const O ours = exactCast<O>(reduced->r.hi) + exactCast<O>(reduced->r.lo);
+    EXPECT_LE(abs(ours - r), abs(r) * ldexp(O(1), -100));
+}

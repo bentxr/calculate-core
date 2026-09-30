@@ -5,6 +5,7 @@
 
 #include <array>
 #include <cmath>
+#include <optional>
 #include <type_traits>
 #include <vector>
 
@@ -27,6 +28,11 @@ const DoubleWord<T>& word(ConstantId id) {
         constantWord<T>(ConstantId::Pi), constantWord<T>(ConstantId::TwoOverPi), constantWord<T>(ConstantId::Ln2),
         constantWord<T>(ConstantId::Ln10), constantWord<T>(ConstantId::E)};
     return words[static_cast<std::size_t>(id)];
+}
+
+template <class T>
+DoubleWord<T> halfPi() {
+    return scale(word<T>(ConstantId::Pi), -1);
 }
 
 // A series term stops mattering once it is below the sum at twice T's precision.
@@ -150,6 +156,31 @@ DoubleWord<T> logWord(const DoubleWord<T>& x) {
         }
     }
     return scale(sum, 1) + impl::word<T>(ConstantId::Ln2) * T(e);
+}
+
+// x = n pi/2 + r with |r| <= pi/4, by exact integer arithmetic on the bits of x and of 2/pi
+// (Payne-Hanek); the remainder is rounded into T once. Supported for x < 2^1024.
+template <class T>
+struct Reduced {
+    int quadrant = 0;  // n mod 4
+    DoubleWord<T> r;
+};
+
+template <class T>
+std::optional<Reduced<T>> reduceHalfPi(const T& x) {  // x >= 0
+    using std::ldexp;
+    if (x < T(0.78)) return Reduced<T>{0, dw(x)};  // already within pi/4
+    if (x >= ldexp(T(1), 1024)) return std::nullopt;
+    static const Integer twoOverPi = constantMantissa(ConstantId::TwoOverPi);
+    const Rational q = toRational(x);  // N / 2^d
+    const unsigned fraction = constantFractionBits + static_cast<unsigned>(msb(denominator(q)));
+    const Integer product = numerator(q) * twoOverPi;  // x * 2/pi * 2^fraction
+    const Integer n = ((product >> (fraction - 1)) + 1) >> 1;  // nearest integer to x * 2/pi
+    const Integer rest = product - (n << fraction);
+    const Rational f = scaleByPowerOfTwo(Rational(rest), -static_cast<long long>(fraction));
+    const T fh = fromRational<T>(f);
+    const DoubleWord<T> fw{fh, fromRational<T>(f - toRational(fh))};
+    return Reduced<T>{static_cast<int>((n & 3).template convert_to<unsigned>()), fw * impl::halfPi<T>()};
 }
 
 }  // namespace calculate_core::detail
