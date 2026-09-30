@@ -9,6 +9,7 @@ add_executable(calculate-core-tests
     test_build.cpp
     test_numbers.cpp
     test_eft.cpp
+    test_decimal.cpp
 )
 target_include_directories(calculate-core-tests PRIVATE ${PROJECT_SOURCE_DIR}/src)
 target_link_libraries(calculate-core-tests PRIVATE

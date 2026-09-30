@@ -7,6 +7,9 @@
 #include <cmath>
 #include <cstdint>
 #include <limits>
+#include <optional>
+#include <string>
+#include <string_view>
 #include <type_traits>
 
 namespace calculate_core::detail {
@@ -176,6 +179,82 @@ T fromRational(const Rational& q) {
 template <class To, class From>
 To exactCast(const From& x) {
     return fromRational<To>(toRational(x));
+}
+
+// value = significand * 10^exponent10 (non-negative; unary minus belongs to the grammar).
+struct DecimalLiteral {
+    Integer significand;
+    long long exponent10 = 0;
+};
+
+// digits [. [digits]] [exponent] | . digits [exponent], exponent = (e|E) [+|-] digits.
+// The exponent saturates at ±10^15, so it never overflows.
+inline std::optional<DecimalLiteral> parseDecimal(std::string_view text) {
+    constexpr long long limit = 1000000000000000LL;
+    const auto isDigit = [](char c) { return c >= '0' && c <= '9'; };
+    DecimalLiteral d;
+    std::size_t i = 0;
+    int digits = 0;
+    long long fractionDigits = 0;
+    for (; i < text.size() && isDigit(text[i]); ++i, ++digits) d.significand = d.significand * 10 + (text[i] - '0');
+    if (i < text.size() && text[i] == '.') {
+        for (++i; i < text.size() && isDigit(text[i]); ++i, ++digits, ++fractionDigits)
+            d.significand = d.significand * 10 + (text[i] - '0');
+    }
+    if (digits == 0) return std::nullopt;
+    long long exponent = 0;
+    if (i < text.size() && (text[i] == 'e' || text[i] == 'E')) {
+        ++i;
+        bool negative = false;
+        if (i < text.size() && (text[i] == '+' || text[i] == '-')) negative = text[i++] == '-';
+        const std::size_t start = i;
+        for (; i < text.size() && isDigit(text[i]); ++i)
+            if (exponent <= limit) exponent = exponent * 10 + (text[i] - '0');
+        if (i == start) return std::nullopt;
+        exponent = std::min(exponent, limit);
+        if (negative) exponent = -exponent;
+    }
+    if (i != text.size()) return std::nullopt;
+    d.exponent10 = std::clamp(exponent - fractionDigits, -limit, limit);
+    return d;
+}
+
+// Exact. Precondition: |exponent10| <= 10^6 (a larger literal cannot be materialized).
+inline Rational toRational(const DecimalLiteral& d) {
+    const long long e = d.exponent10;
+    const Integer power = pow(Integer(10), static_cast<unsigned>(e < 0 ? -e : e));
+    return e < 0 ? Rational(d.significand, power) : Rational(d.significand * power);
+}
+
+namespace impl {
+
+// Conservative decimal range of T: beyond these, a literal certainly overflows or rounds to 0.
+// (30103/100000 approximates log10(2); the margins cover the error.)
+template <class T>
+long long maxDecimalExponent() {
+    return (static_cast<long long>(maxExponent<T>()) + 1) * 30103 / 100000 + 2;
+}
+
+template <class T>
+long long minDecimalExponent() {
+    const long long smallest = hasSubnormals<T>() ? minExponent<T>() - precisionBits<T>() + 1 : minExponent<T>();
+    return (smallest - 1) * 30103 / 100000 - 3;
+}
+
+}  // namespace impl
+
+// The literal correctly rounded into T (exact for Rational).
+template <class T>
+T decimalTo(const DecimalLiteral& d) {
+    if constexpr (isExact<T>) {
+        return toRational(d);
+    } else {
+        if (d.significand == 0) return T(0);
+        const long long e10 = d.exponent10 + static_cast<long long>(d.significand.str().size()) - 1;
+        if (e10 > impl::maxDecimalExponent<T>()) return std::numeric_limits<T>::infinity();
+        if (e10 < impl::minDecimalExponent<T>()) return T(0);
+        return fromRational<T>(toRational(d));
+    }
 }
 
 }  // namespace calculate_core::detail
