@@ -138,4 +138,20 @@ Applied<T> applyFunction(FunctionId id, const std::vector<T>& a, const std::atom
     return r;
 }
 
+// d f / d arg_k at the computed arguments, in any type R.
+template <class R>
+std::vector<R> partials(FunctionId id, const std::vector<R>& a, const R& v) {
+    switch (id) {
+    case FunctionId::Add: return {R(1), R(1)};
+    case FunctionId::Subtract: return {R(1), R(-1)};
+    case FunctionId::Multiply: return {a[1], a[0]};
+    case FunctionId::Divide: return {R(1) / a[1], -v / a[1]};
+    case FunctionId::Negate: return {R(-1)};
+    case FunctionId::Percent: return {R(1) / R(100)};
+    case FunctionId::Square: return {R(2) * a[0]};
+    case FunctionId::Cube: return {R(3) * a[0] * a[0]};
+    default: return std::vector<R>(a.size(), R(0));
+    }
+}
+
 }  // namespace calculate_core::detail

@@ -79,3 +79,13 @@ TYPED_TEST(FloatingApplyTest, OverflowIsAnError) {
     ASSERT_TRUE(r.error);
     EXPECT_EQ(*r.error, ErrorCode::Overflow);
 }
+
+TEST(Partials, ArithmeticRules) {
+    const std::vector<Ruler> d = partials<Ruler>(FunctionId::Divide, {Ruler(1), Ruler(4)}, Ruler(0.25));
+    EXPECT_EQ(d, (std::vector<Ruler>{Ruler(0.25), Ruler(-0.0625)}));
+    EXPECT_EQ(partials<Ruler>(FunctionId::Multiply, {Ruler(3), Ruler(5)}, Ruler(15)),
+              (std::vector<Ruler>{Ruler(5), Ruler(3)}));
+    EXPECT_EQ(partials<Ruler>(FunctionId::Subtract, {Ruler(3), Ruler(5)}, Ruler(-2)),
+              (std::vector<Ruler>{Ruler(1), Ruler(-1)}));
+    EXPECT_EQ(partials<Ruler>(FunctionId::Cube, {Ruler(2)}, Ruler(8)), (std::vector<Ruler>{Ruler(12)}));
+}
