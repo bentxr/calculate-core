@@ -171,6 +171,33 @@ Applied<T> kernel(FunctionId id, const std::vector<T>& a) {
         return ok<T>(toValue(id == FunctionId::Asin ? asinWord(dw(x)) : acosWord(dw(x))));
     }
     case FunctionId::Atan: return ok<T>(toValue(atanWord(dw(x))));
+    case FunctionId::Sinh:
+    case FunctionId::Cosh: {
+        using std::abs;
+        const T ax = abs(x);
+        const bool sinh = id == FunctionId::Sinh;
+        const DoubleWord<T>& ln2 = impl::word<T>(ConstantId::Ln2);
+        if (ax > T(precisionBits<T>() + 2) * ln2.hi / 2)  // e^-|x| is negligible: the result is e^|x| / 2
+            return fromExp(expParts(dw(ax) - ln2), sinh && x < 0);
+        if (ax < 1) {
+            DoubleWord<T> m = expm1Small(dw(ax / 4));  // expm1(|x|) by two doublings
+            m = m * (m + T(2));
+            m = m * (m + T(2));
+            if (sinh) return ok<T>(withSign(toValue(scale(m + m / (m + T(1)), -1)), x < 0));
+            return ok<T>(toValue(scale(m * m / (m + T(1)), -1) + T(1)));
+        }
+        const DoubleWord<T> y = expValue(expParts(dw(ax)));
+        const DoubleWord<T> inverse = dw(T(1)) / y;
+        return ok<T>(withSign(toValue(scale(sinh ? y - inverse : y + inverse, -1)), sinh && x < 0));
+    }
+    case FunctionId::Tanh: {
+        using std::abs;
+        using std::ldexp;
+        const T ax = abs(x);
+        if (ax > T(precisionBits<T>() + 3) * impl::word<T>(ConstantId::Ln2).hi / 2) return ok<T>(withSign(T(1), x < 0));
+        const DoubleWord<T> m = expValue(expParts(dw(ldexp(ax, 1)))) - T(1);  // expm1(2|x|)
+        return ok<T>(withSign(toValue(m / (m + T(2))), x < 0));
+    }
     default: return fail<T>(ErrorCode::DomainError);
     }
 }

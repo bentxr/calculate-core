@@ -103,3 +103,12 @@ TYPED_TEST(KernelTest, InverseTrigonometry) {
     ASSERT_TRUE(outside.error);
     EXPECT_EQ(*outside.error, ErrorCode::DomainError);
 }
+
+TYPED_TEST(KernelTest, Hyperbolic) {
+    using T = TypeParam;
+    test::expectWithinClaim<T>(FunctionId::Sinh, [](auto& rng) { return std::pair<T, T>{uniform<T>(rng, -expRange<T>(), expRange<T>()), T(0)}; });
+    test::expectWithinClaim<T>(FunctionId::Sinh, [](auto& rng) { return std::pair<T, T>{randomSign(rng, logUniform<T>(rng, -30, 0)), T(0)}; });
+    test::expectWithinClaim<T>(FunctionId::Cosh, [](auto& rng) { return std::pair<T, T>{uniform<T>(rng, -expRange<T>(), expRange<T>()), T(0)}; });
+    test::expectWithinClaim<T>(FunctionId::Tanh, [](auto& rng) { return std::pair<T, T>{uniform<T>(rng, -20, 20), T(0)}; });
+    test::expectWithinClaim<T>(FunctionId::Tanh, [](auto& rng) { return std::pair<T, T>{randomSign(rng, logUniform<T>(rng, -30, -1)), T(0)}; });
+}
