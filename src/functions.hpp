@@ -154,4 +154,46 @@ std::vector<R> partials(FunctionId id, const std::vector<R>& a, const R& v) {
     }
 }
 
+namespace impl {
+
+// The exact result of an operation on exact arguments, where rational arithmetic can give it.
+inline std::optional<Rational> exactResult(FunctionId id, const std::vector<Rational>& a) {
+    switch (id) {
+    case FunctionId::Add: return a[0] + a[1];
+    case FunctionId::Subtract: return a[0] - a[1];
+    case FunctionId::Multiply: return a[0] * a[1];
+    case FunctionId::Divide: return a[1] == 0 ? std::optional<Rational>() : a[0] / a[1];
+    case FunctionId::Percent: return a[0] / 100;
+    case FunctionId::Square: return a[0] * a[0];
+    case FunctionId::Cube: return a[0] * a[0] * a[0];
+    default: return std::nullopt;
+    }
+}
+
+}  // namespace impl
+
+// A bound on |exact f(args) - computed value| for one node, with its arguments taken as exact.
+template <class T>
+Ruler localError(FunctionId id, const std::vector<T>& args, const Applied<T>& applied) {
+    if constexpr (isExact<T>) {
+        return Ruler(0);
+    } else {
+        using std::abs;
+        const Ruler u = exactCast<Ruler>(unitRoundoff<T>());
+        const Ruler v = abs(exactCast<Ruler>(applied.value));
+        switch (functionInfo(id).errorClass) {
+        case ErrorClass::Exact: return Ruler(0);
+        case ErrorClass::Checked: {
+            std::vector<Rational> exactArgs;
+            for (const T& x : args) exactArgs.push_back(toRational(x));
+            const auto exact = impl::exactResult(id, exactArgs);
+            return exact ? fromRational<Ruler>(abs(*exact - toRational(applied.value))) : Ruler(0);
+        }
+        case ErrorClass::Rounded: return u * v;
+        case ErrorClass::Counted: return Ruler(applied.roundings) * u * v;
+        default: return Ruler(0);  // Library claims arrive with the kernels; Input is the engine's
+        }
+    }
+}
+
 }  // namespace calculate_core::detail

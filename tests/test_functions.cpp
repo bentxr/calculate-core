@@ -89,3 +89,28 @@ TEST(Partials, ArithmeticRules) {
               (std::vector<Ruler>{Ruler(1), Ruler(-1)}));
     EXPECT_EQ(partials<Ruler>(FunctionId::Cube, {Ruler(2)}, Ruler(8)), (std::vector<Ruler>{Ruler(12)}));
 }
+
+TEST(LocalError, ArithmeticErrorsAreExact) {
+    const double a = 0.1, b = 0.2;
+    const Applied<double> sum = applyFunction<double>(FunctionId::Add, {a, b});
+    const Rational exact = abs(toRational(a) + toRational(b) - toRational(sum.value));
+    EXPECT_GT(exact, 0);
+    EXPECT_EQ(localError<double>(FunctionId::Add, {a, b}, sum), fromRational<Ruler>(exact));
+
+    const Applied<double> four = applyFunction<double>(FunctionId::Add, {2.0, 2.0});
+    EXPECT_EQ(localError<double>(FunctionId::Add, {2.0, 2.0}, four), 0);
+
+    const Applied<double> third = applyFunction<double>(FunctionId::Divide, {1.0, 3.0});
+    EXPECT_EQ(localError<double>(FunctionId::Divide, {1.0, 3.0}, third),
+              fromRational<Ruler>(abs(Rational(1, 3) - toRational(third.value))));
+}
+
+TEST(LocalError, ExactTypeHasNoLocalError) {
+    const Applied<Rational> third = applyFunction<Rational>(FunctionId::Divide, {Rational(1), Rational(3)});
+    EXPECT_EQ(localError<Rational>(FunctionId::Divide, {Rational(1), Rational(3)}, third), 0);
+}
+
+TEST(LocalError, NegationIsExact) {
+    const Applied<double> r = applyFunction<double>(FunctionId::Negate, {0.1});
+    EXPECT_EQ(localError<double>(FunctionId::Negate, {0.1}, r), 0);
+}
