@@ -59,3 +59,37 @@ TEST(Traits, ExactnessAndFiniteness) {
     EXPECT_FALSE(isFinite(Binary128(1) / Binary128(0)));
     EXPECT_TRUE(isFinite(Rational(1, 3)));
 }
+
+template <class T>
+class ConversionTest : public ::testing::Test {};
+TYPED_TEST_SUITE(ConversionTest, test::FloatingTypes, test::TypeNames);
+
+TYPED_TEST(ConversionTest, SimpleValuesAreExact) {
+    using T = TypeParam;
+    EXPECT_EQ(toRational(T(0.5)), Rational(1, 2));
+    EXPECT_EQ(toRational(T(-3)), Rational(-3));
+    EXPECT_EQ(toRational(T(0)), Rational(0));
+}
+
+TYPED_TEST(ConversionTest, OneThirdHasTheExpectedPowerOfTwoDenominator) {
+    using T = TypeParam;
+    const Rational q = toRational(T(1) / T(3));
+    const Integer d = denominator(q);
+    EXPECT_EQ(d & (d - 1), 0);                              // a power of two
+    EXPECT_EQ(msb(d), unsigned(precisionBits<T>() + 1));    // 1/3 = 1.0101..b x 2^-2, last bit set
+}
+
+TEST(Conversion, SubnormalDoubleIsExact) {
+    EXPECT_EQ(toRational(std::numeric_limits<double>::denorm_min()),
+              scaleByPowerOfTwo(Rational(1), -1074));
+}
+
+TEST(Conversion, RationalIsItsOwnExactValue) {
+    EXPECT_EQ(toRational(Rational(7, 3)), Rational(7, 3));
+}
+
+TEST(Conversion, ScaleByPowerOfTwo) {
+    EXPECT_EQ(scaleByPowerOfTwo(Rational(3), 4), Rational(48));
+    EXPECT_EQ(scaleByPowerOfTwo(Rational(3), -4), Rational(3, 16));
+    EXPECT_EQ(scaleByPowerOfTwo(Rational(-5, 7), 0), Rational(-5, 7));
+}

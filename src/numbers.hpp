@@ -6,6 +6,7 @@
 #include <cmath>
 #include <cstdint>
 #include <limits>
+#include <type_traits>
 
 namespace calculate_core::detail {
 
@@ -91,6 +92,26 @@ bool isFinite(const T& x) {
     } else {
         using std::isfinite;
         return isfinite(x);
+    }
+}
+
+// q * 2^e, exactly.
+inline Rational scaleByPowerOfTwo(const Rational& q, long long e) {
+    if (e == 0) return q;
+    const Integer power = Integer(1) << static_cast<unsigned>(e < 0 ? -e : e);
+    return e > 0 ? Rational(numerator(q) * power, denominator(q))
+                 : Rational(numerator(q), denominator(q) * power);
+}
+
+// The exact value of a finite x.
+template <class T>
+Rational toRational(const T& x) {
+    if constexpr (isExact<T>) {
+        return x;
+    } else if constexpr (std::is_floating_point_v<T>) {
+        return Rational(x);
+    } else {
+        return x.template convert_to<Rational>();
     }
 }
 
