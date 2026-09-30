@@ -94,3 +94,32 @@ TEST(Api, ExactResultsAreFractions) {
     EXPECT_EQ(r.bound, "0");
     EXPECT_EQ(r.measured, "0");
 }
+
+TEST(Api, ErrorsCarryCodesAndSpans) {
+    const Result division = evaluate("1 + 1/0");
+    ASSERT_TRUE(division.error);
+    EXPECT_EQ(division.error->code, ErrorCode::DivisionByZero);
+    EXPECT_EQ(division.error->begin, 4u);
+    EXPECT_EQ(division.error->end, 7u);
+    EXPECT_EQ(evaluate("sin(1)", as(NumberType::Exact)).error->code, ErrorCode::NotAvailableInExact);
+    EXPECT_EQ(evaluate("2π").error->code, ErrorCode::MissingOperator);
+    EXPECT_EQ(evaluate("1e400").error->code, ErrorCode::LiteralOutOfRange);
+    EXPECT_FALSE(evaluate("1e400", as(NumberType::Binary128)).error);
+}
+
+TEST(Api, AnglesAndOptions) {
+    const Result r = evaluate("sin(30)", as(NumberType::Double, AngleUnit::Degrees));
+    ASSERT_FALSE(r.error);
+    EXPECT_EQ(r.value.digits.substr(0, 3), "499");  // 0.4999999999999999... : pi/6 is not exact
+    Options allow;
+    allow.allowUncertainDiscreteArguments = true;
+    EXPECT_EQ(evaluate("(0.1*30)!").error->code, ErrorCode::UncertainDiscreteArgument);
+    const Result six = evaluate("(0.1*30)!", allow);
+    ASSERT_FALSE(six.error);
+    EXPECT_EQ(six.value.digits, "6");
+    EXPECT_FALSE(six.boundComplete);
+    std::atomic<bool> cancel{true};
+    Options cancelled;
+    cancelled.cancel = &cancel;
+    EXPECT_EQ(evaluate("1+2", cancelled).error->code, ErrorCode::Cancelled);
+}
