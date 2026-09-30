@@ -61,3 +61,15 @@ TEST(Forward, Cancellation) {
     ASSERT_TRUE(fw.error);
     EXPECT_EQ(fw.error->code, ErrorCode::Cancelled);
 }
+
+TEST(LocalErrors, LiteralsAndConstantsCarryTheirRepresentationError) {
+    AstBuilder b;
+    const auto tenth = b.literal("0.1");
+    const auto pi = b.constant(FunctionId::Pi);
+    tenth * pi;
+    const Forward<double> fw = forward<double>(b.ast());
+    const std::vector<Ruler> locals = localErrors<double>(b.ast(), fw);
+    EXPECT_EQ(locals[0], fromRational<Ruler>(abs(toRational(0.1) - Rational(1, 10))));
+    EXPECT_EQ(locals[1], fromRational<Ruler>(abs(toRational(fw.values[1]) - constantRational(ConstantId::Pi))));
+    EXPECT_GT(locals[2], 0);
+}
