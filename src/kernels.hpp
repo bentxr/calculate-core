@@ -183,4 +183,31 @@ std::optional<Reduced<T>> reduceHalfPi(const T& x) {  // x >= 0
     return Reduced<T>{static_cast<int>((n & 3).template convert_to<unsigned>()), fw * impl::halfPi<T>()};
 }
 
+// Taylor series for |r| <= pi/4.
+template <class T>
+DoubleWord<T> sinSmall(const DoubleWord<T>& r) {
+    const DoubleWord<T> r2 = r * r;
+    DoubleWord<T> term = r;
+    DoubleWord<T> sum = r;
+    for (int k = 1;; ++k) {
+        term = -(term * r2 / T((2 * k) * (2 * k + 1)));
+        if (impl::negligible(term, sum)) break;
+        sum = sum + term;
+    }
+    return sum;
+}
+
+template <class T>
+DoubleWord<T> cosSmall(const DoubleWord<T>& r) {
+    const DoubleWord<T> r2 = r * r;
+    DoubleWord<T> term = dw(T(1));
+    DoubleWord<T> sum = dw(T(1));
+    for (int k = 1;; ++k) {
+        term = -(term * r2 / T((2 * k - 1) * (2 * k)));
+        if (impl::negligible(term, sum)) break;
+        sum = sum + term;
+    }
+    return sum;
+}
+
 }  // namespace calculate_core::detail

@@ -151,6 +151,19 @@ Applied<T> kernel(FunctionId id, const std::vector<T>& a) {
     case FunctionId::LogBase:
         if (x <= 0 || a[1] <= 0 || a[1] == 1) return fail<T>(ErrorCode::DomainError);
         return ok<T>(toValue(logWord(dw(x)) / logWord(dw(a[1]))));
+    case FunctionId::Sin:
+    case FunctionId::Cos:
+    case FunctionId::Tan: {
+        using std::abs;
+        const auto reduced = reduceHalfPi(abs(x));
+        if (!reduced) return fail<T>(ErrorCode::ArgumentTooLarge);
+        const int q = reduced->quadrant;
+        const DoubleWord<T> s = sinSmall(reduced->r);
+        const DoubleWord<T> c = cosSmall(reduced->r);
+        if (id == FunctionId::Sin) return ok<T>(withSign(toValue(q == 0 ? s : q == 1 ? c : q == 2 ? -s : -c), x < 0));
+        if (id == FunctionId::Cos) return ok<T>(toValue(q == 0 ? c : q == 1 ? -s : q == 2 ? -c : s));
+        return ok<T>(withSign(toValue(q % 2 == 0 ? s / c : -(c / s)), x < 0));
+    }
     default: return fail<T>(ErrorCode::DomainError);
     }
 }

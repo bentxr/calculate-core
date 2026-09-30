@@ -71,3 +71,23 @@ TEST(Reduction, HugeDoubleArgument) {
     const O ours = exactCast<O>(reduced->r.hi) + exactCast<O>(reduced->r.lo);
     EXPECT_LE(abs(ours - r), abs(r) * ldexp(O(1), -100));
 }
+
+TYPED_TEST(KernelTest, Trigonometry) {
+    using T = TypeParam;
+    test::expectWithinClaim<T>(FunctionId::Sin, [](auto& rng) { return std::pair<T, T>{randomSign(rng, logUniform<T>(rng, -20, 100)), T(0)}; });
+    test::expectWithinClaim<T>(FunctionId::Cos, [](auto& rng) { return std::pair<T, T>{randomSign(rng, logUniform<T>(rng, -20, 100)), T(0)}; });
+    test::expectWithinClaim<T>(FunctionId::Tan, [](auto& rng) { return std::pair<T, T>{randomSign(rng, logUniform<T>(rng, -20, 60)), T(0)}; });
+    test::expectWithinClaim<T>(FunctionId::Sin, [](auto& rng) { return std::pair<T, T>{logUniform<T>(rng, 100, 1000), T(0)}; });
+}
+
+TYPED_TEST(KernelTest, ArgumentReductionLimit) {
+    using T = TypeParam;
+    const T limit = ldexp(T(1), std::min(1024, maxExponent<T>()));
+    const Applied<T> r = applyFunction<T>(FunctionId::Sin, {limit});
+    if (maxExponent<T>() >= 1024) {
+        ASSERT_TRUE(r.error);
+        EXPECT_EQ(*r.error, ErrorCode::ArgumentTooLarge);
+    } else {
+        EXPECT_FALSE(r.error);  // float and double cannot reach 2^1024
+    }
+}
