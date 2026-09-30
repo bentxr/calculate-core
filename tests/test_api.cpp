@@ -123,3 +123,30 @@ TEST(Api, AnglesAndOptions) {
     cancelled.cancel = &cancel;
     EXPECT_EQ(evaluate("1+2", cancelled).error->code, ErrorCode::Cancelled);
 }
+
+TEST(Api, EveryTypeEvaluatesTheCharterCases) {
+    for (const TypeInfo& t : numberTypes()) {
+        for (const char* text : {"0.1 + 0.2", "1e16 + 1 - 1e16", "sin(1e10)"}) {
+            const Result r = evaluate(text, as(t.type));
+            if (t.type == NumberType::Exact && std::string(text) == "sin(1e10)") {
+                EXPECT_TRUE(r.error);
+                continue;
+            }
+            ASSERT_FALSE(r.error) << t.label << ": " << text;
+            EXPECT_TRUE(r.measurementReliable) << t.label << ": " << text;
+        }
+    }
+}
+
+TEST(Api, ACalculatorSizedExpressionIsFastInEveryType) {
+    const char* text = "sin(1)+cos(2)+ln(3)+exp(4)+atan(5)+sqrt(6)+sinh(0.7)+asin(0.3)+tan(0.4)+cbrt(9)";
+    for (const TypeInfo& t : numberTypes()) {
+        if (t.type == NumberType::Exact) continue;
+        const auto start = std::chrono::steady_clock::now();
+        const Result r = evaluate(text, as(t.type));
+        const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
+        ASSERT_FALSE(r.error);
+        EXPECT_LT(ms, 1000.0) << t.label;  // the budget is 250 ms natively; this guards against regressions
+        RecordProperty(t.label + "_ms", static_cast<int>(ms));
+    }
+}
