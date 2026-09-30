@@ -3,6 +3,7 @@
 #include <boost/multiprecision/cpp_bin_float.hpp>
 #include <boost/multiprecision/cpp_int.hpp>
 
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <limits>
@@ -113,6 +114,68 @@ Rational toRational(const T& x) {
     } else {
         return x.template convert_to<Rational>();
     }
+}
+
+namespace impl {
+
+// n (0 <= n <= 2^p) as a T, exactly: built 32 bits at a time from the top, so every partial
+// value is an integer no larger than n.
+template <class T>
+T integerToFloat(const Integer& n) {
+    using std::ldexp;
+    if (n == 0) return T(0);
+    const unsigned bits = static_cast<unsigned>(msb(n)) + 1;
+    int shift = static_cast<int>(bits - (bits % 32 == 0 ? 32 : bits % 32));
+    T t = T(((n >> shift) & 0xFFFFFFFFu).template convert_to<std::uint32_t>());
+    while (shift > 0) {
+        shift -= 32;
+        t = ldexp(t, 32) + T(((n >> shift) & 0xFFFFFFFFu).template convert_to<std::uint32_t>());
+    }
+    return t;
+}
+
+}  // namespace impl
+
+// q rounded to the nearest T, ties to even. Overflow gives ±infinity. Below the normal range,
+// subnormals for types that have them, and a flush to zero (like cpp_bin_float) otherwise.
+template <class T>
+T fromRational(const Rational& q) {
+    if constexpr (isExact<T>) {
+        return q;
+    } else {
+        using std::ldexp;
+        if (q == 0) return T(0);
+        const bool negative = q < 0;
+        const T infinity = std::numeric_limits<T>::infinity();
+        const Integer n = abs(numerator(q));
+        const Integer d = denominator(q);
+        long long e = static_cast<long long>(msb(n)) - static_cast<long long>(msb(d));
+        const bool below = e >= 0 ? n < (d << static_cast<unsigned>(e)) : (n << static_cast<unsigned>(-e)) < d;
+        if (below) --e;  // now 2^e <= |q| < 2^(e+1)
+        const int p = precisionBits<T>();
+        const long long emin = minExponent<T>();
+        const long long emax = maxExponent<T>();
+        if (e > emax) return negative ? T(-infinity) : infinity;
+        const long long quantumExp = (hasSubnormals<T>() ? std::max(e, emin) : e) - (p - 1);
+        Integer num = n;
+        Integer den = d;
+        if (quantumExp < 0) num <<= static_cast<unsigned>(-quantumExp);
+        else den <<= static_cast<unsigned>(quantumExp);
+        Integer rounded = num / den;
+        const Integer rest = num - rounded * den;
+        if (2 * rest > den || (2 * rest == den && (rounded & 1) != 0)) ++rounded;
+        if (rounded == 0) return negative ? T(-T(0)) : T(0);
+        const long long top = quantumExp + static_cast<long long>(msb(rounded));
+        if (top > emax) return negative ? T(-infinity) : infinity;
+        if (!hasSubnormals<T>() && top < emin) return negative ? T(-T(0)) : T(0);
+        const T t = ldexp(impl::integerToFloat<T>(rounded), static_cast<int>(quantumExp));
+        return negative ? T(-t) : t;
+    }
+}
+
+template <class To, class From>
+To exactCast(const From& x) {
+    return fromRational<To>(toRational(x));
 }
 
 }  // namespace calculate_core::detail

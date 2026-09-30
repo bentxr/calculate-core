@@ -93,3 +93,64 @@ TEST(Conversion, ScaleByPowerOfTwo) {
     EXPECT_EQ(scaleByPowerOfTwo(Rational(3), -4), Rational(3, 16));
     EXPECT_EQ(scaleByPowerOfTwo(Rational(-5, 7), 0), Rational(-5, 7));
 }
+
+TYPED_TEST(ConversionTest, MatchesCorrectlyRoundedDivision) {
+    using T = TypeParam;  // hardware and Boost division are correctly rounded
+    for (int a = -40; a <= 40; ++a)
+        for (int b = 1; b <= 40; ++b)
+            EXPECT_EQ(fromRational<T>(Rational(a, b)), T(a) / T(b)) << a << "/" << b;
+}
+
+TYPED_TEST(ConversionTest, RoundTripIsExact) {
+    using T = TypeParam;
+    std::mt19937_64 rng(20260930);
+    for (int i = 0; i < 300; ++i) {
+        const T x = test::randomFinite<T>(rng, 200);
+        EXPECT_EQ(fromRational<T>(toRational(x)), x);
+    }
+}
+
+TYPED_TEST(ConversionTest, TiesGoToEven) {
+    using T = TypeParam;
+    using std::ldexp;
+    const int p = precisionBits<T>();
+    const Rational one(1);
+    const Rational halfUlp = scaleByPowerOfTwo(one, -p);  // ulp(1) = 2^(1-p)
+    EXPECT_EQ(fromRational<T>(one + halfUlp), T(1));
+    EXPECT_EQ(fromRational<T>(one + 3 * halfUlp), T(1) + ldexp(T(1), 2 - p));
+    EXPECT_EQ(fromRational<T>(one + halfUlp + scaleByPowerOfTwo(one, -3 * p)),
+              T(1) + ldexp(T(1), 1 - p));
+}
+
+TYPED_TEST(ConversionTest, OverflowGivesInfinity) {
+    using T = TypeParam;
+    const Rational tooBig = scaleByPowerOfTwo(Rational(1), maxExponent<T>() + 1);
+    EXPECT_FALSE(isFinite(fromRational<T>(tooBig)));
+    EXPECT_FALSE(isFinite(fromRational<T>(-tooBig)));
+    EXPECT_LT(fromRational<T>(-tooBig), T(0));
+    const T largest = (std::numeric_limits<T>::max)();
+    const Rational aQuarterUlpAbove = toRational(largest)
+        + scaleByPowerOfTwo(Rational(1), maxExponent<T>() - precisionBits<T>() - 1);
+    EXPECT_EQ(fromRational<T>(aQuarterUlpAbove), largest);
+}
+
+TYPED_TEST(ConversionTest, UnderflowFollowsTheType) {
+    using T = TypeParam;
+    const Rational smallestNormal = scaleByPowerOfTwo(Rational(1), minExponent<T>());
+    EXPECT_EQ(fromRational<T>(smallestNormal), (std::numeric_limits<T>::min)());
+    if (hasSubnormals<T>()) {
+        const Rational tiniest =
+            scaleByPowerOfTwo(Rational(1), minExponent<T>() - precisionBits<T>() + 1);
+        EXPECT_EQ(fromRational<T>(tiniest), std::numeric_limits<T>::denorm_min());
+        EXPECT_EQ(fromRational<T>(tiniest / 2), T(0));  // tie between 0 and denorm_min: even
+        EXPECT_EQ(fromRational<T>(tiniest * 3 / 4), std::numeric_limits<T>::denorm_min());
+    } else {
+        EXPECT_EQ(fromRational<T>(smallestNormal / 2), T(0));  // flushed, like the type itself
+    }
+}
+
+TEST(Conversion, ExactCastBetweenTypes) {
+    EXPECT_EQ(exactCast<Ruler>(0.1), Ruler(0.1));  // Boost's constructor from double is exact
+    EXPECT_EQ(exactCast<double>(Binary128(1) / 3), 1.0 / 3.0);
+    EXPECT_EQ(exactCast<Rational>(0.5f), Rational(1, 2));
+}
