@@ -181,3 +181,13 @@ TEST(Parser, AnglesAreConvertedExplicitly) {
     EXPECT_EQ(tree("sin(1)", AngleUnit::Radians), "(sin 1)");
     EXPECT_EQ(tree("sinh(1)", AngleUnit::Degrees), "(sinh 1)");
 }
+
+TEST(Parser, StatisticsBecomeArithmeticOnSharedNodes) {
+    EXPECT_EQ(tree("mean(1, 2, 3)"), "(/ (+ (+ 1 2) 3) 3)");
+    EXPECT_EQ(tree("varp(1, 3)"), "(/ (+ (sq (- 1 (/ (+ 1 3) 2))) (sq (- 3 (/ (+ 1 3) 2)))) 2)");
+    EXPECT_EQ(tree("var(1, 3)"), "(/ (+ (sq (- 1 (/ (+ 1 3) 2))) (sq (- 3 (/ (+ 1 3) 2)))) 1)");
+    EXPECT_EQ(tree("stdev(1, 3)").substr(0, 6), "(sqrt ");
+    const Parsed p = parse("varp(1, 3)", AngleUnit::Radians);
+    ASSERT_FALSE(p.error);
+    EXPECT_EQ(p.ast.nodes.size(), 12u);  // 1, 3, +, 2, mean, -, sq, -, sq, +, 2, /: the mean is shared
+}

@@ -333,11 +333,29 @@ private:
         return node(FunctionId::Multiply, {radians, factor}, span);
     }
 
+    int sum(const std::vector<int>& terms, Span span) {
+        int total = terms[0];
+        for (std::size_t i = 1; i < terms.size(); ++i) total = node(FunctionId::Add, {total, terms[i]}, span);
+        return total;
+    }
+
+    // Statistics become arithmetic on shared nodes (a DAG), so the error engine sees every step and
+    // counts each argument's error once per path.
     int statistic(Statistic s, const std::string& name, const std::vector<int>& args, Span span) {
-        const int minimum = s == Statistic::Variance || s == Statistic::SampleStdev ? 2 : 1;
-        if (static_cast<int>(args.size()) < minimum)
-            return fail(ErrorCode::WrongArgumentCount, name + " takes " + argumentCount(minimum, true), span);
-        return fail(ErrorCode::UnknownName, "Unknown function '" + name + "'", span);  // not supported yet
+        const int n = static_cast<int>(args.size());
+        const bool sample = s == Statistic::Variance || s == Statistic::SampleStdev;
+        const int minimum = sample ? 2 : 1;
+        if (n < minimum) return fail(ErrorCode::WrongArgumentCount, name + " takes " + argumentCount(minimum, true), span);
+        const int count = node(FunctionId::Literal, {}, span, std::to_string(n));
+        const int mean = node(FunctionId::Divide, {sum(args, span), count}, span);
+        if (s == Statistic::Mean) return mean;
+        std::vector<int> squares;
+        for (const int x : args)
+            squares.push_back(node(FunctionId::Square, {node(FunctionId::Subtract, {x, mean}, span)}, span));
+        const int divisor = node(FunctionId::Literal, {}, span, std::to_string(sample ? n - 1 : n));
+        const int variance = node(FunctionId::Divide, {sum(squares, span), divisor}, span);
+        if (s == Statistic::Variance || s == Statistic::PopulationVariance) return variance;
+        return node(FunctionId::Sqrt, {variance}, span);
     }
 
     std::string_view source_;
