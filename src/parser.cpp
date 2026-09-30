@@ -1,5 +1,6 @@
 #include "parser.hpp"
 
+#include "functions.hpp"
 #include "numbers.hpp"
 
 #include <algorithm>
@@ -119,6 +120,30 @@ Lexed lex(std::string_view s) {
 }
 
 namespace {
+
+enum class Statistic { None, Mean, Variance, SampleStdev, PopulationVariance, PopulationStdev };
+
+Statistic statisticNamed(std::string_view name) {
+    if (name == "mean") return Statistic::Mean;
+    if (name == "var") return Statistic::Variance;
+    if (name == "stdev") return Statistic::SampleStdev;
+    if (name == "varp") return Statistic::PopulationVariance;
+    if (name == "stdevp") return Statistic::PopulationStdev;
+    return Statistic::None;
+}
+
+// The function with this name (pi and e are constants, not functions).
+std::optional<FunctionId> functionNamed(std::string_view name) {
+    for (int i = 0; i < functionCount; ++i) {
+        const FunctionInfo& info = functionInfo(static_cast<FunctionId>(i));
+        if (!info.name.empty() && info.name == name && info.minArgs > 0) return info.id;
+    }
+    return std::nullopt;
+}
+
+std::string argumentCount(int n, bool atLeast) {
+    return (atLeast ? "at least " : "") + std::to_string(n) + (n == 1 ? " argument" : " arguments");
+}
 
 bool startsOperand(TokenKind k) {
     return k == TokenKind::Number || k == TokenKind::Identifier || k == TokenKind::LeftParen || k == TokenKind::Pi
@@ -249,7 +274,50 @@ private:
     }
 
     int identifier(const Token& t) {
-        return fail(ErrorCode::UnknownName, "Unknown name '" + std::string(t.text) + "'", t.span);
+        const std::string name(t.text);
+        if (peek().kind == TokenKind::LeftParen) return call(t);
+        if (name == "pi") return node(FunctionId::Pi, {}, t.span);
+        if (name == "e") return node(FunctionId::E, {}, t.span);
+        if (name == "Ans") return fail(ErrorCode::UnknownName, "There is no previous result yet", t.span);
+        if (name == "M") return fail(ErrorCode::UnknownName, "The memory is empty", t.span);
+        if (functionNamed(name) || statisticNamed(name) != Statistic::None)
+            return fail(ErrorCode::UnexpectedToken, name + " needs its arguments in parentheses: " + name + "(…)", t.span);
+        return fail(ErrorCode::UnknownName, "Unknown name '" + name + "'", t.span);
+    }
+
+    int call(const Token& t) {
+        next();  // (
+        std::vector<int> args;
+        if (peek().kind != TokenKind::RightParen) {
+            for (;;) {
+                args.push_back(expression(0));
+                if (error_) return -1;
+                if (peek().kind != TokenKind::Comma) break;
+                next();
+            }
+        }
+        if (peek().kind != TokenKind::RightParen)
+            return fail(ErrorCode::MissingClosingParenthesis, "Missing ')'", {t.span.begin, peek().span.begin});
+        const Span span{t.span.begin, next().span.end};
+        const std::string name(t.text);
+        const int count = static_cast<int>(args.size());
+        if (const Statistic s = statisticNamed(name); s != Statistic::None) return statistic(s, name, args, span);
+        std::optional<FunctionId> id = functionNamed(name);
+        if (!id) return fail(ErrorCode::UnknownName, "Unknown function '" + name + "'", t.span);
+        if (*id == FunctionId::Log10 && count == 2) id = FunctionId::LogBase;
+        const FunctionInfo& info = functionInfo(*id);
+        if (count < info.minArgs || (info.maxArgs >= 0 && count > info.maxArgs)) {
+            const std::string expected = name == "log" ? "1 or 2 arguments" : argumentCount(info.minArgs, info.maxArgs < 0);
+            return fail(ErrorCode::WrongArgumentCount, name + " takes " + expected, span);
+        }
+        return node(*id, std::move(args), span);
+    }
+
+    int statistic(Statistic s, const std::string& name, const std::vector<int>& args, Span span) {
+        const int minimum = s == Statistic::Variance || s == Statistic::SampleStdev ? 2 : 1;
+        if (static_cast<int>(args.size()) < minimum)
+            return fail(ErrorCode::WrongArgumentCount, name + " takes " + argumentCount(minimum, true), span);
+        return fail(ErrorCode::UnknownName, "Unknown function '" + name + "'", span);  // not supported yet
     }
 
     std::string_view source_;

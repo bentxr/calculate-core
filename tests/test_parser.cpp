@@ -117,3 +117,59 @@ TEST(Parser, PostfixAndPrefixOperators) {
     EXPECT_EQ(tree("∛8"), "(cbrt 8)");
     EXPECT_EQ(tree("2^3!"), "(^ 2 (! 3))");
 }
+
+namespace {
+
+Error parseError(std::string_view text) {
+    const Parsed p = parse(text, AngleUnit::Radians);
+    EXPECT_TRUE(p.error) << text;
+    return p.error.value_or(Error{ErrorCode::Cancelled, "", 0, 0});
+}
+
+}  // namespace
+
+TEST(Parser, CallsAndConstants) {
+    EXPECT_EQ(tree("sin(1)"), "(sin 1)");
+    EXPECT_EQ(tree("log(100)"), "(log 100)");
+    EXPECT_EQ(tree("log(8, 2)"), "(logb 8 2)");
+    EXPECT_EQ(tree("root(27, 3)"), "(root 27 3)");
+    EXPECT_EQ(tree("nCr(5, 2)"), "(nCr 5 2)");
+    EXPECT_EQ(tree("median(3, 1, 2)"), "(median 3 1 2)");
+    EXPECT_EQ(tree("2*pi"), "(* 2 pi)");
+    EXPECT_EQ(tree("π"), "pi");
+    EXPECT_EQ(tree("e^2"), "(^ e 2)");
+}
+
+TEST(Parser, ImplicitMultiplicationIsRefused) {
+    for (const char* text : {"2pi", "2π", "2(3)", "(1)(2)", "2 3", "2sin(1)"}) {
+        const Error e = parseError(text);
+        EXPECT_EQ(e.code, ErrorCode::MissingOperator) << text;
+    }
+    const Error e = parseError("2π");
+    EXPECT_EQ(e.begin, 1u);
+    EXPECT_EQ(e.end, 3u);
+}
+
+TEST(Parser, ErrorsPointAtTheirCause) {
+    EXPECT_EQ(parseError("").code, ErrorCode::UnexpectedEnd);
+    EXPECT_EQ(parseError("1+").code, ErrorCode::UnexpectedEnd);
+    const Error open = parseError("(1+2");
+    EXPECT_EQ(open.code, ErrorCode::MissingClosingParenthesis);
+    EXPECT_EQ(open.begin, 0u);
+    const Error close = parseError("1)");
+    EXPECT_EQ(close.code, ErrorCode::UnexpectedToken);
+    EXPECT_EQ(close.begin, 1u);
+    EXPECT_EQ(close.end, 2u);
+    const Error unknown = parseError("foo+1");
+    EXPECT_EQ(unknown.code, ErrorCode::UnknownName);
+    EXPECT_EQ(unknown.end, 3u);
+    EXPECT_EQ(parseError("*3").code, ErrorCode::UnexpectedToken);
+    EXPECT_EQ(parseError("sin 1").code, ErrorCode::UnexpectedToken);
+    EXPECT_EQ(parseError("max(1)").code, ErrorCode::UnknownName);
+    const Error arity = parseError("sin(1, 2)");
+    EXPECT_EQ(arity.code, ErrorCode::WrongArgumentCount);
+    EXPECT_EQ(arity.begin, 0u);
+    EXPECT_EQ(arity.end, 9u);
+    EXPECT_EQ(parseError("var(1)").code, ErrorCode::WrongArgumentCount);
+    EXPECT_EQ(parseError("Ans+1").code, ErrorCode::UnknownName);
+}
