@@ -214,3 +214,68 @@ TEST(Parser, ExactArithmeticRefusesTranscendentals) {
     EXPECT_TRUE(checkExact(parse("pi", AngleUnit::Radians).ast));
     EXPECT_FALSE(checkExact(parse("sqrt(4) + 2^(1/2) + 5!", AngleUnit::Radians).ast));
 }
+
+namespace {
+
+// Text to report, the way the facade will do it: parse, check exactness, evaluate.
+template <class T>
+Evaluation<T> evaluateText(std::string_view text, AngleUnit angle = AngleUnit::Radians) {
+    Evaluation<T> ev;
+    const Parsed p = parse(text, angle);
+    if (p.error) { ev.error = p.error; return ev; }
+    if constexpr (isExact<T>) {
+        if (auto e = checkExact(p.ast)) { ev.error = e; return ev; }
+    }
+    return evaluate<T>(p.ast);
+}
+
+}  // namespace
+
+TEST(EndToEnd, SineOfOneEightyDegreesIsNotZeroAndSaysWhy) {
+    const Evaluation<double> ev = evaluateText<double>("sin(180)", AngleUnit::Degrees);
+    ASSERT_FALSE(ev.error);
+    EXPECT_NE(ev.value, 0.0);
+    EXPECT_LT(std::abs(ev.value), 1e-15);
+    EXPECT_EQ(ev.report.measured, exactCast<Ruler>(std::abs(ev.value)));  // the true value is 0
+    EXPECT_TRUE(test::covers(ev.report.bound, ev.report.measured));
+    EXPECT_TRUE(ev.report.reliable);  // the true value is 0: the shadows only need to agree far below 1e-16
+    EXPECT_GT(ev.report.input, 0);    // the error of pi
+}
+
+TEST(EndToEnd, Statistics) {
+    EXPECT_EQ(evaluateText<double>("mean(1, 2, 3, 4)").value, 2.5);
+    const Evaluation<double> population = evaluateText<double>("stdevp(2, 4, 4, 4, 5, 5, 7, 9)");
+    EXPECT_EQ(population.value, 2.0);
+    EXPECT_EQ(population.report.bound, 0);  // every step is exact
+    EXPECT_EQ(evaluateText<Rational>("var(2, 4, 4, 4, 5, 5, 7, 9)").value, Rational(32, 7));
+    EXPECT_EQ(evaluateText<Rational>("median(1/2, 1/3, 1/4)").value, Rational(1, 3));
+}
+
+TEST(EndToEnd, ExactArithmetic) {
+    EXPECT_EQ(evaluateText<Rational>("1/3 + 1/6").value, Rational(1, 2));
+    EXPECT_EQ(evaluateText<Rational>("sqrt(9/4)").value, Rational(3, 2));
+    const Evaluation<Rational> irrational = evaluateText<Rational>("1 + sqrt(2)");
+    ASSERT_TRUE(irrational.error);
+    EXPECT_EQ(irrational.error->code, ErrorCode::IrrationalResult);
+    EXPECT_EQ(irrational.error->begin, 4u);
+    EXPECT_EQ(irrational.error->end, 11u);
+    EXPECT_EQ(evaluateText<Rational>("sin(1)").error->code, ErrorCode::NotAvailableInExact);
+}
+
+TEST(EndToEnd, RumpFromText) {
+    const char* rump = "333.75*33096^6 + 77617^2*(11*77617^2*33096^2 - 33096^6 - 121*33096^4 - 2)"
+                       " + 5.5*33096^8 + 77617/(2*33096)";
+    EXPECT_EQ(evaluateText<Rational>(rump).value, Rational(-54767, 66192));
+    const Evaluation<double> ev = evaluateText<double>(rump);
+    ASSERT_FALSE(ev.error);
+    EXPECT_TRUE(ev.report.reliable);
+    EXPECT_TRUE(test::covers(ev.report.bound, ev.report.measured));
+    EXPECT_GT(ev.report.measured, Ruler(1));
+}
+
+TEST(EndToEnd, UncertainFactorialArgument) {
+    const Evaluation<double> ev = evaluateText<double>("(0.1*30)!");
+    ASSERT_TRUE(ev.error);
+    EXPECT_EQ(ev.error->code, ErrorCode::UncertainDiscreteArgument);
+    EXPECT_EQ(evaluateText<double>("(5+1)!").value, 720.0);
+}
