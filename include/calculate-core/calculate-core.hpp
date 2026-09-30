@@ -1,4 +1,126 @@
 #pragma once
 
-// Umbrella header: include this to pull in the whole library.
-#include "algebra.hpp"
+#include <atomic>
+#include <cstddef>
+#include <optional>
+#include <string>
+#include <string_view>
+#include <vector>
+
+// calculate-core: a calculator engine whose results carry their error.
+namespace calculate_core {
+
+enum class NumberType { Float, Double, LongDouble, Exact, Binary128, Binary256, Binary512 };
+
+enum class AngleUnit { Radians, Degrees, Gradians };
+
+enum class ErrorCode {
+    InvalidCharacter, InvalidNumber, UnexpectedToken, UnexpectedEnd, MissingClosingParenthesis,
+    MissingOperator, UnknownName, WrongArgumentCount, NotAvailableInExact, LiteralOutOfRange,
+    DivisionByZero, DomainError, Overflow, IrrationalResult, ArgumentTooLarge, NotAnInteger,
+    UncertainDiscreteArgument, Cancelled
+};
+
+// begin/end: byte offsets of the offending part of the expression, [begin, end).
+struct Error {
+    ErrorCode code;
+    std::string message;
+    std::size_t begin = 0;
+    std::size_t end = 0;
+};
+
+struct Options {
+    NumberType type = NumberType::Double;
+    AngleUnit angle = AngleUnit::Radians;
+    bool allowUncertainDiscreteArguments = false;
+    const std::atomic<bool>* cancel = nullptr;
+};
+
+// One entry of the type menu, described by the type's own traits in this build.
+struct TypeInfo {
+    NumberType type;
+    std::string label;    // "Double"
+    std::string cppName;  // "double"
+    int storageBits;      // 64; 0 for Exact
+    int precisionBits;    // significand bits, 53; 0 for Exact
+    int decimalDigits;    // about precisionBits * log10(2), 16; 0 for Exact
+    std::string note;     // "", "same format as binary128 here", "software, no subnormals", "no rounding"
+};
+
+std::vector<TypeInfo> numberTypes();
+
+// A function of the language, for keypads: its name, arity (-1: any) and Exact availability.
+struct FunctionDescription {
+    std::string name;
+    int minArgs;
+    int maxArgs;
+    bool exact;
+};
+
+std::vector<FunctionDescription> functions();
+
+// value = (negative ? -1 : 1) * d1.d2d3... * 10^exponent10: every digit, nothing truncated.
+struct Digits {
+    bool negative = false;
+    std::string digits;
+    long long exponent10 = 0;
+};
+
+// An exact rational. When hasDecimal: integerPart.fractionDigits(repeatingDigits repeated).
+struct Fraction {
+    bool negative = false;
+    std::string numerator;
+    std::string denominator;
+    bool hasDecimal = false;
+    std::string integerPart;
+    std::string fractionDigits;
+    std::string repeatingDigits;
+};
+
+struct Result {
+    std::optional<Error> error;
+    NumberType type = NumberType::Double;
+    Digits value;                     // floating types; empty for Exact
+    std::optional<Fraction> exact;    // Exact only
+    int trustedDigits = 0;            // leading significant digits guaranteed by the bound
+    int trustedDigitsMeasured = 0;    // leading significant digits confirmed by the measured error
+    std::string bound;                // guaranteed first-order bound: input + rounding + library
+    std::string inputError;
+    std::string roundingError;
+    std::string libraryError;
+    std::string measured;             // |value - reference|, "" when unavailable
+    std::string conditionNumber;
+    bool measuredAvailable = false;
+    bool measurementReliable = false;
+    bool boundComplete = true;        // false when uncertain discrete arguments were allowed
+    int roundingOperations = 0;       // operations whose result was actually rounded
+    std::string expression;           // what was evaluated, with Ans and M expanded
+};
+
+Result evaluate(std::string_view expression, const Options& options = {});
+
+// History, Ans and memory. Ans and M are stored as expression text, so a later evaluation in
+// another type recomputes them in that type, with their error analysis intact.
+class Session {
+public:
+    struct Entry {
+        std::string input;
+        Result result;
+    };
+
+    Result evaluate(std::string_view expression, const Options& options = {});
+    bool memoryAdd();       // M = M + Ans; false when there is no Ans
+    bool memorySubtract();  // M = M - Ans; false when there is no Ans
+    void memoryClear();
+    const std::string& answer() const { return answer_; }
+    const std::string& memory() const { return memory_; }
+    const std::vector<Entry>& history() const { return history_; }
+    void clearHistory() { history_.clear(); }
+
+private:
+    std::string answer_;
+    std::string memory_;
+    std::vector<Entry> history_;
+};
+
+}  // namespace calculate_core

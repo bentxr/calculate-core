@@ -1,0 +1,209 @@
+// Black-box tests: only the public header.
+#include <calculate-core/calculate-core.hpp>
+
+#include <gtest/gtest.h>
+
+#include <cfloat>
+#include <chrono>
+
+using namespace calculate_core;
+
+TEST(Api, TheTypeMenuDescribesThisBuild) {
+    const std::vector<TypeInfo> types = numberTypes();
+    ASSERT_EQ(types.size(), 7u);
+    for (std::size_t i = 0; i < types.size(); ++i) EXPECT_EQ(static_cast<std::size_t>(types[i].type), i);
+    const TypeInfo& d = types[1];
+    EXPECT_EQ(d.label, "Double");
+    EXPECT_EQ(d.cppName, "double");
+    EXPECT_EQ(d.storageBits, 64);
+    EXPECT_EQ(d.precisionBits, 53);
+    EXPECT_EQ(d.decimalDigits, 16);
+    EXPECT_EQ(d.note, "");
+    const TypeInfo& ld = types[2];
+    EXPECT_EQ(ld.cppName, "long double");
+    EXPECT_EQ(ld.precisionBits, LDBL_MANT_DIG);
+    if (LDBL_MANT_DIG == 64) {
+        EXPECT_EQ(ld.storageBits, 80);
+        EXPECT_EQ(ld.decimalDigits, 19);
+        EXPECT_EQ(ld.note, "");
+    }
+    if (LDBL_MANT_DIG == 113) {
+        EXPECT_EQ(ld.storageBits, 128);
+        EXPECT_EQ(ld.note, "same format as binary128 here");
+    }
+    EXPECT_EQ(types[3].label, "Exact");
+    EXPECT_EQ(types[3].note, "no rounding");
+    EXPECT_EQ(types[3].precisionBits, 0);
+    EXPECT_EQ(types[4].precisionBits, 113);
+    EXPECT_EQ(types[5].decimalDigits, 71);
+    EXPECT_EQ(types[6].decimalDigits, 147);
+    EXPECT_EQ(types[6].note, "software, no subnormals");
+}
+
+TEST(Api, TheHeadlineExample) {
+    const Result r = evaluate("0.1 + 0.2");
+    ASSERT_FALSE(r.error);
+    EXPECT_EQ(r.type, NumberType::Double);
+    EXPECT_FALSE(r.value.negative);
+    EXPECT_EQ(r.value.digits, "3000000000000000444089209850062616169452667236328125");
+    EXPECT_EQ(r.value.exponent10, -1);
+    EXPECT_FALSE(r.exact);
+    EXPECT_EQ(r.trustedDigits, 15);
+    EXPECT_EQ(r.trustedDigitsMeasured, 15);
+    EXPECT_EQ(r.bound, "4.4e-17");
+    EXPECT_EQ(r.inputError, "1.7e-17");
+    EXPECT_EQ(r.roundingError, "2.8e-17");
+    EXPECT_EQ(r.libraryError, "0");
+    EXPECT_EQ(r.measured, "4.4e-17");
+    EXPECT_EQ(r.conditionNumber, "1e+0");
+    EXPECT_TRUE(r.measuredAvailable);
+    EXPECT_TRUE(r.measurementReliable);
+    EXPECT_TRUE(r.boundComplete);
+    EXPECT_EQ(r.roundingOperations, 1);
+    EXPECT_EQ(r.expression, "0.1 + 0.2");
+}
+
+TEST(Api, ExactFloatingResultsTrustEveryDigit) {
+    const Result r = evaluate("2 + 2");
+    EXPECT_EQ(r.value.digits, "4");
+    EXPECT_EQ(r.bound, "0");
+    EXPECT_EQ(r.trustedDigits, 1);
+    EXPECT_EQ(r.roundingOperations, 0);
+}
+
+namespace {
+
+Options as(NumberType type, AngleUnit angle = AngleUnit::Radians) {
+    Options o;
+    o.type = type;
+    o.angle = angle;
+    return o;
+}
+
+}  // namespace
+
+TEST(Api, ExactResultsAreFractions) {
+    const Result r = evaluate("1/3", as(NumberType::Exact));
+    ASSERT_FALSE(r.error);
+    ASSERT_TRUE(r.exact);
+    EXPECT_EQ(r.exact->numerator, "1");
+    EXPECT_EQ(r.exact->denominator, "3");
+    EXPECT_TRUE(r.exact->hasDecimal);
+    EXPECT_EQ(r.exact->repeatingDigits, "3");
+    EXPECT_TRUE(r.value.digits.empty());
+    EXPECT_EQ(r.bound, "0");
+    EXPECT_EQ(r.measured, "0");
+}
+
+TEST(Api, ErrorsCarryCodesAndSpans) {
+    const Result division = evaluate("1 + 1/0");
+    ASSERT_TRUE(division.error);
+    EXPECT_EQ(division.error->code, ErrorCode::DivisionByZero);
+    EXPECT_EQ(division.error->begin, 4u);
+    EXPECT_EQ(division.error->end, 7u);
+    EXPECT_EQ(evaluate("sin(1)", as(NumberType::Exact)).error->code, ErrorCode::NotAvailableInExact);
+    EXPECT_EQ(evaluate("2π").error->code, ErrorCode::MissingOperator);
+    EXPECT_EQ(evaluate("1e400").error->code, ErrorCode::LiteralOutOfRange);
+    EXPECT_FALSE(evaluate("1e400", as(NumberType::Binary128)).error);
+}
+
+TEST(Api, AnglesAndOptions) {
+    const Result r = evaluate("sin(30)", as(NumberType::Double, AngleUnit::Degrees));
+    ASSERT_FALSE(r.error);
+    EXPECT_EQ(r.value.digits.substr(0, 3), "499");  // 0.4999999999999999... : pi/6 is not exact
+    Options allow;
+    allow.allowUncertainDiscreteArguments = true;
+    EXPECT_EQ(evaluate("(0.1*30)!").error->code, ErrorCode::UncertainDiscreteArgument);
+    const Result six = evaluate("(0.1*30)!", allow);
+    ASSERT_FALSE(six.error);
+    EXPECT_EQ(six.value.digits, "6");
+    EXPECT_FALSE(six.boundComplete);
+    std::atomic<bool> cancel{true};
+    Options cancelled;
+    cancelled.cancel = &cancel;
+    EXPECT_EQ(evaluate("1+2", cancelled).error->code, ErrorCode::Cancelled);
+}
+
+TEST(Api, EveryTypeEvaluatesTheCharterCases) {
+    for (const TypeInfo& t : numberTypes()) {
+        for (const char* text : {"0.1 + 0.2", "1e16 + 1 - 1e16", "sin(1e10)"}) {
+            const Result r = evaluate(text, as(t.type));
+            if (t.type == NumberType::Exact && std::string(text) == "sin(1e10)") {
+                EXPECT_TRUE(r.error);
+                continue;
+            }
+            ASSERT_FALSE(r.error) << t.label << ": " << text;
+            EXPECT_TRUE(r.measurementReliable) << t.label << ": " << text;
+        }
+    }
+}
+
+TEST(Api, ACalculatorSizedExpressionIsFastInEveryType) {
+    const char* text = "sin(1)+cos(2)+ln(3)+exp(4)+atan(5)+sqrt(6)+sinh(0.7)+asin(0.3)+tan(0.4)+cbrt(9)";
+    for (const TypeInfo& t : numberTypes()) {
+        if (t.type == NumberType::Exact) continue;
+        const auto start = std::chrono::steady_clock::now();
+        const Result r = evaluate(text, as(t.type));
+        const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
+        ASSERT_FALSE(r.error);
+        EXPECT_LT(ms, 1000.0) << t.label;  // the budget is 250 ms natively; this guards against regressions
+        RecordProperty(t.label + "_ms", static_cast<int>(ms));
+    }
+}
+
+TEST(Api, FunctionsForKeypads) {
+    const std::vector<FunctionDescription> list = functions();
+    auto find = [&](const std::string& name) {
+        for (const FunctionDescription& f : list) if (f.name == name) return f;
+        return FunctionDescription{"", 0, 0, false};
+    };
+    EXPECT_FALSE(find("sin").exact);
+    EXPECT_TRUE(find("sqrt").exact);
+    EXPECT_EQ(find("log").minArgs, 1);
+    EXPECT_EQ(find("log").maxArgs, 2);
+    EXPECT_EQ(find("mean").maxArgs, -1);
+    EXPECT_EQ(find("var").minArgs, 2);
+    EXPECT_FALSE(find("pi").exact);
+}
+
+TEST(Session, AnsIsThePreviousExpression) {
+    Session s;
+    EXPECT_EQ(s.evaluate("Ans").error->code, ErrorCode::UnknownName);
+    EXPECT_FALSE(s.evaluate("1 + 2").error);
+    EXPECT_EQ(s.answer(), "1 + 2");
+    const Result r = s.evaluate("Ans*2");
+    EXPECT_EQ(r.value.digits, "6");
+    EXPECT_EQ(r.expression, "(1 + 2)*2");
+    EXPECT_EQ(s.answer(), "(1 + 2)*2");
+    EXPECT_TRUE(s.evaluate("1/0").error);
+    EXPECT_EQ(s.answer(), "(1 + 2)*2");  // errors change nothing
+    EXPECT_EQ(s.history().size(), 2u);
+}
+
+TEST(Session, AnsIsRecomputedInTheNewType) {
+    Session s;
+    s.evaluate("0.1 + 0.2");
+    const Result exact = s.evaluate("Ans", as(NumberType::Exact));
+    ASSERT_TRUE(exact.exact);
+    EXPECT_EQ(exact.exact->numerator, "3");
+    EXPECT_EQ(exact.exact->denominator, "10");
+}
+
+TEST(Session, Memory) {
+    Session s;
+    EXPECT_FALSE(s.memoryAdd());
+    s.evaluate("2");
+    EXPECT_TRUE(s.memoryAdd());
+    EXPECT_EQ(s.memory(), "2");
+    s.evaluate("3");
+    EXPECT_TRUE(s.memoryAdd());
+    s.evaluate("10");
+    EXPECT_TRUE(s.memorySubtract());
+    EXPECT_EQ(s.memory(), "2+(3)-(10)");
+    EXPECT_EQ(s.evaluate("M").value.digits, "5");
+    EXPECT_TRUE(s.evaluate("M").value.negative);
+    s.memoryClear();
+    EXPECT_EQ(s.evaluate("M").error->code, ErrorCode::UnknownName);
+    s.clearHistory();
+    EXPECT_TRUE(s.history().empty());
+}

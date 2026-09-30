@@ -1,0 +1,16 @@
+mean(1, 2, 3, 4)
+= 2.5
+  ± 0  input 0 · rounding 0 · library 0
+  measured 0 · κ 2e+0 · all digits trusted
+stdevp(2, 4, 4, 4, 5, 5, 7, 9)
+= 2
+  ± 0  input 0 · rounding 0 · library 0
+  measured 0 · κ 2.6e+0 · all digits trusted
+stdev(1.5, 2.5)
+= 0.707106781186547|57273731092936941422522068023681640625
+  ± 7.9e-17  input 0 · rounding 7.9e-17 · library 0
+  measured 4.8e-17 · κ 4.5e+0 · 15 trusted digits
+median(3, 1, 2)
+= 2
+  ± 0  input 0 · rounding 0 · library 0
+  measured 0 · κ 1e+0 · all digits trusted

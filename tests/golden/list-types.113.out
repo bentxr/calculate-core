@@ -1,0 +1,7 @@
+float        Single     32-bit, 24-bit significand, ~7 digits
+double       Double     64-bit, 53-bit significand, ~16 digits
+long-double  Extended   128-bit, 113-bit significand, ~34 digits, same format as binary128 here
+exact        Exact      exact rationals, no rounding
+binary128    Quadruple  128-bit, 113-bit significand, ~34 digits, software, no subnormals
+binary256    Octuple    256-bit, 237-bit significand, ~71 digits, software, no subnormals
+binary512    Binary512  512-bit, 489-bit significand, ~147 digits, software, no subnormals

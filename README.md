@@ -2,125 +2,166 @@
 
 # calculate-core
 
-**A compiled C++ library of specialised math functions.**
+**A scientific calculator that shows every result with its error and with the digits you can trust. <br> The computational engine behind the [**calculate**](https://github.com/bentxr/calculate) project.**
 
-Split into categories at the source, shipped as one library.
-
-![C++17](https://img.shields.io/badge/C%2B%2B-17-00599C?logo=cplusplus&logoColor=white)
-![CMake](https://img.shields.io/badge/CMake-3.16%2B-064F8C?logo=cmake&logoColor=white)
+[![ci](https://github.com/bentxr/calculate-core/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/bentxr/calculate-core/actions/workflows/ci.yml)
+![C++17](https://img.shields.io/badge/C%2B%2B-17-blue)
+![CMake](https://img.shields.io/badge/CMake-3.25%2B-064F8C?logo=cmake&logoColor=white)
 ![Tests](https://img.shields.io/badge/tests-GoogleTest-4285F4?logo=google&logoColor=white)
 ![Status](https://img.shields.io/badge/status-early%20development-orange)
 ![License](https://img.shields.io/badge/license-TBD-lightgrey)
 
 </div>
 
----
-
-## What is this?
-
-`calculate-core` is the computational engine behind the `calculate` project — a standalone C++ library where math 
-functions are organised into categories but compiled down to **a single shared library**.
-
-
-## Project layout
-
-```
-calculate-core/
-├── CMakeLists.txt                  # build recipe (library + tests)
-├── include/
-│   └── calculate-core/
-│       ├── calculate-core.hpp      # umbrella header — include this
-│       ├── export.hpp              # CALCULATE_CORE_API visibility macros
-│       └── algebra.hpp             # public API, per category
-├── src/
-│   └── algebra.cpp                 # implementations, per category
-├── tests/
-│   ├── CMakeLists.txt              # fetches GoogleTest, registers tests
-│   └── test_algebra.cpp
-└── examples/                       # sample consumers (coming soon)
+```text
+$ calc "0.1 + 0.2" "sin(1e10)"
+0.1 + 0.2
+= 0.300000000000000|0444089209850062616169452667236328125
+  ± 4.4e-17  input 1.7e-17 · rounding 2.8e-17 · library 0
+  measured 4.4e-17 · κ 1e+0 · 15 trusted digits
+sin(1e10)
+= -0.487506025087510|674875801441885414533317089080810546875
+  ± 1.1e-16  input 0 · rounding 0 · library 1.1e-16
+  measured 1.7e-17 · κ 1.8e+10 · 15 trusted digits
 ```
 
-## Building
+- **Honest results.** Every answer comes with a guaranteed error bound, the error actually
+  measured, and the digits that can be trusted.
+- **Seven number types.** `float`, `double`, `long double`, exact rationals, and IEEE 754
+  binary128 / binary256 / binary512 in software.
+- **The same bits everywhere.** Its own elementary functions, built only from IEEE-guaranteed
+  operations, give identical results natively and in WebAssembly.
+- **Small surface.** C++17, one static library, one public header, and a command-line tool, `calc`.
 
-Requires a C++17 compiler and CMake ≥ 3.16.
+## Reading a result
+
+```text
+= 0.300000000000000|0444089209850062616169452667236328125
+  └─── trusted ───┘ └───── stored, not guaranteed ──────┘
+```
+
+The value is the exact number stored, digit for digit. The `|` marks where the trusted digits end.
+
+| Part | Meaning |
+|---|---|
+| **±** | A guaranteed bound on the error, split by where it comes from: the **input** (turning the decimals you typed into the type), each **rounding**, and the **library** functions such as `sin` or `exp` |
+| **measured** | The actual error, found by repeating the calculation with far more precision |
+| **κ** | The condition number: how much the problem itself magnifies small changes in its inputs |
+| **trusted digits** | How many digits the bound guarantees |
+
+## Build and test
+
+Requires CMake ≥ 3.25, Ninja and a C++17 compiler. Boost.Multiprecision and GoogleTest are
+fetched and pinned automatically.
 
 ```bash
-cmake -S . -B build          # configure (fetches GoogleTest on first run)
-cmake --build build          # → build/libcalculate-core.so.0.1.0 (+ symlinks)
+cmake --preset native && cmake --build --preset native && ctest --preset native
 ```
 
-Build just the library, skipping tests:
+<details>
+<summary>WebAssembly</summary>
+
+The tests run under Node.js.
 
 ```bash
-cmake -S . -B build -DBUILD_TESTING=OFF
-cmake --build build
+source /path/to/emsdk/emsdk_env.sh
+cmake --preset wasm && cmake --build --preset wasm && ctest --preset wasm
 ```
 
-## Using it in another project
+</details>
 
-You need **two things**: the headers (to compile against) and the `.so` (to link
-and run against).
+The tests include golden files: the exact output of `calc`, which must be the same byte for byte
+natively and in WebAssembly.
 
-### With CMake (recommended)
+## The command line
 
-Drop the repo in and pull the target into your build:
-
-```cmake
-add_subdirectory(calculate-core)
-
-target_link_libraries(your_app PRIVATE calculate-core)
-# include path + rpath are handled for you.
+```bash
+calc [options] [expression ...]
 ```
 
+`calc` evaluates each expression, or each line of standard input when none is given. They all
+share `Ans` and the memory `M`, which the lines `M+`, `M-` and `MC` update.
+
+| Option | Effect |
+|---|---|
+| `--type <t>` | The number type: `double` by default (see below) |
+| `--angle <u>` | `rad` (default), `deg` or `grad` |
+| `--json` | One JSON object per expression |
+| `--color <when>` | `auto` (default), `always` or `never` |
+| `--allow-uncertain` | Let `!`, `nCr`, `gcd`… take arguments that carry an error |
+| `--list-types` | Describe the number types of this build |
+
+Errors point at their cause:
+
+```text
+$ calc "2π"
+2π
+ ^ Missing operator before 'π' (write 2×π, not 2π)
+```
+
+## Number types
+
+| `--type` | Format | Significand | ≈ Digits |
+|---|---|--:|--:|
+| `float` | IEEE binary32 | 24 bits | 7 |
+| `double` | IEEE binary64 | 53 bits | 16 |
+| `long-double` | The platform's: x87 extended, or binary128 | 64 / 113 bits | 19 / 34 |
+| `exact` | Rational numbers, no rounding | — | all |
+| `binary128` | IEEE binary128, in software | 113 bits | 34 |
+| `binary256` | IEEE binary256, in software | 237 bits | 71 |
+| `binary512` | IEEE binary512, in software | 489 bits | 147 |
+
+The software types have no subnormal numbers. With `exact`, results are fractions, and their decimals
+show the repeating block (`1/3 = 0.(3)`). Roots and powers work when the result is rational;
+transcendental functions are unavailable.
+
+## The language
+
+| Kind | Syntax |
+|---|---|
+| Operators | `+  -  *  /  ^` and postfix `!  %  ²  ³`, prefix `√  ∛` (also `×  ÷  −`) |
+| Constants | `pi` (or `π`), `e`, `Ans`, `M` |
+| Roots, powers and logarithms | `sqrt  cbrt  root(x, n)  exp  ln  log(x)  log(x, b)  abs` |
+| Trigonometry | `sin  cos  tan  asin  acos  atan` and `sinh  cosh  tanh  asinh  acosh  atanh` |
+| Integers | `mod(a, b)  gcd  lcm  nCr  nPr` |
+| Statistics | `mean  median  var  stdev  varp  stdevp` of any number of values |
+
+`^` is right-associative, `-2^2` is −4, `%` divides by 100, `log(x)` is base 10, and `mod` keeps
+the sign of `a`. There is no implicit multiplication: write `2π` as `2×π`.
+
+## Using the library
+
+C++:
 ```cpp
 #include <calculate-core/calculate-core.hpp>
 
-int main() {
-    // e.g. double d = calculate_core::determinant2x2(1, 2, 3, 4);
-}
+calculate_core::Options options;
+options.type = calculate_core::NumberType::Double;
+
+const calculate_core::Result r = calculate_core::evaluate("0.1 + 0.2", options);
+// r.value.digits      == "3000000000000000444089209850062616169452667236328125", exponent10 == -1
+// r.trustedDigits     == 15          (digits guaranteed by the error bound)
+// r.bound             == "4.4e-17"   (input 1.7e-17 + rounding 2.8e-17 + library 0)
+// r.measured          == "4.4e-17"   (against a 2017-bit reference)
+// r.conditionNumber   == "1e+0"
 ```
 
-### By hand
+`numberTypes()` describes the seven types as built on this platform, `functions()` lists the
+language, and `Session` keeps history, `Ans` and memory.
 
-Copy `include/` and the `.so` set (keep the symlinks), then:
-
-```bash
-g++ main.cpp -I path/to/include -L path/to/lib -lcalculate-core -o app
+CMake:
+```cmake
+include(FetchContent)
+FetchContent_Declare(calculate-core GIT_REPOSITORY https://github.com/bentxr/calculate-core.git GIT_TAG <tag>)
+FetchContent_MakeAvailable(calculate-core)
+target_link_libraries(your-app PRIVATE calculate-core)
 ```
 
-At runtime the loader must find the library — install it to a system path, or
-point `LD_LIBRARY_PATH` at its directory.
+## Status
 
-## Testing
-
-Tests use [GoogleTest](https://github.com/google/googletest), fetched
-automatically at configure time and wired into CTest.
-
-```bash
-cmake --build build
-ctest --test-dir build --output-on-failure
-```
-
-Add a `test_<category>.cpp` per source category, list it in
-`tests/CMakeLists.txt`, and register cases with `TEST(...)` — they're
-auto-discovered. For floating-point results, assert with a tolerance
-(`EXPECT_NEAR`), never exact equality.
-
-## Versioning & ABI
-
-The library carries a full version and a separate soname:
-
-```
-libcalculate-core.so         → .so.0       (soname, embedded in consumers)
-libcalculate-core.so.0       → .so.0.1.0   (the real file)
-```
-
-- **Compatible change** (bug fix, faster internals, *new* exported function):
-  bump `VERSION`, leave `SOVERSION`. Consumers swap the file and keep working.
-- **Breaking change** (changed/removed signature, altered layout): bump
-  `SOVERSION`. Old consumers keep resolving the previous soname until rebuilt.
+WIP. The desktop and web app is being built in
+[**calculate**](https://github.com/bentxr/calculate).
 
 ## License
 
-_To be decided_ — add a `LICENSE` file and update this section (MIT and
-Apache-2.0 are common choices for a library like this).
+Not chosen yet. Until one is added, all rights are reserved.

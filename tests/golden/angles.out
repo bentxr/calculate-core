@@ -1,0 +1,12 @@
+sin(30)
+= 0.499999999999999|944488848768742172978818416595458984375
+  ± 1.8e-16  input 1.8e-17 · rounding 5.2e-17 · library 1.1e-16
+  measured 5.6e-17 · κ 2.7e+0 · 15 trusted digits
+sin(180)
+= |1.22464679914735320717376402945839660462569212467758006379625612680683843791484832763671875e-16
+  ± 2.6e-16  input 1.2e-16 · rounding 1.4e-16 · library 2.7e-32
+  measured 1.2e-16 · κ 1.4e+608 · 0 trusted digits
+asin(1)
+= 90
+  ± 2.4e-14  input 3.5e-15 · rounding 7.7e-16 · library 2e-14
+  measured 0 · κ inf · all digits trusted
