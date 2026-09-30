@@ -202,3 +202,38 @@ TEST(Report, CatastrophicCancellation) {
     EXPECT_TRUE(test::covers(ev.report.bound, ev.report.measured));
     EXPECT_EQ(ev.report.condition, Ruler(20000000000000001LL));  // (1e16 + 1 + 1e16) / 1
 }
+
+namespace {
+
+Rational rumpExact() { return Rational(-54767, 66192); }
+
+}  // namespace
+
+template <class T>
+class RumpTest : public ::testing::Test {};
+TYPED_TEST_SUITE(RumpTest, test::FloatingTypes, test::TypeNames);
+
+TYPED_TEST(RumpTest, BoundCoversTheMeasuredErrorAndTheShadowIsReliable) {
+    using T = TypeParam;
+    const Evaluation<T> ev = evaluate<T>(rump());
+    ASSERT_FALSE(ev.error);
+    EXPECT_TRUE(ev.report.measuredAvailable);
+    EXPECT_TRUE(ev.report.reliable);
+    EXPECT_TRUE(test::covers(ev.report.bound, ev.report.measured));
+    EXPECT_EQ(ev.report.measured, fromRational<Ruler>(abs(toRational(ev.value) - rumpExact())));
+}
+
+TEST(Rump, DoubleIsWildlyWrongAndIllConditioned) {
+    const Evaluation<double> ev = evaluate<double>(rump());
+    EXPECT_GT(ev.report.measured, Ruler(1e20));
+    EXPECT_GT(ev.report.condition, Ruler(1e30));
+}
+
+TEST(Rump, ExactArithmeticIsExact) {
+    const Evaluation<Rational> ev = evaluate<Rational>(rump());
+    ASSERT_FALSE(ev.error);
+    EXPECT_EQ(ev.value, rumpExact());
+    EXPECT_EQ(ev.report.bound, 0);
+    EXPECT_EQ(ev.report.measured, 0);
+    EXPECT_TRUE(ev.report.reliable);
+}
