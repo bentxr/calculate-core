@@ -4,6 +4,7 @@
 #include <istream>
 #include <optional>
 #include <ostream>
+#include <string>
 
 namespace calc {
 
@@ -86,8 +87,19 @@ void printHuman(std::ostream& out, const std::string& input, const Result& r, bo
     out << "\n";
 }
 
-// One expression. Returns false when it failed.
+// One expression or memory command. Returns false when it failed.
 bool handle(const std::string& line, Session& session, const Settings& s, std::ostream& out, std::ostream& err) {
+    if (line == "M+" || line == "M-" || line == "MC") {
+        bool ok = true;
+        if (line == "MC") session.memoryClear();
+        else ok = line == "M+" ? session.memoryAdd() : session.memorySubtract();
+        if (!ok) {
+            err << "calc: " << line << " needs a previous result\n";
+            return false;
+        }
+        out << (session.memory().empty() ? std::string("M cleared") : "M = " + session.memory()) << "\n";
+        return true;
+    }
     const Result r = session.evaluate(line, s.options);
     if (r.error) printError(err, line, *r.error);
     else printHuman(out, line, r, s.color);
@@ -141,7 +153,7 @@ std::string formatFraction(const Fraction& f) {
     return s;
 }
 
-int run(const std::vector<std::string>& args, std::istream& /*in*/, std::ostream& out, std::ostream& err,
+int run(const std::vector<std::string>& args, std::istream& in, std::ostream& out, std::ostream& err,
         bool terminal) {
     Settings s;
     std::string colorWhen = "auto";
@@ -215,7 +227,15 @@ int run(const std::vector<std::string>& args, std::istream& /*in*/, std::ostream
     s.color = !s.json && (colorWhen == "always" || (colorWhen == "auto" && terminal));
     Session session;
     bool ok = true;
-    for (const std::string& e : expressions) ok = handle(e, session, s, out, err) && ok;
+    if (!expressions.empty()) {
+        for (const std::string& e : expressions) ok = handle(e, session, s, out, err) && ok;
+    } else {
+        for (std::string line; std::getline(in, line);) {
+            if (!line.empty() && line.back() == '\r') line.pop_back();
+            if (line.empty() || line[0] == '#') continue;
+            ok = handle(line, session, s, out, err) && ok;
+        }
+    }
     return ok ? 0 : 1;
 }
 

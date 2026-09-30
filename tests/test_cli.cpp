@@ -87,3 +87,20 @@ TEST(Cli, ErrorsGoToStandardErrorWithACaret) {
     const Outcome wide = invoke({"2×π + 1/0"});  // columns count code points, not bytes
     EXPECT_EQ(wide.err, "2×π + 1/0\n      ^^^ Division by zero\n");
 }
+
+TEST(Cli, OneSessionAcrossExpressions) {
+    const Outcome r = invoke({"--color", "never", "2", "Ans*3", "M+", "Ans+1", "M-", "MC"});
+    EXPECT_EQ(r.code, 0);
+    EXPECT_NE(r.out.find("Ans*3\n= 6\n"), std::string::npos);
+    EXPECT_NE(r.out.find("M = (2)*3\n"), std::string::npos);
+    EXPECT_NE(r.out.find("Ans+1\n= 7\n"), std::string::npos);
+    EXPECT_NE(r.out.find("M = (2)*3-(((2)*3)+1)\n"), std::string::npos);
+    EXPECT_NE(r.out.find("M cleared\n"), std::string::npos);
+    EXPECT_EQ(invoke({"M+"}).code, 1);
+}
+
+TEST(Cli, ReadsStandardInputWhenGivenNoExpressions) {
+    const Outcome r = invoke({"--type", "exact"}, "# a comment\n1/2\n\nAns + 1/3\r\n");
+    EXPECT_EQ(r.code, 0);
+    EXPECT_NE(r.out.find("= 5/6 = 0.8(3)"), std::string::npos);
+}
