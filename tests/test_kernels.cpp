@@ -91,3 +91,15 @@ TYPED_TEST(KernelTest, ArgumentReductionLimit) {
         EXPECT_FALSE(r.error);  // float and double cannot reach 2^1024
     }
 }
+
+TYPED_TEST(KernelTest, InverseTrigonometry) {
+    using T = TypeParam;
+    test::expectWithinClaim<T>(FunctionId::Asin, [](auto& rng) { return std::pair<T, T>{uniform<T>(rng, -1, 1), T(0)}; });
+    test::expectWithinClaim<T>(FunctionId::Acos, [](auto& rng) { return std::pair<T, T>{uniform<T>(rng, -1, 1), T(0)}; });
+    test::expectWithinClaim<T>(FunctionId::Atan, [](auto& rng) { return std::pair<T, T>{randomSign(rng, logUniform<T>(rng, -30, 30)), T(0)}; });
+    EXPECT_EQ(applyFunction<T>(FunctionId::Asin, {T(1)}).value, constantValue<T>(ConstantId::Pi) / 2);
+    EXPECT_EQ(applyFunction<T>(FunctionId::Acos, {T(-1)}).value, constantValue<T>(ConstantId::Pi));
+    const Applied<T> outside = applyFunction<T>(FunctionId::Asin, {T(1.5)});
+    ASSERT_TRUE(outside.error);
+    EXPECT_EQ(*outside.error, ErrorCode::DomainError);
+}

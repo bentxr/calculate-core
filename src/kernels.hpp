@@ -210,4 +210,52 @@ DoubleWord<T> cosSmall(const DoubleWord<T>& r) {
     return sum;
 }
 
+// atan by argument halving, atan(a) = 2 atan(a / (1 + sqrt(1 + a^2))), then its Taylor series.
+template <class T>
+DoubleWord<T> atanWord(DoubleWord<T> a) {
+    const bool negative = a.hi < 0;
+    if (negative) a = -a;
+    const bool inverted = a.hi > 1;
+    if (inverted) a = dw(T(1)) / a;
+    const int s = impl::halvings<T>();
+    for (int i = 0; i < s; ++i) a = a / (sqrt(a * a + T(1)) + T(1));
+    DoubleWord<T> sum = a;
+    if (a.hi != 0) {
+        const DoubleWord<T> a2 = a * a;
+        DoubleWord<T> power = a;
+        for (int k = 3;; k += 2) {
+            power = -(power * a2);
+            const DoubleWord<T> term = power / T(k);
+            if (impl::negligible(term, sum)) break;
+            sum = sum + term;
+        }
+    }
+    sum = scale(sum, s);
+    if (inverted) sum = impl::halfPi<T>() - sum;
+    return negative ? -sum : sum;
+}
+
+// asin for 0 <= a <= 1/2, where 1 - a^2 has no cancellation.
+template <class T>
+DoubleWord<T> asinSmall(const DoubleWord<T>& a) {
+    return atanWord(a / sqrt((dw(T(1)) - a) * (a + T(1))));
+}
+
+// For |x| > 1/2: asin(x) = pi/2 - 2 asin(sqrt((1 - x)/2)).
+template <class T>
+DoubleWord<T> asinWord(const DoubleWord<T>& x) {
+    const bool negative = x.hi < 0;
+    const DoubleWord<T> a = negative ? -x : x;
+    const DoubleWord<T> r = a.hi <= T(0.5) ? asinSmall(a)
+                                           : impl::halfPi<T>() - scale(asinSmall(sqrt(scale(dw(T(1)) - a, -1))), 1);
+    return negative ? -r : r;
+}
+
+template <class T>
+DoubleWord<T> acosWord(const DoubleWord<T>& x) {
+    if (x.hi > T(0.5)) return scale(asinSmall(sqrt(scale(dw(T(1)) - x, -1))), 1);
+    if (x.hi < T(-0.5)) return impl::word<T>(ConstantId::Pi) - scale(asinSmall(sqrt(scale(x + T(1), -1))), 1);
+    return impl::halfPi<T>() - asinWord(x);
+}
+
 }  // namespace calculate_core::detail

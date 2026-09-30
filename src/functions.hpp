@@ -164,6 +164,13 @@ Applied<T> kernel(FunctionId id, const std::vector<T>& a) {
         if (id == FunctionId::Cos) return ok<T>(toValue(q == 0 ? c : q == 1 ? -s : q == 2 ? -c : s));
         return ok<T>(withSign(toValue(q % 2 == 0 ? s / c : -(c / s)), x < 0));
     }
+    case FunctionId::Asin:
+    case FunctionId::Acos: {
+        using std::abs;
+        if (abs(x) > 1) return fail<T>(ErrorCode::DomainError);
+        return ok<T>(toValue(id == FunctionId::Asin ? asinWord(dw(x)) : acosWord(dw(x))));
+    }
+    case FunctionId::Atan: return ok<T>(toValue(atanWord(dw(x))));
     default: return fail<T>(ErrorCode::DomainError);
     }
 }
