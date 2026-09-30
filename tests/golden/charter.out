@@ -1,0 +1,16 @@
+0.1 + 0.2
+= 0.300000000000000|0444089209850062616169452667236328125
+  ± 4.4e-17  input 1.7e-17 · rounding 2.8e-17 · library 0
+  measured 4.4e-17 · κ 1e+0 · 15 trusted digits
+1e16 + 1 - 1e16
+= |0
+  ± 1e+0  input 0 · rounding 1e+0 · library 0
+  measured 1e+0 · κ 2e+16 · 0 trusted digits
+sin(1e10)
+= -0.487506025087510|674875801441885414533317089080810546875
+  ± 1.1e-16  input 0 · rounding 0 · library 1.1e-16
+  measured 1.7e-17 · κ 1.8e+10 · 15 trusted digits
+333.75*33096^6 + 77617^2*(11*77617^2*33096^2 - 33096^6 - 121*33096^4 - 2) + 5.5*33096^8 + 77617/(2*33096)
+= -|1.180591620717411303424e+21
+  ± 3e+21  input 0 · rounding 2.1e+21 · library 9.6e+20
+  measured 1.2e+21 · κ 1.8e+39 · 0 trusted digits

@@ -1,0 +1,15 @@
+1/3
+= 1/3 = 0.(3)
+  exact, no rounding error · κ 2e+0
+3/8
+= 3/8 = 0.375
+  exact, no rounding error · κ 2e+0
+-54767/66192
+= -54767/66192
+  exact, no rounding error · κ 2e+0
+10
+= 10
+  exact, no rounding error · κ 1e+0
+333.75*33096^6 + 77617^2*(11*77617^2*33096^2 - 33096^6 - 121*33096^4 - 2) + 5.5*33096^8 + 77617/(2*33096)
+= -54767/66192
+  exact, no rounding error · κ 1.8e+39

@@ -1,0 +1,10 @@
+1 + 1/0
+    ^^^ Division by zero
+2π
+ ^ Missing operator before 'π' (write 2×π, not 2π)
+sqrt(-1)
+^^^^^^^^ sqrt is not defined for this argument
+(0.1*30)!
+^^^^^^^^^ ! needs an exactly known argument; its argument carries an error of up to 3.3e-16
+sin(1e400)
+    ^^^^^ This number cannot be represented in this number type
