@@ -132,6 +132,30 @@ T withSign(const T& v, bool negative) {
     return negative ? T(-v) : v;
 }
 
+template <class T>
+bool isInteger(const T& x) {
+    if constexpr (isExact<T>) {
+        return denominator(x) == 1;
+    } else {
+        using std::trunc;
+        return trunc(x) == x;
+    }
+}
+
+// x must be an integer. Values of at least 2^p are all even.
+template <class T>
+bool isOdd(const T& x) {
+    if constexpr (isExact<T>) {
+        return (numerator(x) & 1) != 0;
+    } else {
+        using std::abs;
+        using std::ldexp;
+        using std::trunc;
+        if (abs(x) >= ldexp(T(1), precisionBits<T>())) return false;
+        return trunc(x / 2) * 2 != x;
+    }
+}
+
 // The elementary functions, for inexact T: every result computed in T through double words.
 template <class T>
 Applied<T> kernel(FunctionId id, const std::vector<T>& a) {
@@ -143,6 +167,32 @@ Applied<T> kernel(FunctionId id, const std::vector<T>& a) {
     };
     switch (id) {
     case FunctionId::Exp: return fromExp(expParts(dw(x)), false);
+    case FunctionId::Sqrt: {
+        using std::sqrt;
+        if (x < 0) return fail<T>(ErrorCode::DomainError);
+        return ok<T>(sqrt(x));  // IEEE: correctly rounded on every platform
+    }
+    case FunctionId::Power: {  // IEEE pow rules
+        using std::abs;
+        const T y = a[1];
+        if (y == 0 || x == 1) return ok<T>(T(1));
+        if (x == 0) return y > 0 ? ok<T>(T(0)) : fail<T>(ErrorCode::DivisionByZero);
+        if (x < 0 && !isInteger(y)) return fail<T>(ErrorCode::DomainError);
+        return fromExp(expParts(logWord(dw(abs(x))) * y), x < 0 && isOdd(y));
+    }
+    case FunctionId::Cbrt: {
+        using std::abs;
+        if (x == 0) return ok<T>(x);
+        return fromExp(expParts(logWord(dw(abs(x))) / T(3)), x < 0);
+    }
+    case FunctionId::Root: {
+        using std::abs;
+        const T n = a[1];
+        if (n == 0) return fail<T>(ErrorCode::DomainError);
+        if (x == 0) return n > 0 ? ok<T>(T(0)) : fail<T>(ErrorCode::DivisionByZero);
+        if (x < 0 && !(isInteger(n) && isOdd(n))) return fail<T>(ErrorCode::DomainError);
+        return fromExp(expParts(logWord(dw(abs(x))) / n), x < 0);
+    }
     case FunctionId::Ln:
     case FunctionId::Log10:
         if (x <= 0) return fail<T>(ErrorCode::DomainError);

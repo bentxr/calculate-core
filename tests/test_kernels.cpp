@@ -124,3 +124,54 @@ TYPED_TEST(KernelTest, InverseHyperbolic) {
         EXPECT_EQ(*r.error, ErrorCode::DomainError);
     }
 }
+
+TYPED_TEST(KernelTest, PowersAndRoots) {
+    using T = TypeParam;
+    const double yMax = std::min(40.0, maxExponent<T>() / 20.0);
+    test::expectWithinClaim<T>(FunctionId::Power, [yMax](auto& rng) {
+        const T x = logUniform<T>(rng, -10, 10);
+        return std::pair<T, T>{x, uniform<T>(rng, -yMax, yMax)};
+    });
+    test::expectWithinClaim<T>(FunctionId::Cbrt, [](auto& rng) { return std::pair<T, T>{randomSign(rng, logUniform<T>(rng, -100, 100)), T(0)}; });
+    test::expectWithinClaim<T>(FunctionId::Root, [](auto& rng) {
+        const T x = logUniform<T>(rng, -100, 100);
+        return std::pair<T, T>{x, T(2 + static_cast<int>(rng() % 6))};
+    });
+}
+
+TYPED_TEST(KernelTest, PowerFollowsIeeeRules) {
+    using T = TypeParam;
+    EXPECT_EQ(applyFunction<T>(FunctionId::Power, {T(0), T(0)}).value, T(1));
+    EXPECT_EQ(applyFunction<T>(FunctionId::Power, {T(-2), T(3)}).value, T(-8));
+    EXPECT_EQ(applyFunction<T>(FunctionId::Power, {T(-2), T(2)}).value, T(4));
+    EXPECT_EQ(applyFunction<T>(FunctionId::Power, {T(2), T(10)}).value, T(1024));
+    EXPECT_EQ(applyFunction<T>(FunctionId::Power, {T(2), T(-2)}).value, T(0.25));
+    EXPECT_EQ(applyFunction<T>(FunctionId::Root, {T(-8), T(3)}).value, T(-2));
+    EXPECT_EQ(applyFunction<T>(FunctionId::Cbrt, {T(-27)}).value, T(-3));
+    EXPECT_EQ(applyFunction<T>(FunctionId::Sqrt, {T(2.25)}).value, T(1.5));
+    const std::pair<FunctionId, std::vector<T>> domainErrors[] = {
+        {FunctionId::Power, {T(-8), T(1) / T(3)}}, {FunctionId::Root, {T(-8), T(2)}},
+        {FunctionId::Sqrt, {T(-1)}}, {FunctionId::Root, {T(8), T(0)}}};
+    for (const auto& [id, args] : domainErrors) {
+        const Applied<T> r = applyFunction<T>(id, args);
+        ASSERT_TRUE(r.error) << static_cast<int>(id);
+        EXPECT_EQ(*r.error, ErrorCode::DomainError);
+    }
+    const Applied<T> zeroToNegative = applyFunction<T>(FunctionId::Power, {T(0), T(-1)});
+    ASSERT_TRUE(zeroToNegative.error);
+    EXPECT_EQ(*zeroToNegative.error, ErrorCode::DivisionByZero);
+}
+
+TEST(KernelAccuracy, TheRulerItselfIsAccurate) {
+    using T = Ruler;
+    std::mt19937_64 rng(5);
+    for (FunctionId id : {FunctionId::Exp, FunctionId::Ln, FunctionId::Sin, FunctionId::Atan, FunctionId::Power}) {
+        const T x = logUniform<T>(rng, -3, 3), y = uniform<T>(rng, -3, 3);
+        std::vector<T> args{x};
+        if (functionInfo(id).minArgs == 2) args.push_back(y);
+        const Applied<T> r = applyFunction<T>(id, args);
+        ASSERT_FALSE(r.error);
+        EXPECT_LE(test::errorInU(r.value, test::oracle(id, exactCast<test::Oracle>(x), exactCast<test::Oracle>(y))),
+                  claimedFactor(id));
+    }
+}
