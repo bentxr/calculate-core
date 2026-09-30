@@ -56,3 +56,25 @@ TEST(Cli, FormatsFractions) {
     EXPECT_EQ(calc::formatFraction({false, "10", "1", true, "10", "", ""}), "10");
     EXPECT_EQ(calc::formatFraction({true, "1", "6", true, "0", "1", "6"}), "-1/6 = -0.1(6)");
 }
+
+TEST(Cli, TheHeadlineExample) {
+    const Outcome r = invoke({"0.1 + 0.2"});
+    EXPECT_EQ(r.code, 0);
+    EXPECT_EQ(r.out,
+              "0.1 + 0.2\n"
+              "= 0.300000000000000|0444089209850062616169452667236328125\n"
+              "  ± 4.4e-17  input 1.7e-17 · rounding 2.8e-17 · library 0\n"
+              "  measured 4.4e-17 · κ 1e+0 · 15 trusted digits\n");
+    EXPECT_EQ(r.err, "");
+}
+
+TEST(Cli, ColourOnlyOnTerminalsUnlessAsked) {
+    EXPECT_EQ(invoke({"0.1 + 0.2"}, "", true).out.find("\x1b[2m") != std::string::npos, true);
+    EXPECT_EQ(invoke({"--color", "never", "0.1 + 0.2"}, "", true).out.find("\x1b"), std::string::npos);
+    EXPECT_NE(invoke({"--color", "always", "0.1 + 0.2"}).out.find("\x1b[2m"), std::string::npos);
+}
+
+TEST(Cli, ExactResults) {
+    const Outcome r = invoke({"--type", "exact", "1/3"});
+    EXPECT_EQ(r.out, "1/3\n= 1/3 = 0.(3)\n  exact, no rounding error · κ 2e+0\n");
+}

@@ -51,6 +51,34 @@ struct Settings {
     bool color = false;
 };
 
+void printHuman(std::ostream& out, const std::string& input, const Result& r, bool color) {
+    out << input << "\n";
+    if (r.exact) {
+        out << "= " << formatFraction(*r.exact) << "\n";
+        out << "  exact, no rounding error · κ " << r.conditionNumber << "\n";
+        return;
+    }
+    out << "= " << formatValue(r.value, r.trustedDigits, color) << "\n";
+    out << "  ± " << r.bound << "  input " << r.inputError << " · rounding " << r.roundingError << " · library "
+        << r.libraryError;
+    if (!r.boundComplete) out << "  (incomplete: an uncertain argument was accepted)";
+    out << "\n  measured ";
+    if (r.measuredAvailable) out << r.measured << (r.measurementReliable ? "" : " (unreliable)");
+    else out << "unavailable";
+    out << " · κ " << r.conditionNumber << " · ";
+    if (r.trustedDigits >= static_cast<int>(r.value.digits.size())) out << "all digits trusted";
+    else out << r.trustedDigits << (r.trustedDigits == 1 ? " trusted digit" : " trusted digits");
+    out << "\n";
+}
+
+// One expression. Returns false when it failed.
+bool handle(const std::string& line, Session& session, const Settings& s, std::ostream& out, std::ostream& err) {
+    const Result r = session.evaluate(line, s.options);
+    if (r.error) err << line << "\n" << r.error->message << "\n";
+    else printHuman(out, line, r, s.color);
+    return !r.error;
+}
+
 }  // namespace
 
 std::string formatValue(const Digits& value, int trustedDigits, bool color) {
@@ -170,7 +198,10 @@ int run(const std::vector<std::string>& args, std::istream& /*in*/, std::ostream
         expressions.push_back(a);
     }
     s.color = !s.json && (colorWhen == "always" || (colorWhen == "auto" && terminal));
-    return 0;
+    Session session;
+    bool ok = true;
+    for (const std::string& e : expressions) ok = handle(e, session, s, out, err) && ok;
+    return ok ? 0 : 1;
 }
 
 }  // namespace calc
