@@ -49,4 +49,10 @@ T randomFinite(std::mt19937_64& rng, int spread = 60) {
     return (rng() & 1) ? T(-x) : x;
 }
 
+// bound >= error, allowing for the ruler's own rounding (relative 2^-900, far below anything shown).
+inline bool covers(const Ruler& bound, const Ruler& error) {
+    using std::ldexp;
+    return bound >= error * (Ruler(1) - ldexp(Ruler(1), -900));
+}
+
 }  // namespace test

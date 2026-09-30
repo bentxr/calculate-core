@@ -142,4 +142,59 @@ inline std::vector<Ruler> forwardBounds(const Ast& ast, const std::vector<std::v
     return bounds;
 }
 
+// Whether two reference evaluations agree within `tolerance`.
+inline bool agree(const Rational& shadow, const Rational& check, const Rational& tolerance) {
+    using std::abs;
+    return abs(shadow - check) <= tolerance;
+}
+
+// "4.4e-17", "1e+16", "0", "inf": `significant` digits, trailing zeros removed. Computed in the
+// ruler's arithmetic: an exact decimal expansion would be far too slow for tiny values.
+inline std::string formatScientific(const Ruler& x, int significant = 2) {
+    using std::abs;
+    using std::floor;
+    using std::frexp;
+    if (x == 0) return "0";
+    if (!isFinite(x)) return x < 0 ? "-inf" : "inf";
+    const auto power10 = [](long long n) {
+        Ruler result = 1;
+        Ruler base = 10;
+        for (unsigned long long k = static_cast<unsigned long long>(n < 0 ? -n : n); k; k >>= 1) {
+            if (k & 1) result *= base;
+            base *= base;
+        }
+        return result;
+    };
+    const Ruler a = abs(x);
+    int e2;
+    frexp(a, &e2);
+    long long e10 = (static_cast<long long>(e2) - 1) * 30103 / 100000;
+    Ruler scaled = e10 >= 0 ? Ruler(a / power10(e10)) : Ruler(a * power10(-e10));
+    for (; scaled >= 10; ++e10) scaled /= 10;
+    for (; scaled < 1; --e10) scaled *= 10;
+    Integer m(floor(scaled * power10(significant - 1) + Ruler(0.5)).convert_to<long long>());
+    if (m == pow(Integer(10), static_cast<unsigned>(significant))) {
+        m /= 10;
+        ++e10;
+    }
+    std::string digits = m.str();
+    digits.erase(digits.find_last_not_of('0') + 1);
+    std::string s = x < 0 ? "-" : "";
+    s += digits.substr(0, 1);
+    if (digits.size() > 1) s += "." + digits.substr(1);
+    s += e10 < 0 ? "e-" : "e+";
+    s += std::to_string(e10 < 0 ? -e10 : e10);
+    return s;
+}
+
+// Leading significant digits guaranteed by `error`: floor(-log10(error / |value|)), capped.
+inline int trustedDigits(const Ruler& absValue, const Ruler& error, int digitCount) {
+    if (error == 0) return digitCount;
+    if (absValue == 0 || !isFinite(error)) return 0;
+    Ruler q = error / absValue;
+    int t = 0;
+    for (; t < digitCount && q * 10 <= 1; ++t) q *= 10;
+    return t;
+}
+
 }  // namespace calculate_core::detail

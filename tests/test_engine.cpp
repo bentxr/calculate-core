@@ -110,3 +110,56 @@ TEST(ForwardBounds, InexactResultsHavePositiveBound) {
     const auto bounds = forwardBounds(b.ast(), nodePartials<double>(b.ast(), fw), localErrors<double>(b.ast(), fw));
     EXPECT_GT(bounds.back(), 0);
 }
+
+namespace {
+
+// Rump's polynomial at a = 77617, b = 33096 (the classic evaluation order).
+Ast rump() {
+    AstBuilder k;
+    const auto a = k.literal("77617"), b = k.literal("33096");
+    const auto b2 = b * b, b4 = b2 * b2, b6 = b4 * b2, b8 = b4 * b4, a2 = a * a;
+    k.literal("333.75") * b6 + a2 * (k.literal("11") * a2 * b2 - b6 - k.literal("121") * b4 - k.literal("2"))
+        + k.literal("5.5") * b8 + a / (k.literal("2") * b);
+    return k.ast();
+}
+
+}  // namespace
+
+TEST(Agreement, TooLittlePrecisionIsCaught) {
+    // Rump's polynomial fools 113 bits (it gives 1.17...) but not 237 bits (-0.827...).
+    const Rational at113 = toRational(forward<Binary128>(rump()).values.back());
+    const Rational at237 = toRational(forward<Binary256>(rump()).values.back());
+    EXPECT_FALSE(agree(at113, at237, scaleByPowerOfTwo(abs(at237), -(53 + 8))));
+    const Rational shadow = toRational(forward<Ruler>(rump()).values.back());
+    const Rational check = toRational(forward<RulerCheck>(rump()).values.back());
+    EXPECT_TRUE(agree(shadow, check, scaleByPowerOfTwo(abs(check), -(489 + 8))));
+}
+
+TEST(Agreement, WithinTheTolerance) {
+    EXPECT_TRUE(agree(Rational(0), Rational(0), Rational(0)));
+    EXPECT_FALSE(agree(Rational(1, 1000), Rational(0), Rational(0)));
+    EXPECT_TRUE(agree(Rational(1, 1000), Rational(0), Rational(1, 100)));
+}
+
+TEST(Format, ScientificWithTwoSignificantDigits) {
+    EXPECT_EQ(formatScientific(fromRational<Ruler>(abs(toRational(0.1 + 0.2) - Rational(3, 10)))), "4.4e-17");
+    EXPECT_EQ(formatScientific(Ruler(1)), "1e+0");
+    EXPECT_EQ(formatScientific(Ruler(20000000000000001LL)), "2e+16");
+    EXPECT_EQ(formatScientific(Ruler(0)), "0");
+    EXPECT_EQ(formatScientific(std::numeric_limits<Ruler>::infinity()), "inf");
+    EXPECT_EQ(formatScientific(Ruler(9.96)), "1e+1");
+    EXPECT_EQ(formatScientific(Ruler(123456), 4), "1.235e+5");
+    EXPECT_EQ(formatScientific(Ruler(-0.00012)), "-1.2e-4");
+    EXPECT_EQ(formatScientific(ldexp(Ruler(1), -3000000)), "1e-903090");
+}
+
+TEST(Format, TrustedDigits) {
+    const Ruler value = exactCast<Ruler>(0.1 + 0.2);
+    const Ruler error = fromRational<Ruler>(abs(toRational(0.1 + 0.2) - Rational(3, 10)));
+    EXPECT_EQ(trustedDigits(value, error, 55), 15);
+    EXPECT_EQ(trustedDigits(value, Ruler(0), 55), 55);
+    EXPECT_EQ(trustedDigits(Ruler(0), error, 1), 0);
+    EXPECT_EQ(trustedDigits(Ruler(1), Ruler(0.5), 10), 0);
+    EXPECT_EQ(trustedDigits(Ruler(1), Ruler(0.05), 10), 1);
+    EXPECT_EQ(trustedDigits(Ruler(1), Ruler(1e-30), 10), 10);
+}
