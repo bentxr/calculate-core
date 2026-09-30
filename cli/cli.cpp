@@ -110,6 +110,22 @@ void printJson(std::ostream& out, const std::string& input, const Result& r) {
         << ",\"roundingOperations\":" << r.roundingOperations << ",\"expanded\":" << jsonString(r.expression) << "}\n";
 }
 
+void listTypes(std::ostream& out) {
+    const auto pad = [](std::string text, std::size_t width) {
+        if (text.size() < width) text.append(width - text.size(), ' ');
+        return text;
+    };
+    for (const TypeInfo& t : numberTypes()) {
+        std::string description = "exact rationals, no rounding";
+        if (t.type != NumberType::Exact) {
+            description = std::to_string(t.storageBits) + "-bit, " + std::to_string(t.precisionBits) +
+                          "-bit significand, ~" + std::to_string(t.decimalDigits) + " digits";
+            if (!t.note.empty()) description += ", " + t.note;
+        }
+        out << pad(optionName(t.type), 13) << pad(t.label, 11) << description << "\n";
+    }
+}
+
 // Display columns of UTF-8 text: one per code point (bytes that are not continuation bytes).
 std::size_t columns(const std::string& s, std::size_t from, std::size_t to) {
     std::size_t n = 0;
@@ -253,6 +269,10 @@ int run(const std::vector<std::string>& args, std::istream& in, std::ostream& ou
         }
         if (a == "--version") {
             out << "calc " << CALCULATE_VERSION << "\n";
+            return 0;
+        }
+        if (a == "--list-types") {
+            listTypes(out);
             return 0;
         }
         if (a == "--json") {

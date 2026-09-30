@@ -117,3 +117,10 @@ TEST(Cli, JsonLines) {
               "\"message\":\"Division by zero\",\"begin\":0,\"end\":3}}\n");
     EXPECT_NE(r.out.find("\"value\":{\"negative\":false,\"digits\":\"4\",\"exponent10\":0}"), std::string::npos);
 }
+
+TEST(Cli, ListsTheTypesOfThisBuild) {
+    const Outcome r = invoke({"--list-types"});
+    EXPECT_EQ(r.code, 0);
+    EXPECT_NE(r.out.find("double       Double     64-bit, 53-bit significand, ~16 digits\n"), std::string::npos);
+    EXPECT_NE(r.out.find("exact        Exact      exact rationals, no rounding\n"), std::string::npos);
+}
