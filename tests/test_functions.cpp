@@ -1,3 +1,4 @@
+#include "accuracy.hpp"
 #include "functions.hpp"
 #include "test_support.hpp"
 
@@ -113,4 +114,11 @@ TEST(LocalError, ExactTypeHasNoLocalError) {
 TEST(LocalError, NegationIsExact) {
     const Applied<double> r = applyFunction<double>(FunctionId::Negate, {0.1});
     EXPECT_EQ(localError<double>(FunctionId::Negate, {0.1}, r), 0);
+}
+
+TEST(LocalError, LibraryFunctionsUseTheirClaim) {
+    const Applied<double> r = applyFunction<double>(FunctionId::Exp, {0.5});
+    const Ruler expected = Ruler(claimedFactor(FunctionId::Exp)) * exactCast<Ruler>(unitRoundoff<double>())
+                         * exactCast<Ruler>(r.value);
+    EXPECT_EQ(localError<double>(FunctionId::Exp, {0.5}, r), expected);
 }

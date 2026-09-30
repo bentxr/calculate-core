@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ast.hpp"
+#include "kernels.hpp"
 #include "numbers.hpp"
 
 #include <calculate-core/calculate-core.hpp>
@@ -106,6 +107,48 @@ struct Applied {
     int roundings = 0;  // Counted functions only
 };
 
+// Every Library function claims |computed - exact| <= claim * u * max(|v|, min()) (in units of u).
+inline int claimedFactor(FunctionId) { return 2; }
+
+namespace impl {
+
+template <class T>
+Applied<T> fail(ErrorCode code) {
+    Applied<T> r;
+    r.error = code;
+    return r;
+}
+
+template <class T>
+Applied<T> ok(const T& value, int roundings = 0) {
+    Applied<T> r;
+    r.value = value;
+    r.roundings = roundings;
+    return r;
+}
+
+template <class T>
+T withSign(const T& v, bool negative) {
+    return negative ? T(-v) : v;
+}
+
+// The elementary functions, for inexact T: every result computed in T through double words.
+template <class T>
+Applied<T> kernel(FunctionId id, const std::vector<T>& a) {
+    const T x = a[0];
+    const auto fromExp = [](const ExpParts<T>& e, bool negative) -> Applied<T> {
+        if (e.overflow) return fail<T>(ErrorCode::Overflow);
+        if (e.underflow) return ok<T>(T(0));
+        return ok<T>(withSign(toValue(expValue(e)), negative));
+    };
+    switch (id) {
+    case FunctionId::Exp: return fromExp(expParts(dw(x)), false);
+    default: return fail<T>(ErrorCode::DomainError);
+    }
+}
+
+}  // namespace impl
+
 // One node computed in T. Errors are values: never NaN or infinity.
 template <class T>
 Applied<T> applyFunction(FunctionId id, const std::vector<T>& a, const std::atomic<bool>* /*cancel*/ = nullptr) {
@@ -131,8 +174,13 @@ Applied<T> applyFunction(FunctionId id, const std::vector<T>& a, const std::atom
     case FunctionId::Square: r.value = a[0] * a[0]; break;
     case FunctionId::Cube: r.value = a[0] * a[0] * a[0]; break;
     default:
-        r.error = ErrorCode::DomainError;
-        return r;
+        if constexpr (isExact<T>) {
+            if (!functionInfo(id).exact) return impl::fail<T>(ErrorCode::NotAvailableInExact);
+            return impl::fail<T>(ErrorCode::DomainError);
+        } else {
+            r = impl::kernel<T>(id, a);
+            if (r.error) return r;
+        }
     }
     if (!isFinite(r.value)) r.error = ErrorCode::Overflow;
     return r;
@@ -191,7 +239,11 @@ Ruler localError(FunctionId id, const std::vector<T>& args, const Applied<T>& ap
         }
         case ErrorClass::Rounded: return u * v;
         case ErrorClass::Counted: return Ruler(applied.roundings) * u * v;
-        default: return Ruler(0);  // Library claims arrive with the kernels; Input is the engine's
+        case ErrorClass::Library: {
+            const Ruler floor = exactCast<Ruler>((std::numeric_limits<T>::min)());
+            return Ruler(claimedFactor(id)) * u * (v > floor ? v : floor);
+        }
+        default: return Ruler(0);  // Input errors belong to the engine
         }
     }
 }

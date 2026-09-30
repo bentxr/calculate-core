@@ -1,3 +1,4 @@
+#include "accuracy.hpp"
 #include "ast_builder.hpp"
 #include "engine.hpp"
 #include "test_support.hpp"

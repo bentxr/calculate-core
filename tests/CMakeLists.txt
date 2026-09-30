@@ -17,6 +17,7 @@ add_executable(calculate-core-tests
     test_functions.cpp
     test_engine.cpp
     test_doubleword.cpp
+    test_kernels.cpp
 )
 target_include_directories(calculate-core-tests PRIVATE ${PROJECT_SOURCE_DIR}/src)
 target_link_libraries(calculate-core-tests PRIVATE

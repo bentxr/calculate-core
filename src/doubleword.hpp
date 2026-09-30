@@ -138,7 +138,8 @@ std::vector<T> constantPieces(ConstantId id, int bits, int count) {
         if (high < 0) break;
         const long long from = std::max(high - bits + 1, 0LL);
         const unsigned width = static_cast<unsigned>(high - from + 1);
-        const Integer chunk = (m >> static_cast<unsigned>(from)) & ((Integer(1) << width) - 1);
+        const Integer shifted = m >> static_cast<unsigned>(from);
+        const Integer chunk = shifted - ((shifted >> width) << width);  // the low `width` bits
         pieces.push_back(fromRational<T>(scaleByPowerOfTwo(Rational(chunk), from - constantFractionBits)));
     }
     return pieces;
