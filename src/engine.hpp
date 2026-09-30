@@ -29,6 +29,12 @@ inline Error nodeError(const Node& node, ErrorCode code, std::string message) {
     return Error{code, std::move(message), node.span.begin, node.span.end};
 }
 
+// A product that is zero whenever a factor is zero, even if the other is infinite
+// (an infinite derivative times an exactly known input contributes nothing).
+inline Ruler times(const Ruler& a, const Ruler& b) {
+    return a == 0 || b == 0 ? Ruler(0) : Ruler(a * b);
+}
+
 }  // namespace impl
 
 // Evaluates every node in T. The first error stops the pass and carries the failing node's span.
@@ -124,8 +130,8 @@ inline Adjoints adjoints(const Ast& ast, const std::vector<std::vector<Ruler>>& 
     for (int i = ast.root(); i >= 0; --i)
         for (std::size_t k = 0; k < ast.nodes[i].args.size(); ++k) {
             const int a = ast.nodes[i].args[k];
-            adj.signedAdj[a] += partials[i][k] * adj.signedAdj[i];
-            adj.absoluteAdj[a] += abs(partials[i][k]) * adj.absoluteAdj[i];
+            adj.signedAdj[a] += impl::times(partials[i][k], adj.signedAdj[i]);
+            adj.absoluteAdj[a] += impl::times(abs(partials[i][k]), adj.absoluteAdj[i]);
         }
     return adj;
 }
@@ -138,7 +144,7 @@ inline std::vector<Ruler> forwardBounds(const Ast& ast, const std::vector<std::v
     for (std::size_t i = 0; i < ast.nodes.size(); ++i) {
         bounds[i] = locals[i];
         for (std::size_t k = 0; k < ast.nodes[i].args.size(); ++k)
-            bounds[i] += abs(partials[i][k]) * bounds[ast.nodes[i].args[k]];
+            bounds[i] += impl::times(abs(partials[i][k]), bounds[ast.nodes[i].args[k]]);
     }
     return bounds;
 }
@@ -231,16 +237,36 @@ Evaluation<T> evaluate(const Ast& ast, const Options& options = {}) {
     }
     ev.value = fw.values.back();
     const std::vector<Ruler> locals = localErrors<T>(ast, fw);
-    const Adjoints adj = adjoints(ast, nodePartials<T>(ast, fw));
-
+    const std::vector<std::vector<Ruler>> parts = nodePartials<T>(ast, fw);
     Report& r = ev.report;
+
+    // Discrete functions jump, so derivatives cannot carry their arguments' uncertainty:
+    // refuse arguments that are not exactly known, unless the caller accepts an incomplete bound.
+    const std::vector<Ruler> bounds = forwardBounds(ast, parts, locals);
+    for (const Node& node : ast.nodes) {
+        const FunctionInfo& info = functionInfo(node.function);
+        if (!info.discrete) continue;
+        for (const int a : node.args) {
+            if (bounds[a] == 0) continue;
+            if (!options.allowUncertainDiscreteArguments) {
+                const std::string name = info.name.empty() ? "!" : std::string(info.name);
+                ev.error = impl::nodeError(node, ErrorCode::UncertainDiscreteArgument,
+                                           errorMessage(ErrorCode::UncertainDiscreteArgument, name)
+                                               + "; its argument carries an error of up to " + formatScientific(bounds[a]));
+                return ev;
+            }
+            r.boundComplete = false;
+        }
+    }
+
+    const Adjoints adj = adjoints(ast, parts);
     Ruler weighted = 0;  // sum over the inputs of |d root / d input| * |input|
     for (std::size_t i = 0; i < ast.nodes.size(); ++i) {
-        const Ruler term = adj.absoluteAdj[i] * locals[i];
+        const Ruler term = impl::times(adj.absoluteAdj[i], locals[i]);
         switch (functionInfo(ast.nodes[i].function).errorClass) {
         case ErrorClass::Input:
             r.input += term;
-            weighted += abs(adj.signedAdj[i] * exactCast<Ruler>(fw.values[i]));
+            weighted += abs(impl::times(adj.signedAdj[i], exactCast<Ruler>(fw.values[i])));
             break;
         case ErrorClass::Library: r.library += term; break;
         case ErrorClass::Exact: break;

@@ -238,3 +238,54 @@ TEST(Rump, ExactArithmeticIsExact) {
     EXPECT_EQ(ev.report.measured, 0);
     EXPECT_TRUE(ev.report.reliable);
 }
+
+TEST(Discrete, UncertainArgumentsAreRefused) {
+    AstBuilder b;
+    const auto product = b.literal("0.1") * b.literal("30");  // exactly 3 in double, but not exactly known
+    b.apply(FunctionId::Factorial, {product});
+    const Evaluation<double> ev = evaluate<double>(b.ast());
+    ASSERT_TRUE(ev.error);
+    EXPECT_EQ(ev.error->code, ErrorCode::UncertainDiscreteArgument);
+    EXPECT_NE(ev.error->message.find("error of up to"), std::string::npos);
+}
+
+TEST(Discrete, ProceedingAnywayMarksTheBoundIncomplete) {
+    AstBuilder b;
+    const auto product = b.literal("0.1") * b.literal("30");
+    b.apply(FunctionId::Factorial, {product});
+    Options options;
+    options.allowUncertainDiscreteArguments = true;
+    const Evaluation<double> ev = evaluate<double>(b.ast(), options);
+    ASSERT_FALSE(ev.error);
+    EXPECT_EQ(ev.value, 6.0);
+    EXPECT_FALSE(ev.report.boundComplete);
+}
+
+TEST(Discrete, ExactArgumentsPass) {
+    AstBuilder b;
+    const auto six = b.literal("5") + b.literal("1");
+    b.apply(FunctionId::Factorial, {six});
+    const Evaluation<double> ev = evaluate<double>(b.ast());
+    ASSERT_FALSE(ev.error);
+    EXPECT_EQ(ev.value, 720.0);
+    EXPECT_TRUE(ev.report.boundComplete);
+    EXPECT_EQ(ev.report.bound, 0);
+}
+
+TEST(Discrete, ExactTypeNeverRefuses) {
+    AstBuilder b;
+    const auto product = b.literal("0.1") * b.literal("30");
+    b.apply(FunctionId::Factorial, {product});
+    const Evaluation<Rational> ev = evaluate<Rational>(b.ast());
+    ASSERT_FALSE(ev.error);
+    EXPECT_EQ(ev.value, 6);
+}
+
+TEST(Report, InfiniteDerivativesTimesZeroErrorsAreZero) {
+    AstBuilder b;
+    b.apply(FunctionId::Sqrt, {b.literal("0")});
+    const Evaluation<double> ev = evaluate<double>(b.ast());
+    ASSERT_FALSE(ev.error);
+    EXPECT_EQ(ev.report.bound, 0);
+    EXPECT_TRUE(isFinite(ev.report.bound));
+}
