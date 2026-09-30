@@ -99,4 +99,43 @@ inline std::string errorMessage(ErrorCode code, std::string_view name) {
     }
 }
 
+template <class T>
+struct Applied {
+    T value{};
+    std::optional<ErrorCode> error;
+    int roundings = 0;  // Counted functions only
+};
+
+// One node computed in T. Errors are values: never NaN or infinity.
+template <class T>
+Applied<T> applyFunction(FunctionId id, const std::vector<T>& a, const std::atomic<bool>* /*cancel*/ = nullptr) {
+    Applied<T> r;
+    switch (id) {
+    case FunctionId::Pi:
+    case FunctionId::E:
+        if constexpr (isExact<T>) r.error = ErrorCode::NotAvailableInExact;
+        else r.value = constantValue<T>(id == FunctionId::Pi ? ConstantId::Pi : ConstantId::E);
+        return r;
+    case FunctionId::Add: r.value = a[0] + a[1]; break;
+    case FunctionId::Subtract: r.value = a[0] - a[1]; break;
+    case FunctionId::Multiply: r.value = a[0] * a[1]; break;
+    case FunctionId::Divide:
+        if (a[1] == 0) {  // before dividing: Boost's Rational would silently give 0
+            r.error = ErrorCode::DivisionByZero;
+            return r;
+        }
+        r.value = a[0] / a[1];
+        break;
+    case FunctionId::Negate: r.value = -a[0]; break;
+    case FunctionId::Percent: r.value = a[0] / T(100); break;
+    case FunctionId::Square: r.value = a[0] * a[0]; break;
+    case FunctionId::Cube: r.value = a[0] * a[0] * a[0]; break;
+    default:
+        r.error = ErrorCode::DomainError;
+        return r;
+    }
+    if (!isFinite(r.value)) r.error = ErrorCode::Overflow;
+    return r;
+}
+
 }  // namespace calculate_core::detail
