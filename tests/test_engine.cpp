@@ -73,3 +73,24 @@ TEST(LocalErrors, LiteralsAndConstantsCarryTheirRepresentationError) {
     EXPECT_EQ(locals[1], fromRational<Ruler>(abs(toRational(fw.values[1]) - constantRational(ConstantId::Pi))));
     EXPECT_GT(locals[2], 0);
 }
+
+TEST(Adjoints, SumOverEveryPathOfADag) {
+    AstBuilder b;
+    const auto x = b.literal("3"), y = b.literal("5");
+    x * y + x;  // d/dx = y + 1 = 6, d/dy = x = 3
+    const Forward<double> fw = forward<double>(b.ast());
+    const Adjoints adj = adjoints(b.ast(), nodePartials<double>(b.ast(), fw));
+    EXPECT_EQ(adj.signedAdj[0], 6);
+    EXPECT_EQ(adj.signedAdj[1], 3);
+    EXPECT_EQ(adj.absoluteAdj[0], 6);
+}
+
+TEST(Adjoints, AbsoluteAdjointsIgnoreSigns) {
+    AstBuilder b;
+    const auto x = b.literal("3");
+    x - x * b.literal("2");  // d/dx = 1 - 2 = -1, but |1| + |2| = 3
+    const Forward<double> fw = forward<double>(b.ast());
+    const Adjoints adj = adjoints(b.ast(), nodePartials<double>(b.ast(), fw));
+    EXPECT_EQ(adj.signedAdj[0], -1);
+    EXPECT_EQ(adj.absoluteAdj[0], 3);
+}

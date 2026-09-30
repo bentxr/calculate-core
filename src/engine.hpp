@@ -106,4 +106,27 @@ std::vector<std::vector<Ruler>> nodePartials(const Ast& ast, const Forward<T>& f
     return result;
 }
 
+struct Adjoints {
+    std::vector<Ruler> signedAdj;    // d(root)/d(node): sums over all paths
+    std::vector<Ruler> absoluteAdj;  // the same with |partials|: used for guaranteed bounds
+};
+
+// Reverse sweep: parents come after their arguments, so walking backwards visits each node's
+// parents before the node itself.
+inline Adjoints adjoints(const Ast& ast, const std::vector<std::vector<Ruler>>& partials) {
+    using std::abs;
+    Adjoints adj;
+    adj.signedAdj.assign(ast.nodes.size(), Ruler(0));
+    adj.absoluteAdj.assign(ast.nodes.size(), Ruler(0));
+    adj.signedAdj.back() = 1;
+    adj.absoluteAdj.back() = 1;
+    for (int i = ast.root(); i >= 0; --i)
+        for (std::size_t k = 0; k < ast.nodes[i].args.size(); ++k) {
+            const int a = ast.nodes[i].args[k];
+            adj.signedAdj[a] += partials[i][k] * adj.signedAdj[i];
+            adj.absoluteAdj[a] += abs(partials[i][k]) * adj.absoluteAdj[i];
+        }
+    return adj;
+}
+
 }  // namespace calculate_core::detail
