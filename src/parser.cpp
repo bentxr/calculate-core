@@ -398,4 +398,14 @@ Parsed parse(std::string_view source, AngleUnit angle, const Names& names) {
     return Parser(source, std::move(lexed.tokens), angle, names).run();
 }
 
+std::optional<Error> checkExact(const Ast& ast) {
+    for (const Node& n : ast.nodes) {
+        const FunctionInfo& info = functionInfo(n.function);
+        if (info.exact) continue;
+        const std::string name = n.function == FunctionId::Pi ? "π" : std::string(info.name);
+        return makeError(ErrorCode::NotAvailableInExact, errorMessage(ErrorCode::NotAvailableInExact, name), n.span);
+    }
+    return std::nullopt;
+}
+
 }  // namespace calculate_core::detail

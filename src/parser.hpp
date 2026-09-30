@@ -43,4 +43,7 @@ struct Parsed {
 
 Parsed parse(std::string_view source, AngleUnit angle, const Names& names = {});
 
+// The first node the Exact type cannot evaluate, as an error.
+std::optional<Error> checkExact(const Ast& ast);
+
 }  // namespace calculate_core::detail

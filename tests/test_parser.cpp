@@ -202,3 +202,15 @@ TEST(Parser, NamesExpandToTheirExpressions) {
     EXPECT_EQ(p.ast.nodes[0].span.end, 3u);
     EXPECT_EQ(parse("M - Ans", AngleUnit::Radians, {{"Ans", "2"}, {"M", "5"}}).expanded, "(5) - (2)");
 }
+
+TEST(Parser, ExactArithmeticRefusesTranscendentals) {
+    const Parsed p = parse("1 + sin(2)", AngleUnit::Radians);
+    const auto e = checkExact(p.ast);
+    ASSERT_TRUE(e);
+    EXPECT_EQ(e->code, ErrorCode::NotAvailableInExact);
+    EXPECT_EQ(e->begin, 4u);
+    EXPECT_EQ(e->end, 10u);
+    EXPECT_NE(e->message.find("sin"), std::string::npos);
+    EXPECT_TRUE(checkExact(parse("pi", AngleUnit::Radians).ast));
+    EXPECT_FALSE(checkExact(parse("sqrt(4) + 2^(1/2) + 5!", AngleUnit::Radians).ast));
+}
