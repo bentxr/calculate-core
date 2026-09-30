@@ -191,3 +191,14 @@ TEST(Parser, StatisticsBecomeArithmeticOnSharedNodes) {
     ASSERT_FALSE(p.error);
     EXPECT_EQ(p.ast.nodes.size(), 12u);  // 1, 3, +, 2, mean, -, sq, -, sq, +, 2, /: the mean is shared
 }
+
+TEST(Parser, NamesExpandToTheirExpressions) {
+    const Names names{{"Ans", "1+2"}};
+    const Parsed p = parse("Ans*2", AngleUnit::Radians, names);
+    ASSERT_FALSE(p.error);
+    EXPECT_EQ(sexpr(p.ast, p.ast.root()), "(* (+ 1 2) 2)");
+    EXPECT_EQ(p.expanded, "(1+2)*2");
+    EXPECT_EQ(p.ast.nodes[0].span.begin, 0u);  // nodes from Ans point at "Ans"
+    EXPECT_EQ(p.ast.nodes[0].span.end, 3u);
+    EXPECT_EQ(parse("M - Ans", AngleUnit::Radians, {{"Ans", "2"}, {"M", "5"}}).expanded, "(5) - (2)");
+}

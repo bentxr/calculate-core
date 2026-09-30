@@ -170,8 +170,8 @@ int leftPower(TokenKind k) {
 // returns -1 and nothing else is parsed.
 class Parser {
 public:
-    Parser(std::string_view source, std::vector<Token> tokens, AngleUnit angle)
-        : source_(source), tokens_(std::move(tokens)), angle_(angle) {}
+    Parser(std::string_view source, std::vector<Token> tokens, AngleUnit angle, const Names& names)
+        : source_(source), tokens_(std::move(tokens)), angle_(angle), names_(names) {}
 
     Parsed run() {
         Parsed out;
@@ -277,6 +277,7 @@ private:
     int identifier(const Token& t) {
         const std::string name(t.text);
         if (peek().kind == TokenKind::LeftParen) return call(t);
+        if (const auto found = names_.find(name); found != names_.end()) return expand(t, found->second);
         if (name == "pi") return node(FunctionId::Pi, {}, t.span);
         if (name == "e") return node(FunctionId::E, {}, t.span);
         if (name == "Ans") return fail(ErrorCode::UnknownName, "There is no previous result yet", t.span);
@@ -284,6 +285,22 @@ private:
         if (functionNamed(name) || statisticNamed(name) != Statistic::None)
             return fail(ErrorCode::UnexpectedToken, name + " needs its arguments in parentheses: " + name + "(…)", t.span);
         return fail(ErrorCode::UnknownName, "Unknown name '" + name + "'", t.span);
+    }
+
+    // A stored expression: its nodes join this tree (all with the name's span), and the expanded
+    // text gets it in parentheses. Stored texts are already expanded, so they contain no names.
+    int expand(const Token& t, const std::string& text) {
+        const Parsed inner = parse(text, angle_, {});
+        if (inner.error) return fail(inner.error->code, inner.error->message, t.span);
+        const int offset = static_cast<int>(ast_.nodes.size());
+        for (Node n : inner.ast.nodes) {
+            for (int& a : n.args) a += offset;
+            n.span = t.span;
+            ast_.nodes.push_back(std::move(n));
+        }
+        expanded_ += std::string(source_.substr(copied_, t.span.begin - copied_)) + "(" + text + ")";
+        copied_ = t.span.end;
+        return static_cast<int>(ast_.nodes.size()) - 1;
     }
 
     int call(const Token& t) {
@@ -361,6 +378,7 @@ private:
     std::string_view source_;
     std::vector<Token> tokens_;
     AngleUnit angle_;
+    const Names& names_;
     Ast ast_;
     std::size_t position_ = 0;
     std::optional<Error> error_;
@@ -370,14 +388,14 @@ private:
 
 }  // namespace
 
-Parsed parse(std::string_view source, AngleUnit angle, const Names& /*names*/) {
+Parsed parse(std::string_view source, AngleUnit angle, const Names& names) {
     Lexed lexed = lex(source);
     if (lexed.error) {
         Parsed out;
         out.error = lexed.error;
         return out;
     }
-    return Parser(source, std::move(lexed.tokens), angle).run();
+    return Parser(source, std::move(lexed.tokens), angle, names).run();
 }
 
 }  // namespace calculate_core::detail
