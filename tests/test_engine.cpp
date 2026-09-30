@@ -289,3 +289,29 @@ TEST(Report, InfiniteDerivativesTimesZeroErrorsAreZero) {
     EXPECT_EQ(ev.report.bound, 0);
     EXPECT_TRUE(isFinite(ev.report.bound));
 }
+
+template <class T>
+class SineOfTenBillionTest : public ::testing::Test {};
+TYPED_TEST_SUITE(SineOfTenBillionTest, test::FloatingTypes, test::TypeNames);
+
+TYPED_TEST(SineOfTenBillionTest, IsAccurateAndHonest) {
+    using T = TypeParam;
+    AstBuilder b;
+    b.apply(FunctionId::Sin, {b.literal("1e10")});
+    const Evaluation<T> ev = evaluate<T>(b.ast());
+    ASSERT_FALSE(ev.error);
+    EXPECT_TRUE(ev.report.reliable);
+    EXPECT_TRUE(test::covers(ev.report.bound, ev.report.measured));
+    EXPECT_GT(ev.report.library, 0);
+    // 1e10 is exact in every floating type, so the only error is sin's own.
+    EXPECT_EQ(ev.report.input, 0);
+    EXPECT_LE(test::errorInU(ev.value, sin(test::Oracle(10000000000LL))), claimedFactor(FunctionId::Sin));
+}
+
+TEST(SineOfTenBillion, IsUnavailableInExactArithmetic) {
+    AstBuilder b;
+    b.apply(FunctionId::Sin, {b.literal("1e10")});
+    const Evaluation<Rational> ev = evaluate<Rational>(b.ast());
+    ASSERT_TRUE(ev.error);
+    EXPECT_EQ(ev.error->code, ErrorCode::NotAvailableInExact);
+}
