@@ -72,3 +72,68 @@ TYPED_TEST(DecimalBoostTest, MatchesBoostsCorrectlyRoundedStringConversion) {
 TEST(Decimal, RationalTargetIsExact) {
     EXPECT_EQ(decimalTo<Rational>(literal("0.125")), Rational(1, 8));
 }
+
+TEST(ExactDigits, DoubleOneTenth) {
+    const DecimalDigits d = exactDigits(0.1);
+    EXPECT_FALSE(d.negative);
+    EXPECT_EQ(d.digits, "1000000000000000055511151231257827021181583404541015625");
+    EXPECT_EQ(d.exponent10, -1);
+}
+
+TEST(ExactDigits, FloatOneTenth) {
+    const DecimalDigits d = exactDigits(0.1f);
+    EXPECT_EQ(d.digits, "100000001490116119384765625");
+    EXPECT_EQ(d.exponent10, -1);
+}
+
+TEST(ExactDigits, LargeAndIntegralValues) {
+    EXPECT_EQ(exactDigits(1e23).digits, "99999999999999991611392");
+    EXPECT_EQ(exactDigits(1e23).exponent10, 22);
+    EXPECT_EQ(exactDigits(1024.0).digits, "1024");
+    EXPECT_EQ(exactDigits(1024.0).exponent10, 3);
+    const DecimalDigits minusTwoAndAHalf = exactDigits(-2.5);
+    EXPECT_TRUE(minusTwoAndAHalf.negative);
+    EXPECT_EQ(minusTwoAndAHalf.digits, "25");
+    EXPECT_EQ(minusTwoAndAHalf.exponent10, 0);
+}
+
+TEST(ExactDigits, Zero) {
+    EXPECT_EQ(exactDigits(0.0).digits, "0");
+    EXPECT_EQ(exactDigits(0.0).exponent10, 0);
+}
+
+TEST(ExactDigits, SmallestSubnormalDoubleHas751Digits) {
+    const DecimalDigits d = exactDigits(std::numeric_limits<double>::denorm_min());
+    EXPECT_EQ(d.exponent10, -324);
+    EXPECT_EQ(d.digits.size(), 751u);
+    EXPECT_EQ(d.digits.substr(0, 64),
+              "4940656458412465441765687928682213723650598026143247644255856825");
+}
+
+TEST(ExactDigits, Binary128OneThird) {
+    const DecimalDigits d = exactDigits(Binary128(1) / 3);
+    EXPECT_EQ(d.exponent10, -1);
+    EXPECT_EQ(d.digits,
+              "333333333333333333333333333333333317283917130106367891200183811792272345515819598205098373000510036945343017578125");
+}
+
+template <class T>
+class ExactDigitsTest : public ::testing::Test {};
+TYPED_TEST_SUITE(ExactDigitsTest, test::FloatingTypes, test::TypeNames);
+
+TYPED_TEST(ExactDigitsTest, DigitsReproduceTheValueExactly) {
+    using T = TypeParam;
+    std::mt19937_64 rng(4);
+    for (int i = 0; i < 100; ++i) {
+        const T x = test::randomFinite<T>(rng, 100);
+        const DecimalDigits d = exactDigits(x);
+        ASSERT_EQ(d.digits.find_first_not_of("0123456789"), std::string::npos);
+        EXPECT_NE(d.digits.front(), '0');
+        EXPECT_NE(d.digits.back(), '0');
+        Rational value = Rational(Integer(d.digits));
+        const long long shift = d.exponent10 - static_cast<long long>(d.digits.size()) + 1;
+        const Integer ten = pow(Integer(10), static_cast<unsigned>(shift < 0 ? -shift : shift));
+        value = shift < 0 ? value / Rational(ten) : value * Rational(ten);
+        EXPECT_EQ(d.negative ? -value : value, toRational(x));
+    }
+}

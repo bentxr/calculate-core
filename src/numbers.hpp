@@ -11,6 +11,7 @@
 #include <string>
 #include <string_view>
 #include <type_traits>
+#include <utility>
 
 namespace calculate_core::detail {
 
@@ -255,6 +256,29 @@ T decimalTo(const DecimalLiteral& d) {
         if (e10 < impl::minDecimalExponent<T>()) return T(0);
         return fromRational<T>(toRational(d));
     }
+}
+
+// value = (negative ? -1 : 1) * d1.d2d3... * 10^exponent10; no trailing zeros; zero is {"0", 0}.
+struct DecimalDigits {
+    bool negative = false;
+    std::string digits;
+    long long exponent10 = 0;
+};
+
+// Every decimal digit of a finite binary value: N / 2^k = (N * 5^k) / 10^k.
+template <class T>
+DecimalDigits exactDigits(const T& x) {
+    const Rational q = toRational(x);
+    if (q == 0) return {false, "0", 0};
+    const Integer n = abs(numerator(q));
+    const unsigned k = static_cast<unsigned>(msb(denominator(q)));  // the denominator is 2^k
+    std::string s = (k > 0 ? Integer(n * pow(Integer(5), k)) : n).str();
+    DecimalDigits d;
+    d.negative = q < 0;
+    d.exponent10 = static_cast<long long>(s.size()) - 1 - k;
+    s.erase(s.find_last_not_of('0') + 1);
+    d.digits = std::move(s);
+    return d;
 }
 
 }  // namespace calculate_core::detail
