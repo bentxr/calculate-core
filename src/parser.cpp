@@ -1,6 +1,7 @@
 #include "parser.hpp"
 
 #include <algorithm>
+#include <array>
 #include <string>
 #include <utility>
 
@@ -19,6 +20,22 @@ std::size_t utf8Length(unsigned char lead) {
     if ((lead >> 3) == 0x1E) return 4;
     return 1;
 }
+
+struct Alias {
+    std::string_view bytes;
+    TokenKind kind;
+};
+
+constexpr std::array<Alias, 8> aliases{{
+    {"\xC3\x97", TokenKind::Star},            // ×
+    {"\xC3\xB7", TokenKind::Slash},           // ÷
+    {"\xE2\x88\x92", TokenKind::Minus},       // −
+    {"\xCF\x80", TokenKind::Pi},              // π
+    {"\xE2\x88\x9A", TokenKind::SquareRoot},  // √
+    {"\xE2\x88\x9B", TokenKind::CubeRoot},    // ∛
+    {"\xC2\xB2", TokenKind::Squared},         // ²
+    {"\xC2\xB3", TokenKind::Cubed},           // ³
+}};
 
 Error makeError(ErrorCode code, std::string message, Span span) {
     return Error{code, std::move(message), span.begin, span.end};
@@ -81,6 +98,13 @@ Lexed lex(std::string_view s) {
         if (const TokenKind kind = singleCharacter(c); kind != TokenKind::End) {
             push(kind, i, i + 1);
             ++i;
+            continue;
+        }
+        const auto alias = std::find_if(aliases.begin(), aliases.end(),
+                                        [&](const Alias& a) { return s.substr(i, a.bytes.size()) == a.bytes; });
+        if (alias != aliases.end()) {
+            push(alias->kind, i, i + alias->bytes.size());
+            i += alias->bytes.size();
             continue;
         }
         const std::size_t length = std::min(utf8Length(static_cast<unsigned char>(c)), s.size() - i);

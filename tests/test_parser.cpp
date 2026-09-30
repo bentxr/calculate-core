@@ -46,3 +46,14 @@ TEST(Lexer, InvalidCharactersCoverTheWholeCodePoint) {
     ASSERT_TRUE(dot.error);
     EXPECT_EQ(dot.error->code, ErrorCode::InvalidNumber);
 }
+
+TEST(Lexer, Utf8Aliases) {
+    const Lexed l = lex("2×3÷4−5 π √ ∛ ² ³");
+    ASSERT_FALSE(l.error);
+    EXPECT_EQ(kinds(l), (std::vector<TokenKind>{TokenKind::Number, TokenKind::Star, TokenKind::Number, TokenKind::Slash,
+                                                TokenKind::Number, TokenKind::Minus, TokenKind::Number, TokenKind::Pi,
+                                                TokenKind::SquareRoot, TokenKind::CubeRoot, TokenKind::Squared,
+                                                TokenKind::Cubed, TokenKind::End}));
+    EXPECT_EQ(l.tokens[1].span.begin, 1u);
+    EXPECT_EQ(l.tokens[1].span.end, 3u);  // × is two bytes
+}
