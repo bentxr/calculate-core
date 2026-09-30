@@ -39,3 +39,34 @@ TEST(Api, TheTypeMenuDescribesThisBuild) {
     EXPECT_EQ(types[6].decimalDigits, 147);
     EXPECT_EQ(types[6].note, "software, no subnormals");
 }
+
+TEST(Api, TheHeadlineExample) {
+    const Result r = evaluate("0.1 + 0.2");
+    ASSERT_FALSE(r.error);
+    EXPECT_EQ(r.type, NumberType::Double);
+    EXPECT_FALSE(r.value.negative);
+    EXPECT_EQ(r.value.digits, "3000000000000000444089209850062616169452667236328125");
+    EXPECT_EQ(r.value.exponent10, -1);
+    EXPECT_FALSE(r.exact);
+    EXPECT_EQ(r.trustedDigits, 15);
+    EXPECT_EQ(r.trustedDigitsMeasured, 15);
+    EXPECT_EQ(r.bound, "4.4e-17");
+    EXPECT_EQ(r.inputError, "1.7e-17");
+    EXPECT_EQ(r.roundingError, "2.8e-17");
+    EXPECT_EQ(r.libraryError, "0");
+    EXPECT_EQ(r.measured, "4.4e-17");
+    EXPECT_EQ(r.conditionNumber, "1e+0");
+    EXPECT_TRUE(r.measuredAvailable);
+    EXPECT_TRUE(r.measurementReliable);
+    EXPECT_TRUE(r.boundComplete);
+    EXPECT_EQ(r.roundingOperations, 1);
+    EXPECT_EQ(r.expression, "0.1 + 0.2");
+}
+
+TEST(Api, ExactFloatingResultsTrustEveryDigit) {
+    const Result r = evaluate("2 + 2");
+    EXPECT_EQ(r.value.digits, "4");
+    EXPECT_EQ(r.bound, "0");
+    EXPECT_EQ(r.trustedDigits, 1);
+    EXPECT_EQ(r.roundingOperations, 0);
+}

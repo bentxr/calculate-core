@@ -36,6 +36,69 @@ std::string longDoubleNote() {
     return "";
 }
 
+template <class T>
+Result build(const Parsed& parsed, const Options& options) {
+    using std::abs;
+    Result r;
+    r.type = options.type;
+    const Evaluation<T> ev = detail::evaluate<T>(parsed.ast, options);
+    if (ev.error) {
+        r.error = ev.error;
+        return r;
+    }
+    const Report& report = ev.report;
+    if constexpr (isExact<T>) {
+        const FractionDigits f = exactFraction(ev.value);
+        r.exact = Fraction{f.negative, f.numerator, f.denominator, f.hasDecimal, f.integerPart, f.fractionDigits,
+                           f.repeatingDigits};
+    } else {
+        const DecimalDigits d = exactDigits(ev.value);
+        r.value = Digits{d.negative, d.digits, d.exponent10};
+        const Ruler magnitude = abs(exactCast<Ruler>(ev.value));
+        const int count = static_cast<int>(d.digits.size());
+        r.trustedDigits = trustedDigits(magnitude, report.bound, count);
+        if (report.measuredAvailable) r.trustedDigitsMeasured = trustedDigits(magnitude, report.measured, count);
+    }
+    r.bound = formatScientific(report.bound);
+    r.inputError = formatScientific(report.input);
+    r.roundingError = formatScientific(report.rounding);
+    r.libraryError = formatScientific(report.library);
+    if (report.measuredAvailable) r.measured = formatScientific(report.measured);
+    r.conditionNumber = formatScientific(report.condition);
+    r.measuredAvailable = report.measuredAvailable;
+    r.measurementReliable = report.reliable;
+    r.boundComplete = report.boundComplete;
+    r.roundingOperations = report.roundingOperations;
+    r.expression = parsed.expanded;
+    return r;
+}
+
+Result evaluateWithNames(std::string_view text, const Options& options, const Names& names) {
+    const Parsed parsed = parse(text, options.angle, names);
+    Result r;
+    r.type = options.type;
+    if (parsed.error) {
+        r.error = parsed.error;
+        return r;
+    }
+    if (options.type == NumberType::Exact) {
+        if (auto e = checkExact(parsed.ast)) {
+            r.error = std::move(e);
+            return r;
+        }
+    }
+    switch (options.type) {  // the one place where a runtime type meets a compile-time T
+    case NumberType::Float: return build<float>(parsed, options);
+    case NumberType::Double: return build<double>(parsed, options);
+    case NumberType::LongDouble: return build<long double>(parsed, options);
+    case NumberType::Exact: return build<Rational>(parsed, options);
+    case NumberType::Binary128: return build<Binary128>(parsed, options);
+    case NumberType::Binary256: return build<Binary256>(parsed, options);
+    case NumberType::Binary512: return build<Binary512>(parsed, options);
+    }
+    return r;
+}
+
 }  // namespace
 
 std::vector<TypeInfo> numberTypes() {
@@ -49,6 +112,10 @@ std::vector<TypeInfo> numberTypes() {
         describe<Binary256>(NumberType::Binary256, "Octuple", "binary256", 256, software),
         describe<Binary512>(NumberType::Binary512, "Binary512", "binary512", 512, software),
     };
+}
+
+Result evaluate(std::string_view expression, const Options& options) {
+    return evaluateWithNames(expression, options, {});
 }
 
 }  // namespace calculate_core
