@@ -70,3 +70,27 @@ TEST(Api, ExactFloatingResultsTrustEveryDigit) {
     EXPECT_EQ(r.trustedDigits, 1);
     EXPECT_EQ(r.roundingOperations, 0);
 }
+
+namespace {
+
+Options as(NumberType type, AngleUnit angle = AngleUnit::Radians) {
+    Options o;
+    o.type = type;
+    o.angle = angle;
+    return o;
+}
+
+}  // namespace
+
+TEST(Api, ExactResultsAreFractions) {
+    const Result r = evaluate("1/3", as(NumberType::Exact));
+    ASSERT_FALSE(r.error);
+    ASSERT_TRUE(r.exact);
+    EXPECT_EQ(r.exact->numerator, "1");
+    EXPECT_EQ(r.exact->denominator, "3");
+    EXPECT_TRUE(r.exact->hasDecimal);
+    EXPECT_EQ(r.exact->repeatingDigits, "3");
+    EXPECT_TRUE(r.value.digits.empty());
+    EXPECT_EQ(r.bound, "0");
+    EXPECT_EQ(r.measured, "0");
+}
