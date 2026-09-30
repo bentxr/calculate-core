@@ -198,6 +198,31 @@ Applied<T> kernel(FunctionId id, const std::vector<T>& a) {
         const DoubleWord<T> m = expValue(expParts(dw(ldexp(ax, 1)))) - T(1);  // expm1(2|x|)
         return ok<T>(withSign(toValue(m / (m + T(2))), x < 0));
     }
+    case FunctionId::Asinh: {
+        using std::abs;
+        using std::ldexp;
+        const T ax = abs(x);
+        if (ax > ldexp(T(1), precisionBits<T>() / 2 + 2))  // asinh = ln(2|x|)
+            return ok<T>(withSign(toValue(logWord(dw(ax)) + impl::word<T>(ConstantId::Ln2)), x < 0));
+        const DoubleWord<T> a2 = dw(ax) * ax;
+        const DoubleWord<T> w = a2 / (sqrt(a2 + T(1)) + T(1)) + ax;  // asinh = log1p(w)
+        return ok<T>(withSign(toValue(logWord(w + T(1))), x < 0));
+    }
+    case FunctionId::Acosh: {
+        using std::ldexp;
+        if (x < 1) return fail<T>(ErrorCode::DomainError);
+        if (x > ldexp(T(1), precisionBits<T>() / 2 + 2))  // acosh = ln(2x)
+            return ok<T>(toValue(logWord(dw(x)) + impl::word<T>(ConstantId::Ln2)));
+        const DoubleWord<T> t = dw(x) - T(1);
+        return ok<T>(toValue(logWord(t + sqrt(t * (t + T(2))) + T(1))));
+    }
+    case FunctionId::Atanh: {
+        using std::abs;
+        const T ax = abs(x);
+        if (ax >= 1) return fail<T>(ErrorCode::DomainError);
+        const DoubleWord<T> w = scale(dw(ax), 1) / (dw(T(1)) - ax);  // atanh = log1p(w) / 2
+        return ok<T>(withSign(toValue(scale(logWord(w + T(1)), -1)), x < 0));
+    }
     default: return fail<T>(ErrorCode::DomainError);
     }
 }

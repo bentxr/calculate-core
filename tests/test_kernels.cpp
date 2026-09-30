@@ -112,3 +112,15 @@ TYPED_TEST(KernelTest, Hyperbolic) {
     test::expectWithinClaim<T>(FunctionId::Tanh, [](auto& rng) { return std::pair<T, T>{uniform<T>(rng, -20, 20), T(0)}; });
     test::expectWithinClaim<T>(FunctionId::Tanh, [](auto& rng) { return std::pair<T, T>{randomSign(rng, logUniform<T>(rng, -30, -1)), T(0)}; });
 }
+
+TYPED_TEST(KernelTest, InverseHyperbolic) {
+    using T = TypeParam;
+    test::expectWithinClaim<T>(FunctionId::Asinh, [](auto& rng) { return std::pair<T, T>{randomSign(rng, logUniform<T>(rng, -30, 60)), T(0)}; });
+    test::expectWithinClaim<T>(FunctionId::Acosh, [](auto& rng) { return std::pair<T, T>{T(T(1) + logUniform<T>(rng, -30, 60)), T(0)}; });
+    test::expectWithinClaim<T>(FunctionId::Atanh, [](auto& rng) { return std::pair<T, T>{uniform<T>(rng, -0.999, 0.999), T(0)}; });
+    for (const auto& [id, x] : {std::pair<FunctionId, T>{FunctionId::Acosh, T(0.5)}, {FunctionId::Atanh, T(1)}, {FunctionId::Atanh, T(-2)}}) {
+        const Applied<T> r = applyFunction<T>(id, {x});
+        ASSERT_TRUE(r.error);
+        EXPECT_EQ(*r.error, ErrorCode::DomainError);
+    }
+}
