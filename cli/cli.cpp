@@ -53,6 +53,63 @@ struct Settings {
     bool color = false;
 };
 
+const char* optionName(NumberType type) {
+    for (const TypeName& t : typeNames)
+        if (t.type == type) return t.option;
+    return "";
+}
+
+const char* codeName(ErrorCode c) {
+    switch (c) {
+    case ErrorCode::InvalidCharacter: return "InvalidCharacter";
+    case ErrorCode::InvalidNumber: return "InvalidNumber";
+    case ErrorCode::UnexpectedToken: return "UnexpectedToken";
+    case ErrorCode::UnexpectedEnd: return "UnexpectedEnd";
+    case ErrorCode::MissingClosingParenthesis: return "MissingClosingParenthesis";
+    case ErrorCode::MissingOperator: return "MissingOperator";
+    case ErrorCode::UnknownName: return "UnknownName";
+    case ErrorCode::WrongArgumentCount: return "WrongArgumentCount";
+    case ErrorCode::NotAvailableInExact: return "NotAvailableInExact";
+    case ErrorCode::LiteralOutOfRange: return "LiteralOutOfRange";
+    case ErrorCode::DivisionByZero: return "DivisionByZero";
+    case ErrorCode::DomainError: return "DomainError";
+    case ErrorCode::Overflow: return "Overflow";
+    case ErrorCode::IrrationalResult: return "IrrationalResult";
+    case ErrorCode::ArgumentTooLarge: return "ArgumentTooLarge";
+    case ErrorCode::NotAnInteger: return "NotAnInteger";
+    case ErrorCode::UncertainDiscreteArgument: return "UncertainDiscreteArgument";
+    case ErrorCode::Cancelled: return "Cancelled";
+    }
+    return "";
+}
+
+void printJson(std::ostream& out, const std::string& input, const Result& r) {
+    const auto flag = [](bool b) { return b ? "true" : "false"; };
+    out << "{\"expression\":" << jsonString(input) << ",\"type\":" << jsonString(optionName(r.type));
+    if (r.error) {
+        out << ",\"error\":{\"code\":" << jsonString(codeName(r.error->code)) << ",\"message\":"
+            << jsonString(r.error->message) << ",\"begin\":" << r.error->begin << ",\"end\":" << r.error->end << "}}\n";
+        return;
+    }
+    if (r.exact) {
+        const Fraction& f = *r.exact;
+        out << ",\"exact\":{\"negative\":" << flag(f.negative) << ",\"numerator\":" << jsonString(f.numerator)
+            << ",\"denominator\":" << jsonString(f.denominator) << ",\"hasDecimal\":" << flag(f.hasDecimal)
+            << ",\"integerPart\":" << jsonString(f.integerPart) << ",\"fractionDigits\":" << jsonString(f.fractionDigits)
+            << ",\"repeatingDigits\":" << jsonString(f.repeatingDigits) << "}";
+    } else {
+        out << ",\"value\":{\"negative\":" << flag(r.value.negative) << ",\"digits\":" << jsonString(r.value.digits)
+            << ",\"exponent10\":" << r.value.exponent10 << "}";
+    }
+    out << ",\"trustedDigits\":" << r.trustedDigits << ",\"trustedDigitsMeasured\":" << r.trustedDigitsMeasured
+        << ",\"bound\":" << jsonString(r.bound) << ",\"inputError\":" << jsonString(r.inputError)
+        << ",\"roundingError\":" << jsonString(r.roundingError) << ",\"libraryError\":" << jsonString(r.libraryError)
+        << ",\"measured\":" << jsonString(r.measured) << ",\"conditionNumber\":" << jsonString(r.conditionNumber)
+        << ",\"measuredAvailable\":" << flag(r.measuredAvailable)
+        << ",\"measurementReliable\":" << flag(r.measurementReliable) << ",\"boundComplete\":" << flag(r.boundComplete)
+        << ",\"roundingOperations\":" << r.roundingOperations << ",\"expanded\":" << jsonString(r.expression) << "}\n";
+}
+
 // Display columns of UTF-8 text: one per code point (bytes that are not continuation bytes).
 std::size_t columns(const std::string& s, std::size_t from, std::size_t to) {
     std::size_t n = 0;
@@ -97,11 +154,13 @@ bool handle(const std::string& line, Session& session, const Settings& s, std::o
             err << "calc: " << line << " needs a previous result\n";
             return false;
         }
-        out << (session.memory().empty() ? std::string("M cleared") : "M = " + session.memory()) << "\n";
+        if (s.json) out << "{\"memory\":" << jsonString(session.memory()) << "}\n";
+        else out << (session.memory().empty() ? std::string("M cleared") : "M = " + session.memory()) << "\n";
         return true;
     }
     const Result r = session.evaluate(line, s.options);
-    if (r.error) printError(err, line, *r.error);
+    if (s.json) printJson(out, line, r);
+    else if (r.error) printError(err, line, *r.error);
     else printHuman(out, line, r, s.color);
     return !r.error;
 }
@@ -151,6 +210,29 @@ std::string formatFraction(const Fraction& f) {
         if (!f.repeatingDigits.empty()) s += "(" + f.repeatingDigits + ")";
     }
     return s;
+}
+
+std::string jsonString(const std::string& s) {
+    static const char* hex = "0123456789abcdef";
+    std::string out = "\"";
+    for (const char c : s) {
+        switch (c) {
+        case '"': out += "\\\""; break;
+        case '\\': out += "\\\\"; break;
+        case '\n': out += "\\n"; break;
+        case '\r': out += "\\r"; break;
+        case '\t': out += "\\t"; break;
+        default:
+            if (static_cast<unsigned char>(c) < 0x20) {
+                out += "\\u00";
+                out += hex[(c >> 4) & 0xF];
+                out += hex[c & 0xF];
+            } else {
+                out += c;  // UTF-8 passes through
+            }
+        }
+    }
+    return out + "\"";
 }
 
 int run(const std::vector<std::string>& args, std::istream& in, std::ostream& out, std::ostream& err,

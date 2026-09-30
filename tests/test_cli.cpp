@@ -104,3 +104,16 @@ TEST(Cli, ReadsStandardInputWhenGivenNoExpressions) {
     EXPECT_EQ(r.code, 0);
     EXPECT_NE(r.out.find("= 5/6 = 0.8(3)"), std::string::npos);
 }
+
+TEST(Cli, EscapesJsonStrings) {
+    EXPECT_EQ(calc::jsonString("a\"b\\c\n\x01"), "\"a\\\"b\\\\c\\n\\u0001\"");
+}
+
+TEST(Cli, JsonLines) {
+    const Outcome r = invoke({"--json", "1/0", "2+2"});
+    EXPECT_EQ(r.code, 1);
+    EXPECT_EQ(r.out.substr(0, r.out.find('\n') + 1),
+              "{\"expression\":\"1/0\",\"type\":\"double\",\"error\":{\"code\":\"DivisionByZero\","
+              "\"message\":\"Division by zero\",\"begin\":0,\"end\":3}}\n");
+    EXPECT_NE(r.out.find("\"value\":{\"negative\":false,\"digits\":\"4\",\"exponent10\":0}"), std::string::npos);
+}
