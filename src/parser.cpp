@@ -1,5 +1,7 @@
 #include "parser.hpp"
 
+#include "numbers.hpp"
+
 #include <algorithm>
 #include <array>
 #include <string>
@@ -114,6 +116,161 @@ Lexed lex(std::string_view s) {
     }
     push(TokenKind::End, s.size(), s.size());
     return out;
+}
+
+namespace {
+
+bool startsOperand(TokenKind k) {
+    return k == TokenKind::Number || k == TokenKind::Identifier || k == TokenKind::LeftParen || k == TokenKind::Pi
+        || k == TokenKind::SquareRoot || k == TokenKind::CubeRoot;
+}
+
+// Binding power of a token in the infix position; 0 ends an expression.
+int leftPower(TokenKind k) {
+    switch (k) {
+    case TokenKind::Plus:
+    case TokenKind::Minus: return 10;
+    case TokenKind::Star:
+    case TokenKind::Slash: return 20;
+    case TokenKind::Caret: return 40;
+    case TokenKind::Bang:
+    case TokenKind::Percent:
+    case TokenKind::Squared:
+    case TokenKind::Cubed: return 50;
+    default: return 0;
+    }
+}
+
+// A Pratt parser that appends nodes to a post-order arena. After the first error every method
+// returns -1 and nothing else is parsed.
+class Parser {
+public:
+    Parser(std::string_view source, std::vector<Token> tokens) : source_(source), tokens_(std::move(tokens)) {}
+
+    Parsed run() {
+        Parsed out;
+        const int root = expression(0);
+        if (!error_ && peek().kind != TokenKind::End)
+            fail(ErrorCode::UnexpectedToken, "Unexpected '" + std::string(peek().text) + "'", peek().span);
+        if (error_) {
+            out.error = error_;
+            return out;
+        }
+        if (root != static_cast<int>(ast_.nodes.size()) - 1) ast_.nodes.push_back(ast_.nodes[root]);  // root last
+        out.ast = std::move(ast_);
+        out.expanded = expanded_ + std::string(source_.substr(copied_));
+        return out;
+    }
+
+private:
+    const Token& peek() const { return tokens_[position_]; }
+    const Token& next() { return tokens_[position_++]; }
+
+    int fail(ErrorCode code, std::string message, Span span) {
+        if (!error_) error_ = makeError(code, std::move(message), span);
+        return -1;
+    }
+
+    int node(FunctionId id, std::vector<int> args, Span span, std::string text = {}) {
+        Node n;
+        n.function = id;
+        n.args = std::move(args);
+        n.span = span;
+        n.text = std::move(text);
+        ast_.nodes.push_back(std::move(n));
+        return static_cast<int>(ast_.nodes.size()) - 1;
+    }
+
+    Span spanOf(int n) const { return ast_.nodes[static_cast<std::size_t>(n)].span; }
+
+    int expression(int minPower) {
+        int left = prefix();
+        while (!error_) {
+            const Token& t = peek();
+            if (startsOperand(t.kind))
+                return fail(ErrorCode::MissingOperator,
+                            "Missing operator before '" + std::string(t.text) + "' (write 2×π, not 2π)", t.span);
+            const int power = leftPower(t.kind);
+            if (power <= minPower) break;
+            const Token op = next();
+            const Span postfix{spanOf(left).begin, op.span.end};
+            switch (op.kind) {
+            case TokenKind::Bang: left = node(FunctionId::Factorial, {left}, postfix); continue;
+            case TokenKind::Percent: left = node(FunctionId::Percent, {left}, postfix); continue;
+            case TokenKind::Squared: left = node(FunctionId::Square, {left}, postfix); continue;
+            case TokenKind::Cubed: left = node(FunctionId::Cube, {left}, postfix); continue;
+            default: break;
+            }
+            const int right = expression(op.kind == TokenKind::Caret ? power - 1 : power);  // ^ is right-associative
+            if (error_) return -1;
+            const FunctionId id = op.kind == TokenKind::Plus    ? FunctionId::Add
+                                : op.kind == TokenKind::Minus   ? FunctionId::Subtract
+                                : op.kind == TokenKind::Star    ? FunctionId::Multiply
+                                : op.kind == TokenKind::Slash   ? FunctionId::Divide
+                                                                : FunctionId::Power;
+            left = node(id, {left, right}, {spanOf(left).begin, spanOf(right).end});
+        }
+        return error_ ? -1 : left;
+    }
+
+    int prefix() {
+        const Token t = next();
+        switch (t.kind) {
+        case TokenKind::Number:
+            if (!parseDecimal(t.text)) return fail(ErrorCode::InvalidNumber, "Invalid number '" + std::string(t.text) + "'", t.span);
+            return node(FunctionId::Literal, {}, t.span, std::string(t.text));
+        case TokenKind::Pi: return node(FunctionId::Pi, {}, t.span);
+        case TokenKind::Minus:
+        case TokenKind::Plus: {
+            const int operand = expression(30);
+            if (error_) return -1;
+            if (t.kind == TokenKind::Plus) return operand;
+            return node(FunctionId::Negate, {operand}, {t.span.begin, spanOf(operand).end});
+        }
+        case TokenKind::SquareRoot:
+        case TokenKind::CubeRoot: {
+            const int operand = expression(45);
+            if (error_) return -1;
+            return node(t.kind == TokenKind::SquareRoot ? FunctionId::Sqrt : FunctionId::Cbrt, {operand},
+                        {t.span.begin, spanOf(operand).end});
+        }
+        case TokenKind::LeftParen: {
+            const int inner = expression(0);
+            if (error_) return -1;
+            if (peek().kind != TokenKind::RightParen)
+                return fail(ErrorCode::MissingClosingParenthesis, "Missing ')'", {t.span.begin, peek().span.begin});
+            ast_.nodes[static_cast<std::size_t>(inner)].span = {t.span.begin, next().span.end};
+            return inner;
+        }
+        case TokenKind::Identifier: return identifier(t);
+        case TokenKind::End: return fail(ErrorCode::UnexpectedEnd, "The expression ends too early", t.span);
+        default: return fail(ErrorCode::UnexpectedToken, "Unexpected '" + std::string(t.text) + "'", t.span);
+        }
+    }
+
+    int identifier(const Token& t) {
+        return fail(ErrorCode::UnknownName, "Unknown name '" + std::string(t.text) + "'", t.span);
+    }
+
+    std::string_view source_;
+    std::vector<Token> tokens_;
+    Ast ast_;
+    std::size_t position_ = 0;
+    std::optional<Error> error_;
+    std::string expanded_;  // the expanded source up to `copied_`
+    std::size_t copied_ = 0;
+};
+
+}  // namespace
+
+Parsed parse(std::string_view source, AngleUnit /*angle*/, const Names& /*names*/) {
+    Lexed lexed = lex(source);
+    if (lexed.error) {
+        Parsed out;
+        out.error = lexed.error;
+        return out;
+    }
+    return Parser(source, std::move(lexed.tokens)).run();
 }
 
 }  // namespace calculate_core::detail

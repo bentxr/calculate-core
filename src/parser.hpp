@@ -4,7 +4,10 @@
 
 #include <calculate-core/calculate-core.hpp>
 
+#include <functional>
+#include <map>
 #include <optional>
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -28,5 +31,16 @@ struct Lexed {
 
 // Locale-free; ASCII plus the UTF-8 aliases × ÷ − π √ ∛ ² ³.
 Lexed lex(std::string_view source);
+
+// Named expressions (Ans, M): the name is replaced by its text, in parentheses.
+using Names = std::map<std::string, std::string, std::less<>>;
+
+struct Parsed {
+    std::optional<Error> error;
+    Ast ast;
+    std::string expanded;  // the source with every name replaced by "(" + its text + ")"
+};
+
+Parsed parse(std::string_view source, AngleUnit angle, const Names& names = {});
 
 }  // namespace calculate_core::detail
