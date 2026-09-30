@@ -170,7 +170,8 @@ int leftPower(TokenKind k) {
 // returns -1 and nothing else is parsed.
 class Parser {
 public:
-    Parser(std::string_view source, std::vector<Token> tokens) : source_(source), tokens_(std::move(tokens)) {}
+    Parser(std::string_view source, std::vector<Token> tokens, AngleUnit angle)
+        : source_(source), tokens_(std::move(tokens)), angle_(angle) {}
 
     Parsed run() {
         Parsed out;
@@ -310,7 +311,26 @@ private:
             const std::string expected = name == "log" ? "1 or 2 arguments" : argumentCount(info.minArgs, info.maxArgs < 0);
             return fail(ErrorCode::WrongArgumentCount, name + " takes " + expected, span);
         }
-        return node(*id, std::move(args), span);
+        return withAngles(*id, std::move(args), span);
+    }
+
+    // Degrees and gradians become radians on the way in, and back on the way out, as explicit
+    // arithmetic through pi: its error stays visible in the report.
+    int withAngles(FunctionId id, std::vector<int> args, Span span) {
+        const bool direct = id == FunctionId::Sin || id == FunctionId::Cos || id == FunctionId::Tan;
+        const bool inverse = id == FunctionId::Asin || id == FunctionId::Acos || id == FunctionId::Atan;
+        if (angle_ == AngleUnit::Radians || (!direct && !inverse)) return node(id, std::move(args), span);
+        const std::string full = angle_ == AngleUnit::Degrees ? "180" : "200";
+        if (direct) {
+            const int pi = node(FunctionId::Pi, {}, span);
+            const int factor = node(FunctionId::Divide, {pi, node(FunctionId::Literal, {}, span, full)}, span);
+            args[0] = node(FunctionId::Multiply, {args[0], factor}, span);
+            return node(id, std::move(args), span);
+        }
+        const int radians = node(id, std::move(args), span);
+        const int top = node(FunctionId::Literal, {}, span, full);
+        const int factor = node(FunctionId::Divide, {top, node(FunctionId::Pi, {}, span)}, span);
+        return node(FunctionId::Multiply, {radians, factor}, span);
     }
 
     int statistic(Statistic s, const std::string& name, const std::vector<int>& args, Span span) {
@@ -322,6 +342,7 @@ private:
 
     std::string_view source_;
     std::vector<Token> tokens_;
+    AngleUnit angle_;
     Ast ast_;
     std::size_t position_ = 0;
     std::optional<Error> error_;
@@ -331,14 +352,14 @@ private:
 
 }  // namespace
 
-Parsed parse(std::string_view source, AngleUnit /*angle*/, const Names& /*names*/) {
+Parsed parse(std::string_view source, AngleUnit angle, const Names& /*names*/) {
     Lexed lexed = lex(source);
     if (lexed.error) {
         Parsed out;
         out.error = lexed.error;
         return out;
     }
-    return Parser(source, std::move(lexed.tokens)).run();
+    return Parser(source, std::move(lexed.tokens), angle).run();
 }
 
 }  // namespace calculate_core::detail

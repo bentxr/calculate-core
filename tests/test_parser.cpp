@@ -173,3 +173,11 @@ TEST(Parser, ErrorsPointAtTheirCause) {
     EXPECT_EQ(parseError("var(1)").code, ErrorCode::WrongArgumentCount);
     EXPECT_EQ(parseError("Ans+1").code, ErrorCode::UnknownName);
 }
+
+TEST(Parser, AnglesAreConvertedExplicitly) {
+    EXPECT_EQ(tree("sin(90)", AngleUnit::Degrees), "(sin (* 90 (/ pi 180)))");
+    EXPECT_EQ(tree("cos(100)", AngleUnit::Gradians), "(cos (* 100 (/ pi 200)))");
+    EXPECT_EQ(tree("asin(1)", AngleUnit::Degrees), "(* (asin 1) (/ 180 pi))");
+    EXPECT_EQ(tree("sin(1)", AngleUnit::Radians), "(sin 1)");
+    EXPECT_EQ(tree("sinh(1)", AngleUnit::Degrees), "(sinh 1)");
+}
