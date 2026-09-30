@@ -1,5 +1,6 @@
 #include "cli.hpp"
 
+#include <algorithm>
 #include <istream>
 #include <optional>
 #include <ostream>
@@ -51,6 +52,20 @@ struct Settings {
     bool color = false;
 };
 
+// Display columns of UTF-8 text: one per code point (bytes that are not continuation bytes).
+std::size_t columns(const std::string& s, std::size_t from, std::size_t to) {
+    std::size_t n = 0;
+    for (std::size_t i = from; i < to && i < s.size(); ++i)
+        if ((static_cast<unsigned char>(s[i]) & 0xC0) != 0x80) ++n;
+    return n;
+}
+
+void printError(std::ostream& err, const std::string& input, const Error& e) {
+    err << input << "\n"
+        << std::string(columns(input, 0, e.begin), ' ')
+        << std::string(std::max<std::size_t>(1, columns(input, e.begin, e.end)), '^') << " " << e.message << "\n";
+}
+
 void printHuman(std::ostream& out, const std::string& input, const Result& r, bool color) {
     out << input << "\n";
     if (r.exact) {
@@ -74,7 +89,7 @@ void printHuman(std::ostream& out, const std::string& input, const Result& r, bo
 // One expression. Returns false when it failed.
 bool handle(const std::string& line, Session& session, const Settings& s, std::ostream& out, std::ostream& err) {
     const Result r = session.evaluate(line, s.options);
-    if (r.error) err << line << "\n" << r.error->message << "\n";
+    if (r.error) printError(err, line, *r.error);
     else printHuman(out, line, r, s.color);
     return !r.error;
 }

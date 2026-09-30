@@ -78,3 +78,12 @@ TEST(Cli, ExactResults) {
     const Outcome r = invoke({"--type", "exact", "1/3"});
     EXPECT_EQ(r.out, "1/3\n= 1/3 = 0.(3)\n  exact, no rounding error · κ 2e+0\n");
 }
+
+TEST(Cli, ErrorsGoToStandardErrorWithACaret) {
+    const Outcome r = invoke({"1 + 1/0"});
+    EXPECT_EQ(r.code, 1);
+    EXPECT_EQ(r.out, "");
+    EXPECT_EQ(r.err, "1 + 1/0\n    ^^^ Division by zero\n");
+    const Outcome wide = invoke({"2×π + 1/0"});  // columns count code points, not bytes
+    EXPECT_EQ(wide.err, "2×π + 1/0\n      ^^^ Division by zero\n");
+}
