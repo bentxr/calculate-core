@@ -213,3 +213,24 @@ TEST(IntegerFunctions, CancellationStopsLongLoops) {
     ASSERT_TRUE(r.error);
     EXPECT_EQ(*r.error, ErrorCode::Cancelled);
 }
+
+TEST(LocalError, ExactRootsAndIntegerPowersAreChecked) {
+    const Applied<double> four = applyFunction<double>(FunctionId::Sqrt, {16.0});
+    EXPECT_EQ(localError<double>(FunctionId::Sqrt, {16.0}, four), 0);
+    const Applied<double> two = applyFunction<double>(FunctionId::Sqrt, {2.0});
+    EXPECT_EQ(localError<double>(FunctionId::Sqrt, {2.0}, two),
+              exactCast<Ruler>(unitRoundoff<double>()) * exactCast<Ruler>(two.value));
+    const Applied<double> hundred = applyFunction<double>(FunctionId::Power, {10.0, 2.0});
+    EXPECT_EQ(localError<double>(FunctionId::Power, {10.0, 2.0}, hundred), 0);
+    const Applied<double> square = applyFunction<double>(FunctionId::Power, {0.1, 2.0});
+    EXPECT_EQ(localError<double>(FunctionId::Power, {0.1, 2.0}, square),
+              fromRational<Ruler>(abs(toRational(0.1) * toRational(0.1) - toRational(square.value))));
+    const Applied<double> cube = applyFunction<double>(FunctionId::Cbrt, {-27.0});
+    EXPECT_EQ(localError<double>(FunctionId::Cbrt, {-27.0}, cube), 0);
+}
+
+TEST(LocalError, CountedFunctions) {
+    const Applied<double> r = applyFunction<double>(FunctionId::Factorial, {25.0});
+    EXPECT_EQ(localError<double>(FunctionId::Factorial, {25.0}, r),
+              Ruler(r.roundings) * exactCast<Ruler>(unitRoundoff<double>()) * exactCast<Ruler>(r.value));
+}

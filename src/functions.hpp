@@ -498,8 +498,38 @@ inline std::optional<Rational> exactResult(FunctionId id, const std::vector<Rati
     case FunctionId::Percent: return a[0] / 100;
     case FunctionId::Square: return a[0] * a[0];
     case FunctionId::Cube: return a[0] * a[0] * a[0];
+    case FunctionId::Lcm: {
+        if (a[0] == 0 || a[1] == 0) return Rational(0);
+        const Integer x = abs(numerator(a[0]));
+        const Integer y = abs(numerator(a[1]));
+        return Rational(x / gcd(x, y) * y);
+    }
+    case FunctionId::Median: {
+        std::vector<Rational> sorted = a;
+        std::sort(sorted.begin(), sorted.end());
+        const std::size_t n = sorted.size();
+        return n % 2 ? sorted[n / 2] : Rational((sorted[n / 2 - 1] + sorted[n / 2]) / 2);
+    }
     default: return std::nullopt;
     }
+}
+
+// Whether a computed root is exact: value^n == x, compared as rationals.
+template <class T>
+bool exactRootResult(FunctionId id, const std::vector<T>& a, const T& value) {
+    using std::abs;
+    const Rational v = toRational(value);
+    const Rational x = toRational(a[0]);
+    if (id == FunctionId::Sqrt) return v * v == x;
+    if (id == FunctionId::Cbrt) return v * v * v == x;
+    if (id == FunctionId::Root && isInteger(a[1]) && a[1] != 0 && abs(a[1]) <= 64) {
+        const long long n = toLongLong(a[1]);
+        const unsigned e = static_cast<unsigned>(n < 0 ? -n : n);
+        if (v == 0) return false;
+        const Rational power(pow(numerator(v), e), pow(denominator(v), e));
+        return n > 0 ? power == x : 1 / power == x;
+    }
+    return false;
 }
 
 }  // namespace impl
@@ -513,11 +543,17 @@ Ruler localError(FunctionId id, const std::vector<T>& args, const Applied<T>& ap
         using std::abs;
         const Ruler u = exactCast<Ruler>(unitRoundoff<T>());
         const Ruler v = abs(exactCast<Ruler>(applied.value));
+        std::vector<Rational> exactArgs;
+        for (const T& x : args) exactArgs.push_back(toRational(x));
+        if (id == FunctionId::Power && impl::isInteger(args[1]) && abs(args[1]) <= 64) {  // checked exactly
+            Rational exact;
+            if (!impl::exactPower(exactArgs[0], exactArgs[1], exact))
+                return fromRational<Ruler>(abs(exact - toRational(applied.value)));
+        }
+        if (impl::exactRootResult(id, args, applied.value)) return Ruler(0);
         switch (functionInfo(id).errorClass) {
         case ErrorClass::Exact: return Ruler(0);
         case ErrorClass::Checked: {
-            std::vector<Rational> exactArgs;
-            for (const T& x : args) exactArgs.push_back(toRational(x));
             const auto exact = impl::exactResult(id, exactArgs);
             return exact ? fromRational<Ruler>(abs(*exact - toRational(applied.value))) : Ruler(0);
         }
