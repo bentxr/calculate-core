@@ -3,7 +3,9 @@
 #include "eft.hpp"
 #include "numbers.hpp"
 
+#include <algorithm>
 #include <cmath>
+#include <vector>
 
 namespace calculate_core::detail {
 
@@ -109,6 +111,37 @@ DoubleWord<T> sqrt(const DoubleWord<T>& x) {
     const DoubleWord<T> r = x - DoubleWord<T>{p.value, p.error};
     const TwoPart<T> z = fastTwoSum(s, r.hi / (T(2) * s));
     return {z.value, z.error};
+}
+
+template <class T>
+bool operator<(const DoubleWord<T>& x, const T& y) {
+    return x.hi < y || (x.hi == y && x.lo < 0);
+}
+
+// A constant as a double word, correctly rounded in each part.
+template <class T>
+DoubleWord<T> constantWord(ConstantId id) {
+    const Rational c = constantRational(id);
+    const T hi = fromRational<T>(c);
+    return {hi, fromRational<T>(c - toRational(hi))};
+}
+
+// A constant split into `count` pieces of at most `bits` significant bits each (Cody-Waite):
+// k * piece is exact whenever |k| < 2^(p - bits). The pieces sum to the table value, truncated.
+template <class T>
+std::vector<T> constantPieces(ConstantId id, int bits, int count) {
+    const Integer m = constantMantissa(id);
+    const long long top = static_cast<long long>(msb(m));
+    std::vector<T> pieces;
+    for (int j = 0; j < count; ++j) {
+        const long long high = top - static_cast<long long>(j) * bits;  // highest bit of piece j
+        if (high < 0) break;
+        const long long from = std::max(high - bits + 1, 0LL);
+        const unsigned width = static_cast<unsigned>(high - from + 1);
+        const Integer chunk = (m >> static_cast<unsigned>(from)) & ((Integer(1) << width) - 1);
+        pieces.push_back(fromRational<T>(scaleByPowerOfTwo(Rational(chunk), from - constantFractionBits)));
+    }
+    return pieces;
 }
 
 }  // namespace calculate_core::detail

@@ -64,3 +64,33 @@ TYPED_TEST(DoubleWordTest, ScalingIsExact) {
     EXPECT_EQ(exact(scale(x, 5)), exact(x) * 32);
     EXPECT_EQ(exact(scale(x, -3)), exact(x) / 8);
 }
+
+TYPED_TEST(DoubleWordTest, ConstantWordsCarryTwicePrecision) {
+    using T = TypeParam;
+    const Rational u = toRational(unitRoundoff<T>());
+    for (ConstantId id : {ConstantId::Pi, ConstantId::Ln2, ConstantId::E}) {
+        const DoubleWord<T> c = constantWord<T>(id);
+        EXPECT_EQ(c.hi, constantValue<T>(id));
+        EXPECT_LE(abs(exact(c) - constantRational(id)), 2 * u * u * constantRational(id));
+    }
+}
+
+TYPED_TEST(DoubleWordTest, ConstantPiecesAreShortAndSumToTheTable) {
+    using T = TypeParam;
+    const int bits = precisionBits<T>() / 2;
+    const std::vector<T> pieces = constantPieces<T>(ConstantId::Ln2, bits, 4);
+    ASSERT_EQ(pieces.size(), 4u);
+    Rational sum = 0;
+    for (const T& piece : pieces) {
+        const Rational q = toRational(piece);
+        if (q != 0) {  // at most `bits` significant bits: numerator < 2^bits after removing factors of two
+            Integer n = abs(numerator(q));
+            while ((n & 1) == 0) n >>= 1;
+            EXPECT_LT(msb(n), unsigned(bits));
+        }
+        sum += q;
+    }
+    const Rational table = constantRational(ConstantId::Ln2);
+    EXPECT_LE(sum, table);
+    EXPECT_LT(table - sum, scaleByPowerOfTwo(Rational(1), -(4 * bits) + 1));
+}
