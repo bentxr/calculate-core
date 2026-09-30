@@ -143,6 +143,14 @@ Applied<T> kernel(FunctionId id, const std::vector<T>& a) {
     };
     switch (id) {
     case FunctionId::Exp: return fromExp(expParts(dw(x)), false);
+    case FunctionId::Ln:
+    case FunctionId::Log10:
+        if (x <= 0) return fail<T>(ErrorCode::DomainError);
+        if (id == FunctionId::Ln) return ok<T>(toValue(logWord(dw(x))));
+        return ok<T>(toValue(logWord(dw(x)) / impl::word<T>(ConstantId::Ln10)));
+    case FunctionId::LogBase:
+        if (x <= 0 || a[1] <= 0 || a[1] == 1) return fail<T>(ErrorCode::DomainError);
+        return ok<T>(toValue(logWord(dw(x)) / logWord(dw(a[1]))));
     default: return fail<T>(ErrorCode::DomainError);
     }
 }

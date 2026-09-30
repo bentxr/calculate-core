@@ -126,4 +126,30 @@ DoubleWord<T> expValue(const ExpParts<T>& p) {
     return scale(p.expm1 + T(1), static_cast<int>(p.k));
 }
 
+// log of a positive double word: x = 2^e m, m in [sqrt(1/2), sqrt(2)), log m = 2 atanh((m-1)/(m+1)).
+template <class T>
+DoubleWord<T> logWord(const DoubleWord<T>& x) {
+    using std::frexp;
+    int e;
+    frexp(x.hi, &e);
+    DoubleWord<T> m = scale(x, -e);
+    if (m.hi < T(0.70710678118654752)) {  // a reduction boundary, not a precision
+        m = scale(m, 1);
+        --e;
+    }
+    const DoubleWord<T> z = (m - T(1)) / (m + T(1));
+    DoubleWord<T> sum = z;
+    if (z.hi != 0) {
+        const DoubleWord<T> z2 = z * z;
+        DoubleWord<T> power = z;
+        for (int k = 3;; k += 2) {
+            power = power * z2;
+            const DoubleWord<T> term = power / T(k);
+            if (impl::negligible(term, sum)) break;
+            sum = sum + term;
+        }
+    }
+    return scale(sum, 1) + impl::word<T>(ConstantId::Ln2) * T(e);
+}
+
 }  // namespace calculate_core::detail

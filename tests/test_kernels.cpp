@@ -31,3 +31,29 @@ TYPED_TEST(KernelTest, ExpEdges) {
     EXPECT_FALSE(tiny.error);
     EXPECT_EQ(tiny.value, T(0));
 }
+
+TYPED_TEST(KernelTest, Logarithms) {
+    using T = TypeParam;
+    test::expectWithinClaim<T>(FunctionId::Ln, [](auto& rng) { return std::pair<T, T>{logUniform<T>(rng, -200, 200), T(0)}; });
+    test::expectWithinClaim<T>(FunctionId::Ln, [](auto& rng) { return std::pair<T, T>{T(T(1) + randomSign(rng, logUniform<T>(rng, -40, -2))), T(0)}; });
+    test::expectWithinClaim<T>(FunctionId::Log10, [](auto& rng) { return std::pair<T, T>{logUniform<T>(rng, -100, 100), T(0)}; });
+    test::expectWithinClaim<T>(FunctionId::LogBase, [](auto& rng) {
+        const T x = logUniform<T>(rng, -100, 100);
+        return std::pair<T, T>{x, uniform<T>(rng, 1.5, 20)};
+    });
+}
+
+TYPED_TEST(KernelTest, LogarithmEdges) {
+    using T = TypeParam;
+    EXPECT_EQ(applyFunction<T>(FunctionId::Ln, {T(1)}).value, T(0));
+    EXPECT_EQ(applyFunction<T>(FunctionId::Log10, {T(1000)}).value, T(3));
+    EXPECT_EQ(applyFunction<T>(FunctionId::LogBase, {T(8), T(2)}).value, T(3));
+    for (const T& bad : {T(0), T(-1)}) {
+        const Applied<T> r = applyFunction<T>(FunctionId::Ln, {bad});
+        ASSERT_TRUE(r.error);
+        EXPECT_EQ(*r.error, ErrorCode::DomainError);
+    }
+    const Applied<T> baseOne = applyFunction<T>(FunctionId::LogBase, {T(5), T(1)});
+    ASSERT_TRUE(baseOne.error);
+    EXPECT_EQ(*baseOne.error, ErrorCode::DomainError);
+}
