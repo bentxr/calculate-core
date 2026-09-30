@@ -1,4 +1,5 @@
 #pragma once
 
-// Umbrella header: include this to pull in the whole library.
-#include "algebra.hpp"
+// calculate-core: a calculator engine whose results carry their error.
+namespace calculate_core {
+}
