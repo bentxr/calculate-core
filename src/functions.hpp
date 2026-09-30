@@ -6,6 +6,7 @@
 
 #include <calculate-core/calculate-core.hpp>
 
+#include <algorithm>
 #include <array>
 #include <atomic>
 #include <limits>
@@ -155,6 +156,59 @@ bool isOdd(const T& x) {
         if (abs(x) >= ldexp(T(1), precisionBits<T>())) return false;
         return trunc(x / 2) * 2 != x;
     }
+}
+
+inline bool cancelled(const std::atomic<bool>* cancel) {
+    return cancel && cancel->load(std::memory_order_relaxed);
+}
+
+// gcd, lcm, n!, nCr, nPr. gcd and lcm are exact through integers; the products count the
+// multiplications and divisions that may have rounded (those past 2^p) for inexact T.
+template <class T>
+Applied<T> integerFunction(FunctionId id, const std::vector<T>& a, const std::atomic<bool>* cancel) {
+    for (const T& x : a)
+        if (!isInteger(x)) return fail<T>(ErrorCode::NotAnInteger);
+    if (id == FunctionId::Gcd)
+        return ok<T>(fromRational<T>(Rational(gcd(numerator(toRational(a[0])), numerator(toRational(a[1]))))));
+    if (id == FunctionId::Lcm) {
+        if (a[0] == 0 || a[1] == 0) return ok<T>(T(0));
+        const Integer x = abs(numerator(toRational(a[0])));
+        const Integer y = abs(numerator(toRational(a[1])));
+        return ok<T>(fromRational<T>(Rational(x / gcd(x, y) * y)));  // gcd > 0
+    }
+    const T n = a[0];
+    T r = id == FunctionId::Factorial ? n : a[1];
+    if (n < 0 || r < 0) return fail<T>(ErrorCode::DomainError);
+    if (id != FunctionId::Factorial && r > n) return ok<T>(T(0));
+    if (id == FunctionId::Ncr && r > n - r) r = n - r;
+    T big{};
+    if constexpr (!isExact<T>) {
+        using std::ldexp;
+        big = ldexp(T(1), precisionBits<T>());
+    }
+    T v = 1;
+    int roundings = 0;
+    long long steps = 0;
+    const auto multiply = [&](const T& factor, const T& divisor) -> std::optional<ErrorCode> {
+        if (++steps % 1024 == 0 && cancelled(cancel)) return ErrorCode::Cancelled;
+        v = v * factor;
+        if constexpr (!isExact<T>) roundings += v >= big;
+        if (divisor != 1) {
+            v = v / divisor;
+            if constexpr (!isExact<T>) roundings += v >= big;
+        }
+        if (!isFinite(v)) return ErrorCode::Overflow;
+        return std::nullopt;
+    };
+    std::optional<ErrorCode> e;
+    if (id == FunctionId::Factorial)
+        for (T i = 2; !e && i <= n; i = i + 1) e = multiply(i, T(1));
+    else if (id == FunctionId::Npr)
+        for (T i = 0; !e && i < r; i = i + 1) e = multiply(n - i, T(1));
+    else
+        for (T i = 1; !e && i <= r; i = i + 1) e = multiply(n - r + i, i);
+    if (e) return fail<T>(*e);
+    return ok<T>(v, roundings);
 }
 
 // n >= 0: the integer q-th root of n, if n is a perfect q-th power (Newton's method from above).
@@ -353,7 +407,7 @@ Applied<T> kernel(FunctionId id, const std::vector<T>& a) {
 
 // One node computed in T. Errors are values: never NaN or infinity.
 template <class T>
-Applied<T> applyFunction(FunctionId id, const std::vector<T>& a, const std::atomic<bool>* /*cancel*/ = nullptr) {
+Applied<T> applyFunction(FunctionId id, const std::vector<T>& a, const std::atomic<bool>* cancel = nullptr) {
     Applied<T> r;
     switch (id) {
     case FunctionId::Pi:
@@ -375,6 +429,34 @@ Applied<T> applyFunction(FunctionId id, const std::vector<T>& a, const std::atom
     case FunctionId::Percent: r.value = a[0] / T(100); break;
     case FunctionId::Square: r.value = a[0] * a[0]; break;
     case FunctionId::Cube: r.value = a[0] * a[0] * a[0]; break;
+    case FunctionId::Abs: {
+        using std::abs;
+        r.value = abs(a[0]);
+        break;
+    }
+    case FunctionId::Mod: {  // truncated, like fmod, and exact
+        if (a[1] == 0) return impl::fail<T>(ErrorCode::DivisionByZero);
+        const Rational x = toRational(a[0]);
+        const Rational y = toRational(a[1]);
+        const Rational q = x / y;
+        r.value = fromRational<T>(x - y * Rational(numerator(q) / denominator(q)));
+        break;
+    }
+    case FunctionId::Median: {
+        std::vector<T> sorted = a;
+        std::sort(sorted.begin(), sorted.end());
+        const std::size_t n = sorted.size();
+        r.value = n % 2 ? sorted[n / 2] : T((sorted[n / 2 - 1] + sorted[n / 2]) / 2);
+        break;
+    }
+    case FunctionId::Factorial:
+    case FunctionId::Ncr:
+    case FunctionId::Npr:
+    case FunctionId::Gcd:
+    case FunctionId::Lcm:
+        r = impl::integerFunction<T>(id, a, cancel);
+        if (r.error) return r;
+        break;
     default:
         if constexpr (isExact<T>) {
             if (!functionInfo(id).exact) return impl::fail<T>(ErrorCode::NotAvailableInExact);

@@ -152,3 +152,64 @@ TEST(ExactFunctions, IrrationalOrUndefinedResultsAreErrors) {
     EXPECT_EQ(code(FunctionId::Sin, {Rational(1)}), ErrorCode::NotAvailableInExact);
     EXPECT_EQ(code(FunctionId::Ln, {Rational(1)}), ErrorCode::NotAvailableInExact);
 }
+
+TYPED_TEST(ApplyTest, IntegerFunctions) {
+    using T = TypeParam;
+    const auto value = [](FunctionId id, std::vector<T> args) {
+        const Applied<T> r = applyFunction<T>(id, args);
+        EXPECT_FALSE(r.error) << static_cast<int>(id);
+        return r.value;
+    };
+    EXPECT_EQ(value(FunctionId::Factorial, {T(5)}), T(120));
+    EXPECT_EQ(value(FunctionId::Factorial, {T(0)}), T(1));
+    EXPECT_EQ(value(FunctionId::Ncr, {T(5), T(2)}), T(10));
+    EXPECT_EQ(value(FunctionId::Ncr, {T(2), T(5)}), T(0));
+    EXPECT_EQ(value(FunctionId::Npr, {T(5), T(2)}), T(20));
+    EXPECT_EQ(value(FunctionId::Gcd, {T(12), T(18)}), T(6));
+    EXPECT_EQ(value(FunctionId::Gcd, {T(0), T(0)}), T(0));
+    EXPECT_EQ(value(FunctionId::Lcm, {T(4), T(6)}), T(12));
+    EXPECT_EQ(value(FunctionId::Mod, {T(7), T(3)}), T(1));
+    EXPECT_EQ(value(FunctionId::Mod, {T(-7), T(3)}), T(-1));  // truncated: the sign of the dividend
+    EXPECT_EQ(value(FunctionId::Mod, {T(7), T(-3)}), T(1));
+    EXPECT_EQ(value(FunctionId::Mod, {T(11) / T(2), T(2)}), T(3) / T(2));
+    EXPECT_EQ(value(FunctionId::Abs, {T(-3)}), T(3));
+    EXPECT_EQ(value(FunctionId::Median, {T(3), T(1), T(2)}), T(2));
+    EXPECT_EQ(value(FunctionId::Median, {T(4), T(1), T(3), T(2)}), T(5) / T(2));
+}
+
+TYPED_TEST(ApplyTest, IntegerFunctionErrors) {
+    using T = TypeParam;
+    const auto code = [](FunctionId id, std::vector<T> args) {
+        const Applied<T> r = applyFunction<T>(id, args);
+        EXPECT_TRUE(r.error) << static_cast<int>(id);
+        return r.error.value_or(ErrorCode::Cancelled);
+    };
+    EXPECT_EQ(code(FunctionId::Factorial, {T(7) / T(2)}), ErrorCode::NotAnInteger);
+    EXPECT_EQ(code(FunctionId::Factorial, {T(-1)}), ErrorCode::DomainError);
+    EXPECT_EQ(code(FunctionId::Gcd, {T(1) / T(2), T(2)}), ErrorCode::NotAnInteger);
+    EXPECT_EQ(code(FunctionId::Mod, {T(1), T(0)}), ErrorCode::DivisionByZero);
+    EXPECT_EQ(code(FunctionId::Ncr, {T(-5), T(2)}), ErrorCode::DomainError);
+}
+
+TEST(IntegerFunctions, ExactTypeHasNoLimit) {
+    EXPECT_EQ(applyFunction<Rational>(FunctionId::Ncr, {Rational(100), Rational(50)}).value,
+              Rational(Integer("100891344545564193334812497256")));
+    EXPECT_EQ(applyFunction<Rational>(FunctionId::Factorial, {Rational(25)}).value,
+              Rational(Integer("15511210043330985984000000")));
+}
+
+TEST(IntegerFunctions, OverflowAndCountedRoundings) {
+    const Applied<double> overflow = applyFunction<double>(FunctionId::Factorial, {171.0});
+    ASSERT_TRUE(overflow.error);
+    EXPECT_EQ(*overflow.error, ErrorCode::Overflow);
+    EXPECT_EQ(applyFunction<double>(FunctionId::Factorial, {10.0}).roundings, 0);  // 10! < 2^53: exact
+    EXPECT_GT(applyFunction<double>(FunctionId::Factorial, {25.0}).roundings, 0);
+    EXPECT_EQ(applyFunction<double>(FunctionId::Npr, {20.0, 10.0}).value, 670442572800.0);
+}
+
+TEST(IntegerFunctions, CancellationStopsLongLoops) {
+    std::atomic<bool> cancel{true};
+    const Applied<Rational> r = applyFunction<Rational>(FunctionId::Factorial, {Rational(100000)}, &cancel);
+    ASSERT_TRUE(r.error);
+    EXPECT_EQ(*r.error, ErrorCode::Cancelled);
+}
