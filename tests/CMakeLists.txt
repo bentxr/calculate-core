@@ -13,6 +13,7 @@ add_executable(calculate-core-tests
     test_ieee.cpp
     test_constants.cpp
     test_public.cpp
+    test_ast.cpp
 )
 target_include_directories(calculate-core-tests PRIVATE ${PROJECT_SOURCE_DIR}/src)
 target_link_libraries(calculate-core-tests PRIVATE
