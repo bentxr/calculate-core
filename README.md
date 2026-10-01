@@ -128,6 +128,8 @@ transcendental functions are unavailable.
 
 `^` is right-associative, `-2^2` is −4, `%` divides by 100, `log(x)` is base 10, and `mod` keeps
 the sign of `a`. There is no implicit multiplication: write `2π` as `2×π`.
+The names on Spanish calculator keys work too: `sen  Arcsen  Arccos  Arctan`, `senh  Arcsenh
+Arccosh  Arctanh`, `MCD` (gcd) and `MCM` (lcm).
 
 ## Using the library
 

@@ -140,6 +140,19 @@ TEST(Parser, CallsAndConstants) {
     EXPECT_EQ(tree("e^2"), "(^ e 2)");
 }
 
+TEST(Parser, SpanishCalculatorNamesAreTheSameFunctions) {
+    EXPECT_EQ(tree("sen(1)"), "(sin 1)");
+    EXPECT_EQ(tree("Arcsen(1)"), "(asin 1)");
+    EXPECT_EQ(tree("Arccos(1)"), "(acos 1)");
+    EXPECT_EQ(tree("Arctan(1)"), "(atan 1)");
+    EXPECT_EQ(tree("senh(1)"), "(sinh 1)");
+    EXPECT_EQ(tree("Arcsenh(1)"), "(asinh 1)");
+    EXPECT_EQ(tree("Arccosh(2)"), "(acosh 2)");
+    EXPECT_EQ(tree("Arctanh(0)"), "(atanh 0)");
+    EXPECT_EQ(tree("MCD(28, 35)"), "(gcd 28 35)");
+    EXPECT_EQ(tree("MCM(9, 15)"), "(lcm 9 15)");
+}
+
 TEST(Parser, ImplicitMultiplicationIsRefused) {
     for (const char* text : {"2pi", "2π", "2(3)", "(1)(2)", "2 3", "2sin(1)"}) {
         const Error e = parseError(text);

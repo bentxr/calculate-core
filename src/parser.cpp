@@ -132,8 +132,17 @@ Statistic statisticNamed(std::string_view name) {
     return Statistic::None;
 }
 
+// Names as printed on Spanish calculator keys, and the function each one stands for.
+constexpr std::array<std::pair<std::string_view, std::string_view>, 10> spanishNames{{
+    {"sen", "sin"}, {"Arcsen", "asin"}, {"Arccos", "acos"}, {"Arctan", "atan"},
+    {"senh", "sinh"}, {"Arcsenh", "asinh"}, {"Arccosh", "acosh"}, {"Arctanh", "atanh"},
+    {"MCD", "gcd"}, {"MCM", "lcm"},
+}};
+
 // The function with this name (pi and e are constants, not functions).
 std::optional<FunctionId> functionNamed(std::string_view name) {
+    for (const auto& [spanish, english] : spanishNames)
+        if (name == spanish) name = english;
     for (int i = 0; i < functionCount; ++i) {
         const FunctionInfo& info = functionInfo(static_cast<FunctionId>(i));
         if (!info.name.empty() && info.name == name && info.minArgs > 0) return info.id;
