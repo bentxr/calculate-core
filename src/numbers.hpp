@@ -190,7 +190,7 @@ struct DecimalLiteral {
     long long exponent10 = 0;
 };
 
-// digits [. [digits]] [exponent] | . digits [exponent], exponent = (e|E) [+|-] digits.
+// digits [. [digits]] [exponent] | . digits [exponent], exponent = (e|E) [+|-|−] digits.
 // The exponent saturates at ±10^15, so it never overflows.
 inline std::optional<DecimalLiteral> parseDecimal(std::string_view text) {
     constexpr long long limit = 1000000000000000LL;
@@ -209,7 +209,12 @@ inline std::optional<DecimalLiteral> parseDecimal(std::string_view text) {
     if (i < text.size() && (text[i] == 'e' || text[i] == 'E')) {
         ++i;
         bool negative = false;
-        if (i < text.size() && (text[i] == '+' || text[i] == '-')) negative = text[i++] == '-';
+        if (i < text.size() && (text[i] == '+' || text[i] == '-')) {
+            negative = text[i++] == '-';
+        } else if (text.substr(i, 3) == "\xE2\x88\x92") {  // −, the calculator's minus
+            negative = true;
+            i += 3;
+        }
         const std::size_t start = i;
         for (; i < text.size() && isDigit(text[i]); ++i)
             if (exponent <= limit) exponent = exponent * 10 + (text[i] - '0');

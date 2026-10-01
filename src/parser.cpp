@@ -82,6 +82,7 @@ Lexed lex(std::string_view s) {
             if (i < s.size() && (s[i] == 'e' || s[i] == 'E')) {  // an exponent only if digits follow
                 std::size_t j = i + 1;
                 if (j < s.size() && (s[j] == '+' || s[j] == '-')) ++j;
+                else if (s.substr(j, 3) == "\xE2\x88\x92") j += 3;  // −, the calculator's minus
                 if (j < s.size() && isDigit(s[j]))
                     for (i = j; i < s.size() && isDigit(s[i]);) ++i;
             }

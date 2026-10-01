@@ -26,6 +26,18 @@ TEST(Lexer, NumbersNamesAndOperators) {
     EXPECT_EQ(l.tokens.back().span.begin, 15u);
 }
 
+TEST(Lexer, AnExponentMayUseTheMinusSign) {
+    // ×10ˣ followed by the − key types "5e−4" with U+2212, the sign the calculator shows.
+    const Lexed l = lex("5e−4");
+    ASSERT_FALSE(l.error);
+    EXPECT_EQ(kinds(l), (std::vector<TokenKind>{TokenKind::Number, TokenKind::End}));
+    EXPECT_EQ(l.tokens[0].text, "5e−4");
+    const auto d = parseDecimal("5e−4");
+    ASSERT_TRUE(d);
+    EXPECT_EQ(d->significand, 5);
+    EXPECT_EQ(d->exponent10, -4);
+}
+
 TEST(Lexer, AnExponentNeedsDigits) {
     const Lexed l = lex("2e");
     ASSERT_FALSE(l.error);
