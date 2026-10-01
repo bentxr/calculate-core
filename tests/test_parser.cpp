@@ -26,6 +26,18 @@ TEST(Lexer, NumbersNamesAndOperators) {
     EXPECT_EQ(l.tokens.back().span.begin, 15u);
 }
 
+TEST(Lexer, AnExponentMayUseTheMinusSign) {
+    // ×10ˣ followed by the − key types "5e−4" with U+2212, the sign the calculator shows.
+    const Lexed l = lex("5e−4");
+    ASSERT_FALSE(l.error);
+    EXPECT_EQ(kinds(l), (std::vector<TokenKind>{TokenKind::Number, TokenKind::End}));
+    EXPECT_EQ(l.tokens[0].text, "5e−4");
+    const auto d = parseDecimal("5e−4");
+    ASSERT_TRUE(d);
+    EXPECT_EQ(d->significand, 5);
+    EXPECT_EQ(d->exponent10, -4);
+}
+
 TEST(Lexer, AnExponentNeedsDigits) {
     const Lexed l = lex("2e");
     ASSERT_FALSE(l.error);
@@ -138,6 +150,19 @@ TEST(Parser, CallsAndConstants) {
     EXPECT_EQ(tree("2*pi"), "(* 2 pi)");
     EXPECT_EQ(tree("π"), "pi");
     EXPECT_EQ(tree("e^2"), "(^ e 2)");
+}
+
+TEST(Parser, SpanishCalculatorNamesAreTheSameFunctions) {
+    EXPECT_EQ(tree("sen(1)"), "(sin 1)");
+    EXPECT_EQ(tree("arcsen(1)"), "(asin 1)");
+    EXPECT_EQ(tree("arccos(1)"), "(acos 1)");
+    EXPECT_EQ(tree("arctan(1)"), "(atan 1)");
+    EXPECT_EQ(tree("senh(1)"), "(sinh 1)");
+    EXPECT_EQ(tree("arcsenh(1)"), "(asinh 1)");
+    EXPECT_EQ(tree("arccosh(2)"), "(acosh 2)");
+    EXPECT_EQ(tree("arctanh(0)"), "(atanh 0)");
+    EXPECT_EQ(tree("mcd(28, 35)"), "(gcd 28 35)");
+    EXPECT_EQ(tree("mcm(9, 15)"), "(lcm 9 15)");
 }
 
 TEST(Parser, ImplicitMultiplicationIsRefused) {

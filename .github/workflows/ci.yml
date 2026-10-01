@@ -2,7 +2,14 @@ name: ci
 
 on:
   push:
+    paths-ignore: ['**.md']
   pull_request:
+    paths-ignore: ['**.md']
+
+# A newer commit on the same branch makes a running build obsolete.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   native:

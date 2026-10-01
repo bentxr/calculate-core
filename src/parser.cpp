@@ -82,6 +82,7 @@ Lexed lex(std::string_view s) {
             if (i < s.size() && (s[i] == 'e' || s[i] == 'E')) {  // an exponent only if digits follow
                 std::size_t j = i + 1;
                 if (j < s.size() && (s[j] == '+' || s[j] == '-')) ++j;
+                else if (s.substr(j, 3) == "\xE2\x88\x92") j += 3;  // −, the calculator's minus
                 if (j < s.size() && isDigit(s[j]))
                     for (i = j; i < s.size() && isDigit(s[i]);) ++i;
             }
@@ -132,8 +133,17 @@ Statistic statisticNamed(std::string_view name) {
     return Statistic::None;
 }
 
+// Spanish names of functions, in lowercase like every other name, and the function each one stands for.
+constexpr std::array<std::pair<std::string_view, std::string_view>, 10> spanishNames{{
+    {"sen", "sin"}, {"arcsen", "asin"}, {"arccos", "acos"}, {"arctan", "atan"},
+    {"senh", "sinh"}, {"arcsenh", "asinh"}, {"arccosh", "acosh"}, {"arctanh", "atanh"},
+    {"mcd", "gcd"}, {"mcm", "lcm"},
+}};
+
 // The function with this name (pi and e are constants, not functions).
 std::optional<FunctionId> functionNamed(std::string_view name) {
+    for (const auto& [spanish, english] : spanishNames)
+        if (name == spanish) name = english;
     for (int i = 0; i < functionCount; ++i) {
         const FunctionInfo& info = functionInfo(static_cast<FunctionId>(i));
         if (!info.name.empty() && info.name == name && info.minArgs > 0) return info.id;
