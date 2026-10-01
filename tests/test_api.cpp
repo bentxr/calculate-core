@@ -124,7 +124,7 @@ TEST(Api, AnglesAndOptions) {
     EXPECT_EQ(evaluate("1+2", cancelled).error->code, ErrorCode::Cancelled);
 }
 
-TEST(Api, EveryTypeEvaluatesTheCharterCases) {
+TEST(Api, EveryTypeEvaluatesTheHeadlineCases) {
     for (const TypeInfo& t : numberTypes()) {
         for (const char* text : {"0.1 + 0.2", "1e16 + 1 - 1e16", "sin(1e10)"}) {
             const Result r = evaluate(text, as(t.type));
