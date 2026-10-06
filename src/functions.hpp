@@ -571,6 +571,98 @@ inline std::vector<Ruler> powerSlopes(const std::vector<Ruler>& a, const std::ve
     return {dx, dy};
 }
 
+// root(x, n) = x^(1/n): x moves with n at its value, then n moves with x anywhere in its interval.
+inline std::vector<Ruler> rootSlopes(const std::vector<Ruler>& a, const std::vector<Ruler>& b) {
+    using std::abs;
+    const Ruler inf = std::numeric_limits<Ruler>::infinity();
+    const Ruler far = abs(a[0]) + b[0];   // the largest |x| in its interval
+    const Ruler near = abs(a[0]) - b[0];  // the smallest, when the interval stays clear of 0
+    // d/dx = |x|^(1/n - 1) / |n|: grows with |x| when 1/n >= 1, shrinks otherwise.
+    const Ruler e = 1 / a[1] - 1;
+    Ruler dx = inf;
+    if (e >= 0) dx = rulerValue(FunctionId::Power, {far, e}) / abs(a[1]);
+    else if (near > 0) dx = rulerValue(FunctionId::Power, {near, e}) / abs(a[1]);
+    // d/dn = -x^(1/n) * ln|x| / n^2: at most the largest |x|^(1/n) (at a corner: it is monotone in |x| and in 1/n)
+    // times the largest |ln|x||, over the smallest n^2.
+    const Ruler nNear = abs(a[1]) - b[1];
+    Ruler dn = inf;
+    if (near > 0 && nNear > 0) {
+        Ruler top = 0;
+        for (const Ruler& m : {near, far})
+            for (const Ruler& n : {Ruler(a[1] - b[1]), Ruler(a[1] + b[1])})
+                top = std::max(top, rulerValue(FunctionId::Power, {m, Ruler(1 / n)}));
+        const Ruler ln = std::max(abs(rulerValue(FunctionId::Ln, {near})), abs(rulerValue(FunctionId::Ln, {far})));
+        dn = top * ln / (nNear * nNear);
+    }
+    return {dx, dn};
+}
+
+// log(x, b) = ln x / ln b: x moves with b at its value, then b moves with x anywhere in its interval.
+inline std::vector<Ruler> logBaseSlopes(const std::vector<Ruler>& a, const std::vector<Ruler>& b) {
+    using std::abs;
+    const Ruler inf = std::numeric_limits<Ruler>::infinity();
+    const auto ln = [](const Ruler& t) { return rulerValue(FunctionId::Ln, {t}); };
+    const Ruler lo = a[0] - b[0];
+    const Ruler baseLo = a[1] - b[1];
+    const Ruler baseHi = a[1] + b[1];
+    const Ruler dx = lo > 0 ? Ruler(1 / (lo * abs(ln(a[1])))) : inf;
+    // d/db = -ln x / (b * ln^2 b): the largest |ln x| over the smallest b and the smallest ln^2 b (at b's end
+    // nearest 1). Unbounded where b's interval reaches 0 or 1.
+    Ruler db = inf;
+    if (lo > 0 && baseLo > 0 && (baseHi < 1 || baseLo > 1)) {
+        const Ruler nearOne = baseHi < 1 ? abs(ln(baseHi)) : ln(baseLo);
+        db = std::max(abs(ln(lo)), abs(ln(a[0] + b[0]))) / (baseLo * nearOne * nearOne);
+    }
+    return {dx, db};
+}
+
+// One-argument functions: the largest |f'| over [x - b, x + b]. Each f' there is monotone in x or in |x| (or, for
+// sin and cos, 1-Lipschitz), so its largest value is at an end of the interval, or at the |x| farthest from or
+// nearest to 0.
+inline Ruler functionSlope(FunctionId id, const Ruler& x, const Ruler& b) {
+    using std::abs;
+    using std::floor;
+    using std::sqrt;
+    const Ruler inf = std::numeric_limits<Ruler>::infinity();
+    const auto f = [](FunctionId g, const Ruler& t) { return rulerValue(g, {t}); };
+    const Ruler lo = x - b;
+    const Ruler hi = x + b;
+    const Ruler far = abs(x) + b;                                  // the largest |x| in the interval
+    const Ruler near = abs(x) > b ? Ruler(abs(x) - b) : Ruler(0);  // the smallest
+    switch (id) {
+    case FunctionId::Sqrt: return lo > 0 ? Ruler(1 / (2 * sqrt(lo))) : inf;
+    case FunctionId::Cbrt: {
+        const Ruler c = f(FunctionId::Cbrt, near);
+        return near > 0 ? Ruler(1 / (3 * c * c)) : inf;
+    }
+    case FunctionId::Exp: return f(FunctionId::Exp, hi);
+    case FunctionId::Ln: return lo > 0 ? Ruler(1 / lo) : inf;
+    case FunctionId::Log10: return lo > 0 ? Ruler(1 / (lo * constantValue<Ruler>(ConstantId::Ln10))) : inf;
+    case FunctionId::Sin: return std::min(Ruler(1), Ruler(abs(f(FunctionId::Cos, x)) + b));
+    case FunctionId::Cos: return std::min(Ruler(1), Ruler(abs(f(FunctionId::Sin, x)) + b));
+    case FunctionId::Tan: {  // 1 + tan^2: unbounded at the poles (k + 1/2)pi, else largest at an end
+        const Ruler pi = constantValue<Ruler>(ConstantId::Pi);
+        const Ruler pole = (floor(hi / pi - Ruler(0.5)) + Ruler(0.5)) * pi;  // the last pole at or below hi
+        if (pole >= lo) return inf;
+        const Ruler t = std::max(abs(f(FunctionId::Tan, lo)), abs(f(FunctionId::Tan, hi)));
+        return 1 + t * t;
+    }
+    case FunctionId::Asin:
+    case FunctionId::Acos: return far < 1 ? Ruler(1 / sqrt(1 - far * far)) : inf;
+    case FunctionId::Atan: return 1 / (1 + near * near);
+    case FunctionId::Sinh: return f(FunctionId::Cosh, far);
+    case FunctionId::Cosh: return f(FunctionId::Sinh, far);
+    case FunctionId::Tanh: {  // 1 - tanh^2, written 1 / cosh^2 to keep its precision when it is tiny
+        const Ruler c = f(FunctionId::Cosh, near);
+        return 1 / (c * c);
+    }
+    case FunctionId::Asinh: return 1 / sqrt(near * near + 1);
+    case FunctionId::Acosh: return lo > 1 ? Ruler(1 / sqrt(lo * lo - 1)) : inf;
+    case FunctionId::Atanh: return far < 1 ? Ruler(1 / (1 - far * far)) : inf;
+    default: return inf;  // not a one-argument function
+    }
+}
+
 }  // namespace impl
 
 // Upper bounds of |d f / d arg_k| over the arguments' error intervals [a_j - b_j, a_j + b_j], one argument at a
@@ -599,9 +691,27 @@ inline std::vector<Ruler> slopes(FunctionId id, const std::vector<Ruler>& a, con
         const Ruler nearest = abs(a[1]) - b[1];
         return {Ruler(1), nearest > 0 ? Ruler(floor((abs(a[0]) + b[0]) / nearest)) : inf};
     }
-    default: {  // the derivatives at the computed arguments (discrete functions and the median never use the value)
-        const bool usesValue = !functionInfo(id).discrete && id != FunctionId::Median;
-        std::vector<Ruler> d = partials<Ruler>(id, a, usesValue ? impl::rulerValue(id, a) : Ruler(0));
+    case FunctionId::Root: return impl::rootSlopes(a, b);
+    case FunctionId::LogBase: return impl::logBaseSlopes(a, b);
+    case FunctionId::Sqrt:
+    case FunctionId::Cbrt:
+    case FunctionId::Exp:
+    case FunctionId::Ln:
+    case FunctionId::Log10:
+    case FunctionId::Sin:
+    case FunctionId::Cos:
+    case FunctionId::Tan:
+    case FunctionId::Asin:
+    case FunctionId::Acos:
+    case FunctionId::Atan:
+    case FunctionId::Sinh:
+    case FunctionId::Cosh:
+    case FunctionId::Tanh:
+    case FunctionId::Asinh:
+    case FunctionId::Acosh:
+    case FunctionId::Atanh: return {impl::functionSlope(id, a[0], b[0])};
+    default: {  // the median's weights at the computed arguments; the discrete functions' zeros
+        std::vector<Ruler> d = partials<Ruler>(id, a, Ruler(0));  // neither uses the value
         for (Ruler& x : d) x = abs(x);
         return d;
     }

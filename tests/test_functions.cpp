@@ -397,3 +397,38 @@ TEST(Slopes, InfiniteWhereAnIntervalReachesAnUnboundedDerivative) {
     EXPECT_FALSE(isFinite(s(FunctionId::Power, {Ruler(0.5), Ruler(2.5)}, {Ruler(0.6), Ruler(0)}, 0)));  // x < 0: undefined
     EXPECT_TRUE(isFinite(s(FunctionId::Power, {Ruler(0.5), Ruler(2)}, {Ruler(0.6), Ruler(0)}, 0)));     // x² is smooth at 0
 }
+
+TEST(Slopes, FunctionsDominateTheirDerivativesOverTheirIntervals) {
+    using F = FunctionId;
+    const SlopeCase cases[] = {
+        {F::Sqrt, {0.7}, {0.2}},   {F::Cbrt, {-0.7}, {0.2}},  {F::Cbrt, {0.7}, {0.2}},  {F::Exp, {0.7}, {0.5}},
+        {F::Exp, {-3}, {1}},       {F::Ln, {0.7}, {0.2}},     {F::Log10, {0.7}, {0.2}}, {F::Sin, {0.7}, {0.3}},
+        {F::Sin, {3}, {2}},        {F::Cos, {0.7}, {0.3}},    {F::Tan, {0.7}, {0.3}},   {F::Tan, {-2}, {0.3}},
+        {F::Asin, {0.5}, {0.3}},   {F::Acos, {-0.5}, {0.3}},  {F::Atan, {0.7}, {2}},    {F::Sinh, {-0.7}, {0.3}},
+        {F::Cosh, {0.7}, {0.3}},   {F::Cosh, {0.1}, {0.3}},   {F::Tanh, {0.7}, {2}},    {F::Asinh, {-0.7}, {0.3}},
+        {F::Acosh, {1.7}, {0.3}},  {F::Atanh, {0.3}, {0.3}},  {F::Sqrt, {0.7}, {0}},    {F::Tan, {0.7}, {0}},
+        {F::Root, {0.7, 3}, {0.2, 0}}, {F::Root, {-8, 3}, {1, 0}}, {F::Root, {0.7, 3}, {0.2, 0.5}},
+        {F::Root, {32, 5}, {0, 0}},    {F::LogBase, {8, 2}, {1, 0.5}}, {F::LogBase, {0.5, 0.3}, {0.1, 0.05}},
+        {F::LogBase, {8, 2}, {0, 0}},
+    };
+    for (const SlopeCase& c : cases) {
+        SCOPED_TRACE(std::to_string(static_cast<int>(c.id)) + " at " + std::to_string(c.point[0]));
+        expectSlopesDominate(c.id, c.point, c.radius);
+    }
+}
+
+TEST(Slopes, FunctionsAreInfiniteWhereAnIntervalReachesAnUnboundedDerivative) {
+    using F = FunctionId;
+    const SlopeCase cases[] = {
+        {F::Sqrt, {0.5}, {0.5}},   {F::Ln, {0.1}, {0.2}},     {F::Log10, {0.1}, {0.2}}, {F::Tan, {1.5}, {0.1}},
+        {F::Asin, {0.95}, {0.1}},  {F::Acos, {-0.95}, {0.1}}, {F::Atanh, {-0.95}, {0.1}}, {F::Acosh, {1.05}, {0.1}},
+        {F::Cbrt, {-0.01}, {0.02}}, {F::Root, {0.001, 3}, {0.01, 0}}, {F::LogBase, {0.1, 2}, {0.2, 0}},
+    };
+    for (const SlopeCase& c : cases) {
+        std::vector<Ruler> a, b;
+        for (const double x : c.point) a.push_back(Ruler(x));
+        for (const double r : c.radius) b.push_back(Ruler(r));
+        EXPECT_FALSE(isFinite(slopes(c.id, a, b)[0])) << static_cast<int>(c.id);
+    }
+    EXPECT_FALSE(isFinite(slopes(F::LogBase, {Ruler(8), Ruler(1.05)}, {Ruler(0), Ruler(0.1)})[1]));  // base near 1
+}

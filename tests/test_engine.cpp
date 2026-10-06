@@ -370,3 +370,43 @@ TYPED_TEST(BoundTest, ArgumentErrorsAreCarriedWhole) {
                              "(0.1*3)^3", "(0.1*3)^-2", "1/(0.7²)", "1/(1e16-3)"})
         EXPECT_TRUE(coversExactError<TypeParam>(text));
 }
+
+namespace {
+
+// Whether the bound of `text`, evaluated in T, covers its measured error (reliable: the two reference evaluations
+// agree far below it). A result too large for T, or an argument too large to reduce, is an honest refusal.
+template <class T>
+::testing::AssertionResult coversMeasuredError(const std::string& text, AngleUnit angle = AngleUnit::Radians) {
+    const Parsed parsed = parse(text, angle);
+    if (parsed.error) return ::testing::AssertionFailure() << text << ": " << parsed.error->message;
+    Options options;
+    options.angle = angle;
+    const Evaluation<T> ev = evaluate<T>(parsed.ast, options);
+    if (ev.error && (ev.error->code == ErrorCode::Overflow || ev.error->code == ErrorCode::ArgumentTooLarge))
+        return ::testing::AssertionSuccess();
+    if (ev.error) return ::testing::AssertionFailure() << text << ": " << ev.error->message;
+    const Report& r = ev.report;
+    if (!r.measuredAvailable || !r.reliable) return ::testing::AssertionFailure() << text << ": no reliable measurement";
+    if (test::covers(r.bound, r.measured)) return ::testing::AssertionSuccess();
+    return ::testing::AssertionFailure() << text << ": bound " << formatScientific(r.bound, 6) << " < measured "
+                                         << formatScientific(r.measured, 6);
+}
+
+}  // namespace
+
+TYPED_TEST(BoundTest, FunctionsCarryTheirArgumentsErrorAtTheSteepestSlope) {
+    for (const char* text : {"sin((12)!³)", "sin((0+1e16)²)", "sin((1e16²)*(100*1))"})
+        EXPECT_TRUE(coversMeasuredError<TypeParam>(text, AngleUnit::Degrees));
+}
+
+// Built for double, where E is -0.28 against a true 0 (other types compute other values for it).
+TEST(Bound, EveryFunctionCarriesItsArgumentsErrorAtTheSteepestSlope) {
+    const std::string e = "((0.3-0.1-0.2)*1e16)";
+    for (const std::string& text :
+         {"exp(" + e + ")", "ln(1-" + e + ")", "log(1-" + e + ")", "sqrt(1-" + e + ")", "cbrt(1-" + e + ")",
+          "sinh(1+" + e + ")", "cosh(1+" + e + ")", "tan(1+" + e + ")", "sin(2+" + e + ")", "cos(1+" + e + ")",
+          "asin(0.5+" + e + ")", "acos(0.5+" + e + ")", "atan(" + e + ")", "tanh(0.5-" + e + ")",
+          "asinh(-0.5+" + e + ")", "acosh(2-" + e + ")", "atanh(0.5+" + e + ")", "root(1-" + e + ", 3)",
+          "log(1-" + e + ", 3)", "log(8, 2-" + e + ")"})
+        EXPECT_TRUE(coversMeasuredError<double>(text));
+}
