@@ -603,6 +603,7 @@ TEST(Slopes, MoreBoundaries) {
     using F = FunctionId;
     const SlopeCase cases[] = {
         {F::Power, {0.5, -2}, {0.1, 0.5}}, {F::Root, {32, 5}, {1, 0.5}},  // the largest power at the lower corner
+        {F::Root, {0.5, -3}, {0.1, 0.5}},  // and at the upper corner of a negative order
         {F::Cbrt, {0.7}, {0}},   {F::Exp, {0.7}, {0}},   {F::Ln, {0.7}, {0}},    {F::Log10, {0.7}, {0}},
         {F::Sin, {0.7}, {0}},    {F::Cos, {0.7}, {0}},   {F::Asin, {0.5}, {0}},  {F::Acos, {-0.5}, {0}},
         {F::Atan, {0.7}, {0}},   {F::Sinh, {-0.7}, {0}}, {F::Cosh, {-0.7}, {0}}, {F::Tanh, {0.7}, {0}},
