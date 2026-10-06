@@ -445,3 +445,14 @@ TEST(ExactPower, AResultTooLargeToWriteDownIsAnOverflow) {
     EXPECT_EQ(impl::exactPower(Rational(1), Rational(479001600), out), std::nullopt);       // 1 stays 1
     EXPECT_EQ(out, Rational(1));
 }
+
+TEST(Slopes, AnInfiniteBoundGivesInfiniteSlopesAtOnce) {
+    // An argument whose error is unbounded (an edge reached upstream) never reaches the ruler's kernels.
+    const Ruler inf = std::numeric_limits<Ruler>::infinity();
+    EXPECT_FALSE(isFinite(slopes(FunctionId::Power, {Ruler(1e32), Ruler(1)}, {Ruler(0), inf})[1]));
+    EXPECT_FALSE(isFinite(slopes(FunctionId::Exp, {Ruler(1)}, {inf})[0]));
+    EXPECT_FALSE(isFinite(slopes(FunctionId::Sinh, {Ruler(1)}, {inf})[0]));
+    EXPECT_FALSE(isFinite(slopes(FunctionId::Cosh, {Ruler(1)}, {inf})[0]));
+    EXPECT_EQ(slopes(FunctionId::Sin, {Ruler(1)}, {inf})[0], Ruler(1));   // |cos| <= 1 everywhere
+    EXPECT_EQ(slopes(FunctionId::Atan, {Ruler(1)}, {inf})[0], Ruler(1));  // steepest at 0
+}

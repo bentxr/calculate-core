@@ -302,3 +302,16 @@ TEST(Api, ANegativeBaseNeedsAnExactlyKnownExponent) {
     allow.allowUncertainDiscreteArguments = true;
     EXPECT_FALSE(evaluate("(-2)^(0.1*30)", allow).boundComplete);
 }
+
+TEST(Api, AnUnboundedErrorUpstreamIsRefusedAtOnce) {
+    const char* text = "((1e16²)^(abs(-1)-(√(0.1+0.2-0.3))))";
+    const Result r = evaluate(text);
+    ASSERT_TRUE(r.error);
+    EXPECT_EQ(r.error->code, ErrorCode::ArgumentNearEdge);
+    Options allow;
+    allow.allowUncertainDiscreteArguments = true;
+    const Result anyway = evaluate(text, allow);
+    ASSERT_FALSE(anyway.error);
+    EXPECT_EQ(anyway.bound, "inf");
+    EXPECT_FALSE(anyway.boundComplete);
+}

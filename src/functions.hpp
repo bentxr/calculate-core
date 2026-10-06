@@ -561,7 +561,10 @@ std::vector<R> partials(FunctionId id, const std::vector<R>& a, const R& v) {
 namespace impl {
 
 // f(x) in the ruler's arithmetic, infinite where it cannot be computed (a slope may then only be too large).
+// An infinite argument (an unbounded error upstream) never reaches the kernels, which expect finite ones.
 inline Ruler rulerValue(FunctionId id, const std::vector<Ruler>& a) {
+    for (const Ruler& x : a)
+        if (!isFinite(x)) return std::numeric_limits<Ruler>::infinity();
     const Applied<Ruler> r = applyFunction<Ruler>(id, a);
     return r.error ? std::numeric_limits<Ruler>::infinity() : r.value;
 }
