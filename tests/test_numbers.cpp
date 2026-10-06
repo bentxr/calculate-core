@@ -154,3 +154,12 @@ TEST(Conversion, ExactCastBetweenTypes) {
     EXPECT_EQ(exactCast<double>(Binary128(1) / 3), 1.0 / 3.0);
     EXPECT_EQ(exactCast<Rational>(0.5f), Rational(1, 2));
 }
+
+TEST(Numbers, FloorOfARational) {
+    EXPECT_EQ(floorOf(Rational(7, 3)), Integer(2));
+    EXPECT_EQ(floorOf(Rational(-7, 3)), Integer(-3));
+    EXPECT_EQ(floorOf(Rational(-6, 3)), Integer(-2));
+    EXPECT_EQ(floorOf(Rational(0)), Integer(0));
+    EXPECT_EQ(floorOf(Rational(-1, 1000)), Integer(-1));
+    EXPECT_EQ(floorOf(Rational(999, 1000)), Integer(0));
+}

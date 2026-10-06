@@ -27,59 +27,67 @@ enum class ErrorClass {
     Library,   // an elementary kernel: at most claim * u * max(|v|, min)
 };
 
+// How a function's value responds to a small change of its arguments.
+enum class Continuity {
+    Continuous,  // derivatives carry the arguments' errors
+    Discrete,    // whole-number valued: any uncertain argument is refused (R.4)
+    Piecewise,   // continuous between jumps: refused only when the arguments' errors could reach one
+};
+
 struct FunctionInfo {
     FunctionId id;
     std::string_view name;  // spelling in the language; empty for operators and literals
     int minArgs;
     int maxArgs;            // -1: any number
     ErrorClass errorClass;
-    bool discrete;          // argument uncertainty cannot propagate through it
+    Continuity continuity;
     bool exact;             // available for the Exact type
 };
 
 inline const FunctionInfo& functionInfo(FunctionId id) {
     using F = FunctionId;
     using C = ErrorClass;
+    using K = Continuity;
     static const std::array<FunctionInfo, functionCount> table{{
-        {F::Literal, "", 0, 0, C::Input, false, true},
-        {F::Pi, "pi", 0, 0, C::Input, false, false},
-        {F::E, "e", 0, 0, C::Input, false, false},
-        {F::Add, "", 2, 2, C::Checked, false, true},
-        {F::Subtract, "", 2, 2, C::Checked, false, true},
-        {F::Multiply, "", 2, 2, C::Checked, false, true},
-        {F::Divide, "", 2, 2, C::Checked, false, true},
-        {F::Negate, "", 1, 1, C::Exact, false, true},
-        {F::Power, "", 2, 2, C::Library, false, true},
-        {F::Percent, "", 1, 1, C::Checked, false, true},
-        {F::Square, "", 1, 1, C::Checked, false, true},
-        {F::Cube, "", 1, 1, C::Checked, false, true},
-        {F::Factorial, "", 1, 1, C::Counted, true, true},
-        {F::Sqrt, "sqrt", 1, 1, C::Rounded, false, true},
-        {F::Cbrt, "cbrt", 1, 1, C::Library, false, true},
-        {F::Root, "root", 2, 2, C::Library, false, true},
-        {F::Exp, "exp", 1, 1, C::Library, false, false},
-        {F::Ln, "ln", 1, 1, C::Library, false, false},
-        {F::Log10, "log", 1, 1, C::Library, false, false},
-        {F::LogBase, "log", 2, 2, C::Library, false, false},
-        {F::Sin, "sin", 1, 1, C::Library, false, false},
-        {F::Cos, "cos", 1, 1, C::Library, false, false},
-        {F::Tan, "tan", 1, 1, C::Library, false, false},
-        {F::Asin, "asin", 1, 1, C::Library, false, false},
-        {F::Acos, "acos", 1, 1, C::Library, false, false},
-        {F::Atan, "atan", 1, 1, C::Library, false, false},
-        {F::Sinh, "sinh", 1, 1, C::Library, false, false},
-        {F::Cosh, "cosh", 1, 1, C::Library, false, false},
-        {F::Tanh, "tanh", 1, 1, C::Library, false, false},
-        {F::Asinh, "asinh", 1, 1, C::Library, false, false},
-        {F::Acosh, "acosh", 1, 1, C::Library, false, false},
-        {F::Atanh, "atanh", 1, 1, C::Library, false, false},
-        {F::Abs, "abs", 1, 1, C::Exact, false, true},
-        {F::Mod, "mod", 2, 2, C::Exact, false, true},
-        {F::Gcd, "gcd", 2, 2, C::Exact, true, true},
-        {F::Lcm, "lcm", 2, 2, C::Checked, true, true},
-        {F::Ncr, "nCr", 2, 2, C::Counted, true, true},
-        {F::Npr, "nPr", 2, 2, C::Counted, true, true},
-        {F::Median, "median", 1, -1, C::Checked, false, true},
+        {F::Literal, "", 0, 0, C::Input, K::Continuous, true},
+        {F::Pi, "pi", 0, 0, C::Input, K::Continuous, false},
+        {F::E, "e", 0, 0, C::Input, K::Continuous, false},
+        {F::Add, "", 2, 2, C::Checked, K::Continuous, true},
+        {F::Subtract, "", 2, 2, C::Checked, K::Continuous, true},
+        {F::Multiply, "", 2, 2, C::Checked, K::Continuous, true},
+        {F::Divide, "", 2, 2, C::Checked, K::Continuous, true},
+        {F::Negate, "", 1, 1, C::Exact, K::Continuous, true},
+        {F::Power, "", 2, 2, C::Library, K::Continuous, true},
+        {F::Percent, "", 1, 1, C::Checked, K::Continuous, true},
+        {F::Square, "", 1, 1, C::Checked, K::Continuous, true},
+        {F::Cube, "", 1, 1, C::Checked, K::Continuous, true},
+        {F::Factorial, "", 1, 1, C::Counted, K::Discrete, true},
+        {F::Sqrt, "sqrt", 1, 1, C::Rounded, K::Continuous, true},
+        {F::Cbrt, "cbrt", 1, 1, C::Library, K::Continuous, true},
+        {F::Root, "root", 2, 2, C::Library, K::Continuous, true},
+        {F::Exp, "exp", 1, 1, C::Library, K::Continuous, false},
+        {F::Ln, "ln", 1, 1, C::Library, K::Continuous, false},
+        {F::Log10, "log", 1, 1, C::Library, K::Continuous, false},
+        {F::LogBase, "log", 2, 2, C::Library, K::Continuous, false},
+        {F::Sin, "sin", 1, 1, C::Library, K::Continuous, false},
+        {F::Cos, "cos", 1, 1, C::Library, K::Continuous, false},
+        {F::Tan, "tan", 1, 1, C::Library, K::Continuous, false},
+        {F::Asin, "asin", 1, 1, C::Library, K::Continuous, false},
+        {F::Acos, "acos", 1, 1, C::Library, K::Continuous, false},
+        {F::Atan, "atan", 1, 1, C::Library, K::Continuous, false},
+        {F::Sinh, "sinh", 1, 1, C::Library, K::Continuous, false},
+        {F::Cosh, "cosh", 1, 1, C::Library, K::Continuous, false},
+        {F::Tanh, "tanh", 1, 1, C::Library, K::Continuous, false},
+        {F::Asinh, "asinh", 1, 1, C::Library, K::Continuous, false},
+        {F::Acosh, "acosh", 1, 1, C::Library, K::Continuous, false},
+        {F::Atanh, "atanh", 1, 1, C::Library, K::Continuous, false},
+        {F::Abs, "abs", 1, 1, C::Exact, K::Continuous, true},
+        {F::Mod, "mod", 2, 2, C::Exact, K::Piecewise, true},
+        {F::Gcd, "gcd", 2, 2, C::Exact, K::Discrete, true},
+        {F::Lcm, "lcm", 2, 2, C::Checked, K::Discrete, true},
+        {F::Ncr, "nCr", 2, 2, C::Counted, K::Discrete, true},
+        {F::Npr, "nPr", 2, 2, C::Counted, K::Discrete, true},
+        {F::Median, "median", 1, -1, C::Checked, K::Continuous, true},
     }};
     return table[static_cast<std::size_t>(id)];
 }
@@ -97,6 +105,7 @@ inline std::string errorMessage(ErrorCode code, std::string_view name) {
     case ErrorCode::ArgumentTooLarge: return "The argument of " + n + " is too large to reduce accurately";
     case ErrorCode::NotAnInteger: return n + " needs a whole-number argument";
     case ErrorCode::UncertainDiscreteArgument: return n + " needs an exactly known argument";
+    case ErrorCode::ArgumentNearJump: return n + " jumps within the error of its arguments";
     case ErrorCode::Cancelled: return "Cancelled";
     default: return "Invalid expression";
     }

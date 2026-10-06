@@ -78,6 +78,7 @@ const char* codeName(ErrorCode c) {
     case ErrorCode::ArgumentTooLarge: return "ArgumentTooLarge";
     case ErrorCode::NotAnInteger: return "NotAnInteger";
     case ErrorCode::UncertainDiscreteArgument: return "UncertainDiscreteArgument";
+    case ErrorCode::ArgumentNearJump: return "ArgumentNearJump";
     case ErrorCode::Cancelled: return "Cancelled";
     }
     return "";

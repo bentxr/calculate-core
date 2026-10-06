@@ -35,6 +35,19 @@ inline Ruler times(const Ruler& a, const Ruler& b) {
     return a == 0 || b == 0 ? Ruler(0) : Ruler(a * b);
 }
 
+// Whether the arguments' errors could carry x/y across a whole number k != 0, where a truncated remainder
+// jumps (it is continuous at 0). To first order the jump at k is |x - k*y| away, and the errors move
+// x - k*y by at most bx + |k|*by. The nearest k and its two neighbours are enough.
+inline bool nearJump(const Rational& x, const Rational& y, const Ruler& bx, const Ruler& by) {
+    const Integer n = floorOf(x / y + Rational(1, 2));  // y != 0: the forward pass succeeded
+    for (const Integer& k : {Integer(n - 1), n, Integer(n + 1)}) {
+        if (k == 0) continue;
+        const Ruler distance = fromRational<Ruler>(abs(x - Rational(k) * y));
+        if (distance <= bx + fromRational<Ruler>(Rational(abs(k))) * by) return true;
+    }
+    return false;
+}
+
 }  // namespace impl
 
 // Evaluates every node in T. The first error stops the pass and carries the failing node's span.
@@ -282,11 +295,26 @@ Evaluation<T> evaluate(const Ast& ast, const Options& options = {}) {
     const std::vector<Ruler>& bounds = propagation.bounds;
     for (const Node& node : ast.nodes) {
         const FunctionInfo& info = functionInfo(node.function);
-        if (!info.discrete) continue;
+        if (info.continuity == Continuity::Continuous) continue;
+        const std::string name = info.name.empty() ? "!" : std::string(info.name);
+        if (info.continuity == Continuity::Piecewise) {
+            const Ruler& bx = bounds[node.args[0]];
+            const Ruler& by = bounds[node.args[1]];
+            const Rational x = toRational(fw.values[node.args[0]]);
+            const Rational y = toRational(fw.values[node.args[1]]);
+            if ((bx == 0 && by == 0) || !impl::nearJump(x, y, bx, by)) continue;
+            if (!options.allowUncertainDiscreteArguments) {
+                ev.error = impl::nodeError(node, ErrorCode::ArgumentNearJump,
+                                           errorMessage(ErrorCode::ArgumentNearJump, name) + "; they carry errors of up to "
+                                               + formatScientific(bx) + " and " + formatScientific(by));
+                return ev;
+            }
+            r.boundComplete = false;
+            continue;
+        }
         for (const int a : node.args) {
             if (bounds[a] == 0) continue;
             if (!options.allowUncertainDiscreteArguments) {
-                const std::string name = info.name.empty() ? "!" : std::string(info.name);
                 ev.error = impl::nodeError(node, ErrorCode::UncertainDiscreteArgument,
                                            errorMessage(ErrorCode::UncertainDiscreteArgument, name)
                                                + "; its argument carries an error of up to " + formatScientific(bounds[a]));

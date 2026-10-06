@@ -219,3 +219,27 @@ TEST(Api, AValueAsSmallAsItsErrorStillHasABound) {
         EXPECT_GE(std::stod(r.bound), std::stod(r.measured)) << text;
     }
 }
+
+TEST(Api, ModuloRefusesArgumentsWhoseErrorReachesAJump) {
+    // 0.7 + 0.1 lands just below 0.8: the exact mod(0.8, 0.8) is 0, the computed one almost 0.8.
+    const Result r = evaluate("mod(0.7 + 0.1, 0.8)");
+    ASSERT_TRUE(r.error);
+    EXPECT_EQ(r.error->code, ErrorCode::ArgumentNearJump);
+    EXPECT_EQ(r.error->begin, 0u);
+    EXPECT_EQ(r.error->end, 19u);
+    EXPECT_NE(r.error->message.find("mod jumps within the error of its arguments"), std::string::npos);
+    Options allow;
+    allow.allowUncertainDiscreteArguments = true;
+    const Result anyway = evaluate("mod(0.7 + 0.1, 0.8)", allow);
+    ASSERT_FALSE(anyway.error);
+    EXPECT_FALSE(anyway.boundComplete);
+    const Result far = evaluate("mod(0.1*3, 1)");  // uncertain, but far from 0 and 1
+    ASSERT_FALSE(far.error);
+    EXPECT_TRUE(far.boundComplete);
+    EXPECT_FALSE(evaluate("mod(7.5, 2)").error);         // exactly known
+    EXPECT_FALSE(evaluate("mod(-1e-30, 1)").error);      // near 0, where a truncated remainder is continuous
+    EXPECT_FALSE(evaluate("mod(-0.1*3, 1)").error);
+    EXPECT_FALSE(evaluate("mod(0.7 + 0.1, 0.8)", as(NumberType::Exact)).error);  // no error to reach anything
+    EXPECT_EQ(evaluate("mod(-7, 3)").value.digits, "1");  // still truncated: -1
+    EXPECT_TRUE(evaluate("mod(-7, 3)").value.negative);
+}

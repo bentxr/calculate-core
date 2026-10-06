@@ -110,6 +110,13 @@ inline Rational scaleByPowerOfTwo(const Rational& q, long long e) {
                  : Rational(numerator(q), denominator(q) * power);
 }
 
+// The largest integer <= q. (Integer division truncates towards zero; the denominator is >= 1.)
+inline Integer floorOf(const Rational& q) {
+    Integer n = numerator(q) / denominator(q);
+    if (n * denominator(q) > numerator(q)) --n;
+    return n;
+}
+
 // The exact value of a finite x.
 template <class T>
 Rational toRational(const T& x) {

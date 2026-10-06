@@ -18,7 +18,7 @@ enum class ErrorCode {
     InvalidCharacter, InvalidNumber, UnexpectedToken, UnexpectedEnd, MissingClosingParenthesis,
     MissingOperator, UnknownName, WrongArgumentCount, NotAvailableInExact, LiteralOutOfRange,
     DivisionByZero, DomainError, Overflow, IrrationalResult, ArgumentTooLarge, NotAnInteger,
-    UncertainDiscreteArgument, Cancelled
+    UncertainDiscreteArgument, ArgumentNearJump, Cancelled
 };
 
 // begin/end: byte offsets of the offending part of the expression, [begin, end).
@@ -32,6 +32,7 @@ struct Error {
 struct Options {
     NumberType type = NumberType::Double;
     AngleUnit angle = AngleUnit::Radians;
+    // Accept arguments whose error reaches a jump, an edge or a whole-number requirement; the bound is then incomplete.
     bool allowUncertainDiscreteArguments = false;
     const std::atomic<bool>* cancel = nullptr;
 };

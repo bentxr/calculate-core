@@ -21,10 +21,11 @@ TEST(FunctionInfo, NamesAreUniqueExceptTheTwoLogarithms) {
         EXPECT_EQ(names.count(name), name == "log" ? 2u : 1u) << name;
 }
 
-TEST(FunctionInfo, DiscreteAndExactFlags) {
+TEST(FunctionInfo, ContinuityAndExactFlags) {
     for (FunctionId id : {FunctionId::Factorial, FunctionId::Gcd, FunctionId::Lcm, FunctionId::Ncr, FunctionId::Npr})
-        EXPECT_TRUE(functionInfo(id).discrete);
-    EXPECT_FALSE(functionInfo(FunctionId::Mod).discrete);
+        EXPECT_EQ(functionInfo(id).continuity, Continuity::Discrete);
+    EXPECT_EQ(functionInfo(FunctionId::Mod).continuity, Continuity::Piecewise);
+    EXPECT_EQ(functionInfo(FunctionId::Sin).continuity, Continuity::Continuous);
     EXPECT_FALSE(functionInfo(FunctionId::Sin).exact);
     EXPECT_FALSE(functionInfo(FunctionId::Pi).exact);
     EXPECT_TRUE(functionInfo(FunctionId::Sqrt).exact);
