@@ -358,6 +358,20 @@ Evaluation<T> evaluate(const Ast& ast, const Options& options = {}) {
                 }
                 r.boundComplete = false;
             }
+            // A negative base exists only at whole exponents (odd orders for root): no slope carries their error.
+            const bool power = node.function == FunctionId::Power;
+            if ((power || node.function == FunctionId::Root) && x[0] < 0 && b[1] > 0) {
+                if (!options.allowUncertainDiscreteArguments) {
+                    const std::string what = power ? "exponent" : "order";
+                    const std::string negative = power ? "base" : "radicand";
+                    ev.error = impl::nodeError(node, ErrorCode::UncertainDiscreteArgument,
+                                               std::string(symbolOf(node.function)) + " needs an exactly known " + what
+                                                   + " when its " + negative + " is negative; its " + what
+                                                   + " carries an error of up to " + formatScientific(b[1]));
+                    return ev;
+                }
+                r.boundComplete = false;
+            }
         }
         const FunctionInfo& info = functionInfo(node.function);
         if (info.continuity == Continuity::Continuous) continue;

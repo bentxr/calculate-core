@@ -286,3 +286,19 @@ TEST(Api, ZeroToAPowerJumpsAtZero) {
     EXPECT_FALSE(evaluate("0^(0.1+0.2)").error);  // far from 0
     EXPECT_FALSE(evaluate("0^0").error);          // exactly 0: 1
 }
+
+TEST(Api, ANegativeBaseNeedsAnExactlyKnownExponent) {
+    for (const char* text : {"(-2)^3.00000000000000001", "(-2)^(0.1*30)", "root(-8, 3.00000000000000001)", "root(-8, 0.1*30)"}) {
+        const Result r = evaluate(text);
+        ASSERT_TRUE(r.error) << text;
+        EXPECT_EQ(r.error->code, ErrorCode::UncertainDiscreteArgument) << text;
+    }
+    EXPECT_NE(evaluate("(-2)^(0.1*30)").error->message.find("needs an exactly known exponent when its base is negative"),
+              std::string::npos);
+    EXPECT_EQ(evaluate("(-2)^3").value.digits, "8");  // exact exponents: as before
+    EXPECT_FALSE(evaluate("root(-8, 3)").error);
+    EXPECT_FALSE(evaluate("2^(0.1*30)").error);       // a positive base is smooth in y
+    Options allow;
+    allow.allowUncertainDiscreteArguments = true;
+    EXPECT_FALSE(evaluate("(-2)^(0.1*30)", allow).boundComplete);
+}
