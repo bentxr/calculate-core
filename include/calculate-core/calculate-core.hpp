@@ -110,6 +110,8 @@ public:
     };
 
     Result evaluate(std::string_view expression, const Options& options = {});
+    // Like evaluate(), with Ans and M, but nothing changes: for showing a result while it is being typed.
+    Result preview(std::string_view expression, const Options& options = {}) const;
     bool memoryAdd();       // M = M + Ans; false when there is no Ans
     bool memorySubtract();  // M = M - Ans; false when there is no Ans
     void memoryClear();

@@ -348,3 +348,17 @@ TEST(Api, LongDoubleStorageFollowsItsFormat) {
         }
     }
 }
+
+TEST(Session, APreviewChangesNothing) {
+    Session s;
+    s.evaluate("1 + 2");
+    const Result r = s.preview("Ans*2");
+    EXPECT_EQ(r.value.digits, "6");
+    EXPECT_EQ(r.expression, "(1 + 2)*2");
+    EXPECT_EQ(s.answer(), "1 + 2");
+    EXPECT_EQ(s.history().size(), 1u);
+    EXPECT_TRUE(s.preview("1/0").error);
+    EXPECT_TRUE(s.memoryAdd());
+    EXPECT_EQ(s.preview("M + 1").value.digits, "4");
+    EXPECT_EQ(s.memory(), "1 + 2");
+}
