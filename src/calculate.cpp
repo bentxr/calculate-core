@@ -99,6 +99,13 @@ Result evaluateWithNames(std::string_view text, const Options& options, const Na
     return r;
 }
 
+Names namesOf(const std::string& answer, const std::string& memory) {
+    Names names;
+    if (!answer.empty()) names["Ans"] = answer;
+    if (!memory.empty()) names["M"] = memory;
+    return names;
+}
+
 }  // namespace
 
 std::vector<TypeInfo> numberTypes() {
@@ -131,15 +138,16 @@ Result evaluate(std::string_view expression, const Options& options) {
 }
 
 Result Session::evaluate(std::string_view expression, const Options& options) {
-    Names names;
-    if (!answer_.empty()) names["Ans"] = answer_;
-    if (!memory_.empty()) names["M"] = memory_;
-    Result r = evaluateWithNames(expression, options, names);
+    Result r = evaluateWithNames(expression, options, namesOf(answer_, memory_));
     if (!r.error) {
         answer_ = r.expression;
         history_.push_back({std::string(expression), r});
     }
     return r;
+}
+
+Result Session::preview(std::string_view expression, const Options& options) const {
+    return evaluateWithNames(expression, options, namesOf(answer_, memory_));
 }
 
 bool Session::memoryAdd() {

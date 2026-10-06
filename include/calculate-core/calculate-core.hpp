@@ -18,7 +18,7 @@ enum class ErrorCode {
     InvalidCharacter, InvalidNumber, UnexpectedToken, UnexpectedEnd, MissingClosingParenthesis,
     MissingOperator, UnknownName, WrongArgumentCount, NotAvailableInExact, LiteralOutOfRange,
     DivisionByZero, DomainError, Overflow, IrrationalResult, ArgumentTooLarge, NotAnInteger,
-    UncertainDiscreteArgument, Cancelled
+    UncertainDiscreteArgument, ArgumentNearJump, ArgumentNearEdge, Cancelled
 };
 
 // begin/end: byte offsets of the offending part of the expression, [begin, end).
@@ -32,6 +32,7 @@ struct Error {
 struct Options {
     NumberType type = NumberType::Double;
     AngleUnit angle = AngleUnit::Radians;
+    // Accept arguments whose error reaches a jump, an edge or a whole-number requirement; the bound is then incomplete.
     bool allowUncertainDiscreteArguments = false;
     const std::atomic<bool>* cancel = nullptr;
 };
@@ -84,7 +85,7 @@ struct Result {
     std::optional<Fraction> exact;    // Exact only
     int trustedDigits = 0;            // leading significant digits guaranteed by the bound
     int trustedDigitsMeasured = 0;    // leading significant digits confirmed by the measured error
-    std::string bound;                // guaranteed first-order bound: input + rounding + library
+    std::string bound;                // guaranteed bound: input + rounding + library
     std::string inputError;
     std::string roundingError;
     std::string libraryError;
@@ -109,6 +110,8 @@ public:
     };
 
     Result evaluate(std::string_view expression, const Options& options = {});
+    // Like evaluate(), with Ans and M, but nothing changes: for showing a result while it is being typed.
+    Result preview(std::string_view expression, const Options& options = {}) const;
     bool memoryAdd();       // M = M + Ans; false when there is no Ans
     bool memorySubtract();  // M = M - Ans; false when there is no Ans
     void memoryClear();

@@ -20,6 +20,7 @@ add_executable(calculate-core-tests
     test_kernels.cpp
     test_parser.cpp
     test_api.cpp
+    test_fuzz.cpp
     test_cli.cpp
 )
 target_include_directories(calculate-core-tests PRIVATE ${PROJECT_SOURCE_DIR}/src)

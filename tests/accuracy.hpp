@@ -73,6 +73,7 @@ inline Oracle oracle(FunctionId id, const Oracle& x, const Oracle& y) {
     case FunctionId::Cbrt: return x < 0 ? Oracle(-exp(log(-x) / 3)) : Oracle(exp(log(x) / 3));
     case FunctionId::Root: return x < 0 ? Oracle(-exp(log(-x) / y)) : Oracle(exp(log(x) / y));
     case FunctionId::Sqrt: return sqrt(x);
+    case FunctionId::Abs: return abs(x);
     default: return Oracle(0);
     }
 }

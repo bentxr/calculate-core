@@ -1,6 +1,7 @@
 #include "accuracy.hpp"
 #include "ast_builder.hpp"
 #include "engine.hpp"
+#include "parser.hpp"
 #include "test_support.hpp"
 
 using namespace calculate_core;
@@ -314,4 +315,119 @@ TEST(SineOfTenBillion, IsUnavailableInExactArithmetic) {
     const Evaluation<Rational> ev = evaluate<Rational>(b.ast());
     ASSERT_TRUE(ev.error);
     EXPECT_EQ(ev.error->code, ErrorCode::NotAvailableInExact);
+}
+
+TEST(Propagation, CarriesAnErrorAsLargeAsItsValue) {
+    AstBuilder b;
+    const auto x = b.literal("1e-17") + b.literal("1") - b.literal("1");  // 0 in double, off by about 1e-17
+    x * x;
+    const Forward<double> fw = forward<double>(b.ast());
+    ASSERT_EQ(fw.values[x.index], 0);
+    const std::vector<Ruler> locals = localErrors<double>(b.ast(), fw);
+    const Propagation p = propagate<double>(b.ast(), fw, locals);
+    const Ruler bx = p.bounds[x.index];
+    EXPECT_GT(bx, 0);
+    EXPECT_EQ(p.slopes.back(), (std::vector<Ruler>{Ruler(0), bx}));  // |0|, then |0| + bx
+    EXPECT_EQ(p.bounds.back(), bx * bx);
+    // The absolute adjoints use the slopes, so the report's parts add up to the bound.
+    const Adjoints adj = adjoints(b.ast(), nodePartials<double>(b.ast(), fw), p.slopes);
+    Ruler total = 0;
+    for (std::size_t i = 0; i < locals.size(); ++i) total += adj.absoluteAdj[i] * locals[i];
+    EXPECT_TRUE(test::covers(total, p.bounds.back()) && test::covers(p.bounds.back(), total));
+    EXPECT_EQ(adj.signedAdj[x.index], 0);  // the derivative at the computed value is still 0
+}
+
+namespace {
+
+// Whether the bound of `text`, evaluated in T, covers its true error: the exact value from rational arithmetic.
+template <class T>
+::testing::AssertionResult coversExactError(const std::string& text) {
+    using std::abs;
+    const Parsed parsed = parse(text, AngleUnit::Radians);
+    if (parsed.error) return ::testing::AssertionFailure() << text << ": " << parsed.error->message;
+    const Evaluation<T> ev = evaluate<T>(parsed.ast);
+    if (ev.error && ev.error->code == ErrorCode::Overflow) return ::testing::AssertionSuccess();  // too large for T
+    if (ev.error) return ::testing::AssertionFailure() << text << ": " << ev.error->message;
+    const Forward<Rational> exact = forward<Rational>(parsed.ast);
+    if (exact.error) return ::testing::AssertionFailure() << text << ": no exact value";
+    const Ruler error = fromRational<Ruler>(abs(toRational(ev.value) - exact.values.back()));
+    if (test::covers(ev.report.bound, error)) return ::testing::AssertionSuccess();
+    return ::testing::AssertionFailure() << text << ": bound " << formatScientific(ev.report.bound, 6) << " < true error "
+                                         << formatScientific(error, 6);
+}
+
+template <class T>
+class BoundTest : public ::testing::Test {};
+TYPED_TEST_SUITE(BoundTest, test::FloatingTypes, test::TypeNames);
+
+}  // namespace
+
+// Found by the random-expression property: errors as large as the value, and ties at the u² level.
+TYPED_TEST(BoundTest, ArgumentErrorsAreCarriedWhole) {
+    for (const char* text : {"(1e-17+1-1)^2", "(1e-17+1-1)*(1e-17+1-1)", "(1e-17+1-1)³", "(1e-17+1-1)²",
+                             "1e-300*1e-300", "(-(1e-300*100))³", "(1e-300%)²", "0.7²", "0.7³", "0.3³", "1e-17²",
+                             "1e-17*(-1e-17)", "(-(0.3-0.2))²", "((20)!²)³", "1e-300³", "(1e16-3)³", "(0.7²)²",
+                             "(0.1*3)^3", "(0.1*3)^-2", "1/(0.7²)", "1/(1e16-3)"})
+        EXPECT_TRUE(coversExactError<TypeParam>(text));
+}
+
+namespace {
+
+// Whether the bound of `text`, evaluated in T, covers its measured error (reliable: the two reference evaluations
+// agree far below it). A result too large for T, or an argument too large to reduce, is an honest refusal.
+template <class T>
+::testing::AssertionResult coversMeasuredError(const std::string& text, AngleUnit angle = AngleUnit::Radians) {
+    const Parsed parsed = parse(text, angle);
+    if (parsed.error) return ::testing::AssertionFailure() << text << ": " << parsed.error->message;
+    Options options;
+    options.angle = angle;
+    const Evaluation<T> ev = evaluate<T>(parsed.ast, options);
+    if (ev.error && (ev.error->code == ErrorCode::Overflow || ev.error->code == ErrorCode::ArgumentTooLarge))
+        return ::testing::AssertionSuccess();
+    if (ev.error) return ::testing::AssertionFailure() << text << ": " << ev.error->message;
+    const Report& r = ev.report;
+    if (!r.measuredAvailable || !r.reliable) return ::testing::AssertionFailure() << text << ": no reliable measurement";
+    if (test::covers(r.bound, r.measured)) return ::testing::AssertionSuccess();
+    return ::testing::AssertionFailure() << text << ": bound " << formatScientific(r.bound, 6) << " < measured "
+                                         << formatScientific(r.measured, 6);
+}
+
+}  // namespace
+
+TYPED_TEST(BoundTest, FunctionsCarryTheirArgumentsErrorAtTheSteepestSlope) {
+    for (const char* text : {"sin((12)!³)", "sin((0+1e16)²)", "sin((1e16²)*(100*1))"})
+        EXPECT_TRUE(coversMeasuredError<TypeParam>(text, AngleUnit::Degrees));
+}
+
+// Built for double, where E is -0.28 against a true 0 (other types compute other values for it).
+TEST(Bound, EveryFunctionCarriesItsArgumentsErrorAtTheSteepestSlope) {
+    const std::string e = "((0.3-0.1-0.2)*1e16)";
+    for (const std::string& text :
+         {"exp(" + e + ")", "ln(1-" + e + ")", "log(1-" + e + ")", "sqrt(1-" + e + ")", "cbrt(1-" + e + ")",
+          "sinh(1+" + e + ")", "cosh(1+" + e + ")", "tan(1+" + e + ")", "sin(2+" + e + ")", "cos(1+" + e + ")",
+          "asin(0.5+" + e + ")", "acos(0.5+" + e + ")", "atan(" + e + ")", "tanh(0.5-" + e + ")",
+          "asinh(-0.5+" + e + ")", "acosh(2-" + e + ")", "atanh(0.5+" + e + ")", "root(1-" + e + ", 3)",
+          "log(1-" + e + ", 3)", "log(8, 2-" + e + ")"})
+        EXPECT_TRUE(coversMeasuredError<double>(text));
+}
+
+TEST(Edges, TheArgumentWhoseIntervalReachesThem) {
+    using F = FunctionId;
+    const Ruler some(0.5);
+    EXPECT_EQ(impl::edgeReached(F::Divide, {Rational(1), Rational(0)}, {Ruler(0), some}), 1);
+    EXPECT_EQ(impl::edgeReached(F::Divide, {Rational(1), Rational(1)}, {Ruler(0), some}), -1);
+    EXPECT_EQ(impl::edgeReached(F::Mod, {Rational(5), Rational(0)}, {Ruler(0), some}), 1);
+    EXPECT_EQ(impl::edgeReached(F::LogBase, {Rational(8), Rational(1)}, {Ruler(0), some}), 1);
+    EXPECT_EQ(impl::edgeReached(F::LogBase, {Rational(0), Rational(2)}, {some, Ruler(0)}), 0);
+    EXPECT_EQ(impl::edgeReached(F::Sqrt, {Rational(0)}, {some}), 0);
+    EXPECT_EQ(impl::edgeReached(F::Sqrt, {Rational(1)}, {some}), -1);  // 0.5 to 1.5: clear of 0
+    EXPECT_EQ(impl::edgeReached(F::Sin, {Rational(0)}, {some}), -1);   // no edge at all
+}
+
+TEST(TrustedDigits, CountTheDecadesBetweenErrorAndValue) {
+    // floor(-log10(error / value)): 3/32 is 10^-1.03 and 1/16 is 10^-1.2, so one digit each.
+    EXPECT_EQ(trustedDigits(Ruler(1), Ruler(0.09375), 16), 1);
+    EXPECT_EQ(trustedDigits(Ruler(1), Ruler(0.0625), 16), 1);
+    EXPECT_EQ(trustedDigits(Ruler(1), Ruler(0.5), 16), 0);
+    EXPECT_EQ(trustedDigits(Ruler(1), Ruler(0), 16), 16);
 }

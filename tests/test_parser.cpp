@@ -2,6 +2,8 @@
 #include "engine.hpp"
 #include "parser.hpp"
 
+#include <cstring>
+
 using namespace calculate_core;
 using namespace calculate_core::detail;
 
@@ -303,4 +305,51 @@ TEST(EndToEnd, UncertainFactorialArgument) {
     ASSERT_TRUE(ev.error);
     EXPECT_EQ(ev.error->code, ErrorCode::UncertainDiscreteArgument);
     EXPECT_EQ(evaluateText<double>("(5+1)!").value, 720.0);
+}
+
+TEST(Parser, ACallWithoutItsClosingParenthesis) {
+    const Error e = parseError("root(8, 2");
+    EXPECT_EQ(e.code, ErrorCode::MissingClosingParenthesis);
+    EXPECT_EQ(e.begin, 0u);
+    EXPECT_EQ(e.end, 9u);
+}
+
+TEST(Parser, ParseReportsTheLexersError) {
+    const Parsed p = parse("2 $ 3", AngleUnit::Radians);
+    ASSERT_TRUE(p.error);
+    EXPECT_EQ(p.error->code, ErrorCode::InvalidCharacter);
+    EXPECT_EQ(p.error->begin, 2u);
+}
+
+TEST(Parser, ASemicolonSeparatesArgumentsLikeAComma) {
+    EXPECT_EQ(tree("root(32; 5)"), tree("root(32, 5)"));
+    EXPECT_EQ(tree("mean(1; 2, 3)"), tree("mean(1, 2, 3)"));
+    EXPECT_EQ(tree("log(8; 2)"), tree("log(8, 2)"));
+    EXPECT_EQ(parseError("sin(1; 2)").code, ErrorCode::WrongArgumentCount);
+    EXPECT_EQ(parseError("1; 2").code, ErrorCode::UnexpectedToken);  // only inside a call
+    const Lexed l = lex("f(1;2)");
+    ASSERT_FALSE(l.error);
+    EXPECT_EQ(l.tokens[3].kind, TokenKind::Comma);
+    EXPECT_EQ(l.tokens[3].text, ";");
+}
+
+TEST(Lexer, StaysInsideItsView) {
+    // The views end before text that would extend their last token: nothing past the end is read.
+    // (The text alone would not show it: a token's text is clamped to the view, its span is not.)
+    for (const char* text : {"123", "1e55", "sinx"}) {
+        const std::string_view view(text, std::strlen(text) - 1);
+        const Lexed l = lex(view);
+        ASSERT_FALSE(l.error) << text;
+        EXPECT_EQ(l.tokens[0].text, view) << text;
+        EXPECT_EQ(l.tokens[0].span.end, view.size()) << text;
+    }
+    const Lexed dot = lex(std::string_view("1+.5", 3));
+    ASSERT_TRUE(dot.error);
+    EXPECT_EQ(dot.error->code, ErrorCode::InvalidNumber);
+}
+
+TEST(Parser, ArgumentCountsInTheirMessages) {
+    EXPECT_EQ(parseError("sin(1, 2)").message, "sin takes 1 argument");
+    EXPECT_EQ(parseError("root(8)").message, "root takes 2 arguments");
+    EXPECT_EQ(parseError("mean()").message, "mean takes at least 1 argument");
 }

@@ -35,6 +35,63 @@ inline Ruler times(const Ruler& a, const Ruler& b) {
     return a == 0 || b == 0 ? Ruler(0) : Ruler(a * b);
 }
 
+// Whether the arguments' errors could carry x/y across a whole number k != 0, where a truncated remainder
+// jumps (it is continuous at 0). To first order the jump at k is |x - k*y| away, and the errors move
+// x - k*y by at most bx + |k|*by. The nearest k and its two neighbours are enough.
+inline bool nearJump(const Rational& x, const Rational& y, const Ruler& bx, const Ruler& by) {
+    const Integer n = floorOf(x / y + Rational(1, 2));  // y != 0: the forward pass succeeded
+    for (const Integer& k : {Integer(n - 1), n, Integer(n + 1)}) {
+        if (k == 0) continue;
+        const Ruler distance = fromRational<Ruler>(abs(x - Rational(k) * y));
+        if (distance <= bx + fromRational<Ruler>(Rational(abs(k))) * by) return true;
+    }
+    return false;
+}
+
+// Whether the error interval [value - bound, value + bound] reaches `point`. An exactly known value never does.
+inline bool near(const Rational& value, const Rational& point, const Ruler& bound) {
+    return bound > 0 && fromRational<Ruler>(abs(value - point)) <= bound;
+}
+
+// The argument whose error interval reaches a point where the node's function is not defined, not finite or
+// not smooth, or -1. Values and bounds are the arguments'.
+inline int edgeReached(FunctionId id, const std::vector<Rational>& x, const std::vector<Ruler>& b) {
+    switch (id) {
+    case FunctionId::Divide: return near(x[1], 0, b[1]) ? 1 : -1;
+    case FunctionId::Sqrt:
+    case FunctionId::Cbrt:
+    case FunctionId::Ln:
+    case FunctionId::Log10: return near(x[0], 0, b[0]) ? 0 : -1;
+    case FunctionId::Root: {
+        const bool linear = b[1] == 0 && abs(x[1]) == 1;
+        return !linear && near(x[0], 0, b[0]) ? 0 : -1;
+    }
+    case FunctionId::LogBase:
+        if (near(x[0], 0, b[0])) return 0;
+        return near(x[1], 0, b[1]) || near(x[1], 1, b[1]) ? 1 : -1;
+    case FunctionId::Power: {
+        const bool wholeExponent = b[1] == 0 && denominator(x[1]) == 1 && x[1] >= 0;
+        return !wholeExponent && near(x[0], 0, b[0]) ? 0 : -1;
+    }
+    case FunctionId::Asin:
+    case FunctionId::Acos:
+    case FunctionId::Atanh: return near(x[0], -1, b[0]) || near(x[0], 1, b[0]) ? 0 : -1;
+    case FunctionId::Acosh: return near(x[0], 1, b[0]) ? 0 : -1;
+    case FunctionId::Tan: {  // the nearest pole (k + 1/2)pi
+        const Rational pi = constantRational(ConstantId::Pi);
+        const Integer k = floorOf(x[0] / pi);
+        return near(x[0], (Rational(k) + Rational(1, 2)) * pi, b[0]) ? 0 : -1;
+    }
+    case FunctionId::Mod: return near(x[1], 0, b[1]) ? 1 : -1;
+    default: return -1;
+    }
+}
+
+// 0^y jumps at y = 0 (0^0 = 1, 0^y = 0 for y > 0).
+inline bool zeroPowerNearJump(const std::vector<Rational>& x, const std::vector<Ruler>& b) {
+    return x[0] == 0 && b[0] == 0 && near(x[1], 0, b[1]);
+}
+
 }  // namespace impl
 
 // Evaluates every node in T. The first error stops the pass and carries the failing node's span.
@@ -52,8 +109,8 @@ Forward<T> forward(const Ast& ast, const std::atomic<bool>* cancel = nullptr) {
         if (node.function == FunctionId::Literal) {
             // An exact literal beyond 10^±1000000 cannot be materialized in reasonable time or memory.
             const auto literal = parseDecimal(node.text);
-            const bool outOfRange =
-                !literal || (isExact<T> && (literal->exponent10 > 1000000 || literal->exponent10 < -1000000));
+            const bool outOfRange = !literal || (isExact<T> && (literal->exponent10 > exactDigitsLimit
+                                                                || literal->exponent10 < -exactDigitsLimit));
             if (!outOfRange) fw.values[i] = decimalTo<T>(*literal);
             if (outOfRange || !isFinite(fw.values[i])) {
                 fw.error = impl::nodeError(node, ErrorCode::LiteralOutOfRange,
@@ -119,9 +176,9 @@ struct Adjoints {
 };
 
 // Reverse sweep: parents come after their arguments, so walking backwards visits each node's
-// parents before the node itself.
-inline Adjoints adjoints(const Ast& ast, const std::vector<std::vector<Ruler>>& partials) {
-    using std::abs;
+// parents before the node itself. The signed adjoints use the derivatives, the absolute ones the slopes.
+inline Adjoints adjoints(const Ast& ast, const std::vector<std::vector<Ruler>>& partials,
+                         const std::vector<std::vector<Ruler>>& slopes) {
     Adjoints adj;
     adj.signedAdj.assign(ast.nodes.size(), Ruler(0));
     adj.absoluteAdj.assign(ast.nodes.size(), Ruler(0));
@@ -131,9 +188,18 @@ inline Adjoints adjoints(const Ast& ast, const std::vector<std::vector<Ruler>>& 
         for (std::size_t k = 0; k < ast.nodes[i].args.size(); ++k) {
             const int a = ast.nodes[i].args[k];
             adj.signedAdj[a] += impl::times(partials[i][k], adj.signedAdj[i]);
-            adj.absoluteAdj[a] += impl::times(abs(partials[i][k]), adj.absoluteAdj[i]);
+            adj.absoluteAdj[a] += impl::times(slopes[i][k], adj.absoluteAdj[i]);
         }
     return adj;
+}
+
+// The same with |derivatives| as the slopes: first order at the computed values.
+inline Adjoints adjoints(const Ast& ast, const std::vector<std::vector<Ruler>>& partials) {
+    using std::abs;
+    std::vector<std::vector<Ruler>> magnitudes = partials;
+    for (std::vector<Ruler>& node : magnitudes)
+        for (Ruler& d : node) d = abs(d);
+    return adjoints(ast, partials, magnitudes);
 }
 
 // First-order error bound of every node's value, computed forwards (Higham's running error bound).
@@ -147,6 +213,33 @@ inline std::vector<Ruler> forwardBounds(const Ast& ast, const std::vector<std::v
             bounds[i] += impl::times(abs(partials[i][k]), bounds[ast.nodes[i].args[k]]);
     }
     return bounds;
+}
+
+// Every node's error bound and the slopes it carries its arguments' bounds with (see `slopes`), computed forwards:
+// a node's slopes need its arguments' bounds.
+struct Propagation {
+    std::vector<Ruler> bounds;
+    std::vector<std::vector<Ruler>> slopes;
+};
+
+template <class T>
+Propagation propagate(const Ast& ast, const Forward<T>& fw, const std::vector<Ruler>& locals) {
+    Propagation p;
+    p.bounds = locals;
+    p.slopes.resize(ast.nodes.size());
+    for (std::size_t i = 0; i < ast.nodes.size(); ++i) {
+        const Node& node = ast.nodes[i];
+        if (node.args.empty()) continue;
+        std::vector<Ruler> args;
+        std::vector<Ruler> argBounds;
+        for (const int a : node.args) {
+            args.push_back(exactCast<Ruler>(fw.values[a]));
+            argBounds.push_back(p.bounds[a]);
+        }
+        p.slopes[i] = slopes(node.function, args, argBounds);
+        for (std::size_t k = 0; k < args.size(); ++k) p.bounds[i] += impl::times(p.slopes[i][k], argBounds[k]);
+    }
+    return p;
 }
 
 // Whether two reference evaluations agree within `tolerance`.
@@ -208,7 +301,7 @@ struct Report {
     Ruler input = 0;
     Ruler rounding = 0;
     Ruler library = 0;
-    Ruler bound = 0;     // guaranteed to first order: input + rounding + library
+    Ruler bound = 0;     // guaranteed: input + rounding + library
     Ruler measured = 0;  // |value - reference|
     Ruler condition = 0;
     bool measuredAvailable = false;
@@ -242,14 +335,65 @@ Evaluation<T> evaluate(const Ast& ast, const Options& options = {}) {
 
     // Discrete functions jump, so derivatives cannot carry their arguments' uncertainty:
     // refuse arguments that are not exactly known, unless the caller accepts an incomplete bound.
-    const std::vector<Ruler> bounds = forwardBounds(ast, parts, locals);
+    const Propagation propagation = propagate<T>(ast, fw, locals);
+    const std::vector<Ruler>& bounds = propagation.bounds;
     for (const Node& node : ast.nodes) {
+        if (!node.args.empty()) {
+            std::vector<Rational> x;
+            std::vector<Ruler> b;
+            for (const int a : node.args) {
+                x.push_back(toRational(fw.values[a]));
+                b.push_back(bounds[a]);
+            }
+            const int edge = impl::edgeReached(node.function, x, b);
+            const bool jump = node.function == FunctionId::Power && impl::zeroPowerNearJump(x, b);
+            if (edge >= 0 || jump) {
+                if (!options.allowUncertainDiscreteArguments) {
+                    const ErrorCode code = edge >= 0 ? ErrorCode::ArgumentNearEdge : ErrorCode::ArgumentNearJump;
+                    const std::string carrier = edge >= 0 ? "argument" : "exponent";
+                    ev.error = impl::nodeError(node, code,
+                                               errorMessage(code, symbolOf(node.function)) + "; its " + carrier
+                                                   + " carries an error of up to " + formatScientific(b[edge >= 0 ? edge : 1]));
+                    return ev;
+                }
+                r.boundComplete = false;
+            }
+            // A negative base exists only at whole exponents (odd orders for root): no slope carries their error.
+            const bool power = node.function == FunctionId::Power;
+            if ((power || node.function == FunctionId::Root) && x[0] < 0 && b[1] > 0) {
+                if (!options.allowUncertainDiscreteArguments) {
+                    const std::string what = power ? "exponent" : "order";
+                    const std::string negative = power ? "base" : "radicand";
+                    ev.error = impl::nodeError(node, ErrorCode::UncertainDiscreteArgument,
+                                               std::string(symbolOf(node.function)) + " needs an exactly known " + what
+                                                   + " when its " + negative + " is negative; its " + what
+                                                   + " carries an error of up to " + formatScientific(b[1]));
+                    return ev;
+                }
+                r.boundComplete = false;
+            }
+        }
         const FunctionInfo& info = functionInfo(node.function);
-        if (!info.discrete) continue;
+        if (info.continuity == Continuity::Continuous) continue;
+        const std::string name = info.name.empty() ? "!" : std::string(info.name);
+        if (info.continuity == Continuity::Piecewise) {
+            const Ruler& bx = bounds[node.args[0]];
+            const Ruler& by = bounds[node.args[1]];
+            const Rational x = toRational(fw.values[node.args[0]]);
+            const Rational y = toRational(fw.values[node.args[1]]);
+            if ((bx == 0 && by == 0) || !impl::nearJump(x, y, bx, by)) continue;
+            if (!options.allowUncertainDiscreteArguments) {
+                ev.error = impl::nodeError(node, ErrorCode::ArgumentNearJump,
+                                           errorMessage(ErrorCode::ArgumentNearJump, name) + "; they carry errors of up to "
+                                               + formatScientific(bx) + " and " + formatScientific(by));
+                return ev;
+            }
+            r.boundComplete = false;
+            continue;
+        }
         for (const int a : node.args) {
             if (bounds[a] == 0) continue;
             if (!options.allowUncertainDiscreteArguments) {
-                const std::string name = info.name.empty() ? "!" : std::string(info.name);
                 ev.error = impl::nodeError(node, ErrorCode::UncertainDiscreteArgument,
                                            errorMessage(ErrorCode::UncertainDiscreteArgument, name)
                                                + "; its argument carries an error of up to " + formatScientific(bounds[a]));
@@ -259,7 +403,7 @@ Evaluation<T> evaluate(const Ast& ast, const Options& options = {}) {
         }
     }
 
-    const Adjoints adj = adjoints(ast, parts);
+    const Adjoints adj = adjoints(ast, parts, propagation.slopes);
     Ruler weighted = 0;  // sum over the inputs of |d root / d input| * |input|
     for (std::size_t i = 0; i < ast.nodes.size(); ++i) {
         const Ruler term = impl::times(adj.absoluteAdj[i], locals[i]);

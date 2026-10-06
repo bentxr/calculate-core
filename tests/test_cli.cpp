@@ -124,3 +124,14 @@ TEST(Cli, ListsTheTypesOfThisBuild) {
     EXPECT_NE(r.out.find("double       Double     64-bit, 53-bit significand, ~16 digits\n"), std::string::npos);
     EXPECT_NE(r.out.find("exact        Exact      exact rationals, no rounding\n"), std::string::npos);
 }
+
+TEST(Cli, AJumpWithinTheErrorIsAnErrorCode) {
+    const Outcome r = invoke({"--json", "mod(0.7+0.1, 0.8)"});
+    EXPECT_EQ(r.code, 1);
+    EXPECT_NE(r.out.find("\"code\":\"ArgumentNearJump\""), std::string::npos);
+    EXPECT_EQ(invoke({"--allow-uncertain", "mod(0.7+0.1, 0.8)"}).code, 0);
+}
+
+TEST(Cli, AnEdgeWithinTheErrorIsAnErrorCode) {
+    EXPECT_NE(invoke({"--json", "sqrt(0.1+0.2-0.3)"}).out.find("\"code\":\"ArgumentNearEdge\""), std::string::npos);
+}

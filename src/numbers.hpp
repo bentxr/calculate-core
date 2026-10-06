@@ -102,12 +102,22 @@ bool isFinite(const T& x) {
     }
 }
 
+// Exact numbers beyond 10^±1000000 take minutes and gigabytes to compute and write down.
+inline constexpr long long exactDigitsLimit = 1000000;
+
 // q * 2^e, exactly.
 inline Rational scaleByPowerOfTwo(const Rational& q, long long e) {
     if (e == 0) return q;
     const Integer power = Integer(1) << static_cast<unsigned>(e < 0 ? -e : e);
     return e > 0 ? Rational(numerator(q) * power, denominator(q))
                  : Rational(numerator(q), denominator(q) * power);
+}
+
+// The largest integer <= q. (Integer division truncates towards zero; the denominator is >= 1.)
+inline Integer floorOf(const Rational& q) {
+    Integer n = numerator(q) / denominator(q);
+    if (n * denominator(q) > numerator(q)) --n;
+    return n;
 }
 
 // The exact value of a finite x.

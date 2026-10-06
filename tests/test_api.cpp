@@ -5,6 +5,7 @@
 
 #include <cfloat>
 #include <chrono>
+#include <set>
 
 using namespace calculate_core;
 
@@ -206,4 +207,185 @@ TEST(Session, Memory) {
     EXPECT_EQ(s.evaluate("M").error->code, ErrorCode::UnknownName);
     s.clearHistory();
     EXPECT_TRUE(s.history().empty());
+}
+
+TEST(Api, AValueAsSmallAsItsErrorStillHasABound) {
+    // 1e-17 + 1 - 1 is 0 in double, with an error of about 1e-17: its square is not exactly 0.
+    for (const char* text : {"(1e-17+1-1)^2", "(1e-17+1-1)²", "(1e-17+1-1)*(1e-17+1-1)"}) {
+        const Result r = evaluate(text);
+        ASSERT_FALSE(r.error) << text;
+        EXPECT_EQ(r.value.digits, "0") << text;
+        EXPECT_NE(r.bound, "0") << text;
+        ASSERT_TRUE(r.measuredAvailable) << text;
+        EXPECT_GE(std::stod(r.bound), std::stod(r.measured)) << text;
+    }
+}
+
+TEST(Api, ModuloRefusesArgumentsWhoseErrorReachesAJump) {
+    // 0.7 + 0.1 lands just below 0.8: the exact mod(0.8, 0.8) is 0, the computed one almost 0.8.
+    const Result r = evaluate("mod(0.7 + 0.1, 0.8)");
+    ASSERT_TRUE(r.error);
+    EXPECT_EQ(r.error->code, ErrorCode::ArgumentNearJump);
+    EXPECT_EQ(r.error->begin, 0u);
+    EXPECT_EQ(r.error->end, 19u);
+    EXPECT_NE(r.error->message.find("mod jumps within the error of its arguments"), std::string::npos);
+    Options allow;
+    allow.allowUncertainDiscreteArguments = true;
+    const Result anyway = evaluate("mod(0.7 + 0.1, 0.8)", allow);
+    ASSERT_FALSE(anyway.error);
+    EXPECT_FALSE(anyway.boundComplete);
+    const Result far = evaluate("mod(0.1*3, 1)");  // uncertain, but far from 0 and 1
+    ASSERT_FALSE(far.error);
+    EXPECT_TRUE(far.boundComplete);
+    EXPECT_FALSE(evaluate("mod(7.5, 2)").error);         // exactly known
+    EXPECT_FALSE(evaluate("mod(-1e-30, 1)").error);      // near 0, where a truncated remainder is continuous
+    EXPECT_FALSE(evaluate("mod(-0.1*3, 1)").error);
+    EXPECT_FALSE(evaluate("mod(0.7 + 0.1, 0.8)", as(NumberType::Exact)).error);  // no error to reach anything
+    EXPECT_EQ(evaluate("mod(-7, 3)").value.digits, "1");  // still truncated: -1
+    EXPECT_TRUE(evaluate("mod(-7, 3)").value.negative);
+}
+
+TEST(Api, AnExactPowerTooLargeToWriteDownIsAnOverflow) {
+    const Result r = evaluate("0.7^nPr(12, 12)", as(NumberType::Exact));
+    ASSERT_TRUE(r.error);
+    EXPECT_EQ(r.error->code, ErrorCode::Overflow);
+    EXPECT_FALSE(evaluate("0.7^nPr(12, 12)").error);  // in double it underflows to 0, at once
+}
+
+TEST(Api, AnArgumentWhoseErrorReachesAnEdgeIsRefused) {
+    for (const char* text : {"sqrt(0.1+0.2-0.3)", "cbrt(0.1+0.2-0.3)", "ln(0.1+0.2-0.3)", "log(0.1+0.2-0.3)",
+                             "1/(0.1+0.2-0.3)", "(0.1+0.2-0.3)^0.5", "(0.1+0.2-0.3)^-1", "root(0.1+0.2-0.3, 3)",
+                             "tan(pi/2)", "asin(0.1*3+0.7)", "acos(0.1*3+0.7)", "acosh(1.1-0.1)", "log(8, 0.1+0.2-0.3)",
+                             "mod(5, 0.1+0.2-0.3)"}) {
+        const Result r = evaluate(text);
+        ASSERT_TRUE(r.error) << text;
+        EXPECT_EQ(r.error->code, ErrorCode::ArgumentNearEdge) << text;
+    }
+    const Result s = evaluate("sqrt(0.1+0.2-0.3)");
+    EXPECT_EQ(s.error->begin, 0u);
+    EXPECT_EQ(s.error->end, 17u);
+    EXPECT_EQ(s.error->message, "sqrt is not defined or not smooth within the error of its argument; "
+                                "its argument carries an error of up to 5.6e-17");
+    EXPECT_EQ(evaluate("1/(0.1+0.2-0.3)").error->message.rfind("÷ is not defined", 0), 0u);  // operators by their sign
+    EXPECT_EQ(evaluate("tan(90)", as(NumberType::Double, AngleUnit::Degrees)).error->code, ErrorCode::ArgumentNearEdge);
+    // Far from every edge, or exactly known: computed as before.
+    for (const char* text : {"sqrt(2)", "sqrt(0)", "1/3", "ln(1e-300)", "tan(1)", "asin(1)", "acos(0.5)",
+                             "(0.1+0.2-0.3)^2", "0^2", "(0.1+0.2)^0.5", "1/(0.1+0.2)", "root(-8, 3)", "atanh(0.5)"})
+        EXPECT_FALSE(evaluate(text).error) << text;
+    Options allow;
+    allow.allowUncertainDiscreteArguments = true;
+    const Result anyway = evaluate("sqrt(0.1+0.2-0.3)", allow);
+    ASSERT_FALSE(anyway.error);
+    EXPECT_FALSE(anyway.boundComplete);
+    EXPECT_FALSE(evaluate("sqrt(0.1+0.2-0.3)", as(NumberType::Exact)).error);  // exactly 0
+}
+
+TEST(Api, ZeroToAPowerJumpsAtZero) {
+    const Result r = evaluate("0^(0.1+0.2-0.3)");
+    ASSERT_TRUE(r.error);
+    EXPECT_EQ(r.error->code, ErrorCode::ArgumentNearJump);
+    EXPECT_FALSE(evaluate("0^(0.1+0.2)").error);  // far from 0
+    EXPECT_FALSE(evaluate("0^0").error);          // exactly 0: 1
+}
+
+TEST(Api, ANegativeBaseNeedsAnExactlyKnownExponent) {
+    for (const char* text : {"(-2)^3.00000000000000001", "(-2)^(0.1*30)", "root(-8, 3.00000000000000001)", "root(-8, 0.1*30)"}) {
+        const Result r = evaluate(text);
+        ASSERT_TRUE(r.error) << text;
+        EXPECT_EQ(r.error->code, ErrorCode::UncertainDiscreteArgument) << text;
+    }
+    EXPECT_NE(evaluate("(-2)^(0.1*30)").error->message.find("needs an exactly known exponent when its base is negative"),
+              std::string::npos);
+    EXPECT_EQ(evaluate("(-2)^3").value.digits, "8");  // exact exponents: as before
+    EXPECT_FALSE(evaluate("root(-8, 3)").error);
+    EXPECT_FALSE(evaluate("2^(0.1*30)").error);       // a positive base is smooth in y
+    Options allow;
+    allow.allowUncertainDiscreteArguments = true;
+    EXPECT_FALSE(evaluate("(-2)^(0.1*30)", allow).boundComplete);
+}
+
+TEST(Api, AnUnboundedErrorUpstreamIsRefusedAtOnce) {
+    const char* text = "((1e16²)^(abs(-1)-(√(0.1+0.2-0.3))))";
+    const Result r = evaluate(text);
+    ASSERT_TRUE(r.error);
+    EXPECT_EQ(r.error->code, ErrorCode::ArgumentNearEdge);
+    Options allow;
+    allow.allowUncertainDiscreteArguments = true;
+    const Result anyway = evaluate(text, allow);
+    ASSERT_FALSE(anyway.error);
+    EXPECT_EQ(anyway.bound, "inf");
+    EXPECT_FALSE(anyway.boundComplete);
+}
+
+TEST(Api, AMedianCountsEveryArgumentThatCanBeTheMedian) {
+    const Result r = evaluate("median(0, 1, 0.5+(0.1+0.2-0.3)*1e16)");
+    ASSERT_FALSE(r.error);
+    ASSERT_TRUE(r.measuredAvailable);
+    EXPECT_GE(std::stod(r.bound), std::stod(r.measured));  // measured 0.5
+    const Result first = evaluate("median(0.5+(0.1+0.2-0.3)*1e16, 0, 1)");  // the uncertain argument first
+    ASSERT_TRUE(first.measuredAvailable);
+    EXPECT_GE(std::stod(first.bound), std::stod(first.measured));
+    EXPECT_EQ(evaluate("median(1, 2, 3)").bound, "0");
+    EXPECT_EQ(evaluate("median(0.1, 5, 9)").bound, "0");  // 0.1's error cannot reach 5
+    const Result two = evaluate("median(0.1, 0.2)");     // even count: the mean of the two
+    EXPECT_EQ(two.bound, evaluate("(0.1+0.2)/2").bound);
+}
+
+TEST(Api, AnArgumentTooLargeToReduceIsAnError) {
+    const Result r = evaluate("sin(1e4000)", as(NumberType::Binary128));
+    ASSERT_TRUE(r.error);
+    EXPECT_EQ(r.error->code, ErrorCode::ArgumentTooLarge);
+    EXPECT_EQ(r.error->message, "The argument of sin is too large to reduce accurately");
+}
+
+TEST(Api, SemicolonsInCalls) {
+    EXPECT_EQ(evaluate("nCr(5; 2)").value.digits, "1");  // 10
+    EXPECT_EQ(evaluate("nCr(5; 2)").value.exponent10, 1);
+    EXPECT_EQ(evaluate("nCr(5; 2)").expression, "nCr(5; 2)");  // kept as written
+}
+
+TEST(Api, LongDoubleStorageFollowsItsFormat) {
+    // x87 extended is stored in 80 bits, binary128 in 128, a long double that is a double in 64.
+    for (const TypeInfo& t : numberTypes()) {
+        if (t.type == NumberType::LongDouble) {
+            EXPECT_EQ(t.storageBits, t.precisionBits == 64 ? 80 : t.precisionBits == 113 ? 128 : 64);
+        }
+    }
+}
+
+TEST(Session, APreviewChangesNothing) {
+    Session s;
+    s.evaluate("1 + 2");
+    const Result r = s.preview("Ans*2");
+    EXPECT_EQ(r.value.digits, "6");
+    EXPECT_EQ(r.expression, "(1 + 2)*2");
+    EXPECT_EQ(s.answer(), "1 + 2");
+    EXPECT_EQ(s.history().size(), 1u);
+    EXPECT_TRUE(s.preview("1/0").error);
+    EXPECT_TRUE(s.memoryAdd());
+    EXPECT_EQ(s.preview("M + 1").value.digits, "4");
+    EXPECT_EQ(s.memory(), "1 + 2");
+}
+
+TEST(Api, ExactHasNoSizes) {
+    for (const TypeInfo& t : numberTypes()) {
+        if (t.type != NumberType::Exact) continue;
+        EXPECT_EQ(t.storageBits, 0);
+        EXPECT_EQ(t.precisionBits, 0);
+        EXPECT_EQ(t.decimalDigits, 0);
+    }
+}
+
+TEST(Api, EveryFunctionIsListedOnceByName) {
+    const std::vector<FunctionDescription> list = functions();
+    std::set<std::string> names;
+    for (const FunctionDescription& f : list) {
+        EXPECT_FALSE(f.name.empty());
+        EXPECT_TRUE(names.insert(f.name).second) << f.name;  // log covers both arities
+    }
+    for (const FunctionDescription& f : list) {
+        if (f.name == "var" || f.name == "stdev") {
+            EXPECT_EQ(f.maxArgs, -1) << f.name;
+        }
+    }
 }

@@ -21,10 +21,11 @@ TEST(FunctionInfo, NamesAreUniqueExceptTheTwoLogarithms) {
         EXPECT_EQ(names.count(name), name == "log" ? 2u : 1u) << name;
 }
 
-TEST(FunctionInfo, DiscreteAndExactFlags) {
+TEST(FunctionInfo, ContinuityAndExactFlags) {
     for (FunctionId id : {FunctionId::Factorial, FunctionId::Gcd, FunctionId::Lcm, FunctionId::Ncr, FunctionId::Npr})
-        EXPECT_TRUE(functionInfo(id).discrete);
-    EXPECT_FALSE(functionInfo(FunctionId::Mod).discrete);
+        EXPECT_EQ(functionInfo(id).continuity, Continuity::Discrete);
+    EXPECT_EQ(functionInfo(FunctionId::Mod).continuity, Continuity::Piecewise);
+    EXPECT_EQ(functionInfo(FunctionId::Sin).continuity, Continuity::Continuous);
     EXPECT_FALSE(functionInfo(FunctionId::Sin).exact);
     EXPECT_FALSE(functionInfo(FunctionId::Pi).exact);
     EXPECT_TRUE(functionInfo(FunctionId::Sqrt).exact);
@@ -259,7 +260,8 @@ TEST(Partials, EveryRuleMatchesAFiniteDifference) {
         {FunctionId::Sinh, {0.7}},  {FunctionId::Cosh, {0.7}},  {FunctionId::Tanh, {0.7}},
         {FunctionId::Asinh, {0.7}}, {FunctionId::Acosh, {1.7}}, {FunctionId::Atanh, {0.3}},
         {FunctionId::Sqrt, {0.7}},  {FunctionId::Cbrt, {0.7}},  {FunctionId::Power, {0.7, 2.5}},
-        {FunctionId::LogBase, {0.7, 3.0}}, {FunctionId::Root, {0.7, 3.0}}};
+        {FunctionId::LogBase, {0.7, 3.0}}, {FunctionId::Root, {0.7, 3.0}}, {FunctionId::Abs, {0.7}},
+        {FunctionId::Abs, {-0.7}}};
     for (const auto& [id, point] : cases) {
         std::vector<Ruler> args;
         std::vector<O> oracleArgs;
@@ -289,4 +291,327 @@ TEST(Partials, DiscreteFunctionsHaveZeroDerivatives) {
     EXPECT_EQ(partials<Ruler>(FunctionId::Median, {Ruler(3), Ruler(1), Ruler(2)}, Ruler(2)),
               (std::vector<Ruler>{Ruler(0), Ruler(0), Ruler(1)}));
     EXPECT_EQ(partials<Ruler>(FunctionId::Mod, {Ruler(7), Ruler(3)}, Ruler(1)), (std::vector<Ruler>{Ruler(1), Ruler(-2)}));
+}
+
+namespace {
+
+bool close(const Ruler& a, const Ruler& b) {
+    using std::abs;
+    using std::ldexp;
+    return abs(a - b) <= ldexp(Ruler(1), -800) * (abs(a) > abs(b) ? abs(a) : abs(b));
+}
+
+// The points of the box argument k's slope ranges over: the arguments up to k at both ends, the quarters and the
+// middle of their intervals; the later ones at their computed values.
+std::vector<std::vector<Ruler>> boxPoints(const std::vector<Ruler>& a, const std::vector<Ruler>& b, std::size_t k) {
+    std::vector<std::vector<Ruler>> points{a};
+    for (std::size_t j = 0; j <= k; ++j) {
+        std::vector<std::vector<Ruler>> next;
+        for (const std::vector<Ruler>& p : points)
+            for (const Ruler& shift : {Ruler(-1), Ruler(-0.5), Ruler(0), Ruler(0.5), Ruler(1)}) {
+                std::vector<Ruler> q = p;
+                q[j] = a[j] + shift * b[j];
+                next.push_back(q);
+            }
+        points = next;
+    }
+    return points;
+}
+
+// slopes(id, a, b)[k] is at least |d f / d arg_k| at every sampled point of argument k's box (a slope too small
+// breaks the bound), at most four times the steepest of them (one far too large loosens it), and, with exact
+// arguments, the derivative itself.
+void expectSlopesDominate(FunctionId id, const std::vector<double>& point, const std::vector<double>& radius) {
+    using std::abs;
+    using std::ldexp;
+    std::vector<Ruler> a, b;
+    for (const double x : point) a.push_back(Ruler(x));
+    for (const double r : radius) b.push_back(Ruler(r));
+    const bool exactArguments = std::all_of(b.begin(), b.end(), [](const Ruler& r) { return r == 0; });
+    const std::vector<Ruler> s = slopes(id, a, b);
+    ASSERT_EQ(s.size(), a.size());
+    const Ruler slack = ldexp(Ruler(1), -800);
+    for (std::size_t k = 0; k < a.size(); ++k) {
+        Ruler steepest = 0;
+        for (const std::vector<Ruler>& p : boxPoints(a, b, k)) {
+            const Applied<Ruler> v = applyFunction<Ruler>(id, p);
+            ASSERT_FALSE(v.error) << "argument " << k;  // every box of the tables stays inside the domain
+            const Ruler d = abs(partials<Ruler>(id, p, v.value)[k]);
+            EXPECT_GE(s[k], d * (1 - slack)) << "argument " << k;
+            if (d > steepest) steepest = d;
+        }
+        EXPECT_LE(s[k], 4 * steepest * (1 + slack)) << "argument " << k;
+        if (exactArguments) {
+            EXPECT_TRUE(close(s[k], steepest)) << "argument " << k;
+        }
+    }
+}
+
+struct SlopeCase {
+    FunctionId id;
+    std::vector<double> point;
+    std::vector<double> radius;
+};
+
+}  // namespace
+
+TEST(Slopes, OperatorsDominateTheirDerivativesOverTheirIntervals) {
+    using F = FunctionId;
+    const SlopeCase cases[] = {
+        {F::Add, {3, 5}, {1, 2}},          {F::Subtract, {3, 5}, {1, 2}},        {F::Negate, {2}, {1}},
+        {F::Percent, {2}, {1}},            {F::Abs, {0.5}, {1}},                 {F::Abs, {-2}, {0}},
+        {F::Multiply, {3, -5}, {0.5, 0.25}}, {F::Multiply, {0, 0}, {1e-17, 1e-17}}, {F::Multiply, {3, -5}, {0, 0}},
+        {F::Divide, {1, 4}, {1, 2}},       {F::Divide, {-3, -0.5}, {0.5, 0.25}}, {F::Divide, {1, 4}, {0, 0}},
+        {F::Square, {0}, {0.5}},           {F::Square, {-3}, {0.5}},             {F::Square, {-3}, {0}},
+        {F::Cube, {0}, {1e-17}},           {F::Cube, {-2}, {3}},                 {F::Cube, {-2}, {0}},
+        {F::Power, {2, 3}, {1, 0}},        {F::Power, {-2, 3}, {0.5, 0}},        {F::Power, {2, -2}, {0.5, 0}},
+        {F::Power, {2, 2.5}, {0.5, 0.25}}, {F::Power, {0.7, 0.5}, {0.1, 0.1}},   {F::Power, {0.7, 0.5}, {0, 0}},
+        {F::Power, {2, 0}, {1, 0}},        {F::Mod, {7, 3}, {0.5, 0.25}},        {F::Mod, {-7, 3}, {0, 0}},
+    };
+    for (const SlopeCase& c : cases) {
+        SCOPED_TRACE(std::to_string(static_cast<int>(c.id)) + " at " + std::to_string(c.point[0]));
+        expectSlopesDominate(c.id, c.point, c.radius);
+    }
+}
+
+TEST(Slopes, OperatorValues) {
+    const auto s = [](FunctionId id, std::vector<Ruler> a, std::vector<Ruler> b) { return slopes(id, a, b); };
+    using V = std::vector<Ruler>;
+    // x·y: x moves with y at its value, then y moves with x anywhere in its interval.
+    EXPECT_EQ(s(FunctionId::Multiply, {Ruler(3), Ruler(-5)}, {Ruler(0.5), Ruler(0.25)}), (V{Ruler(5), Ruler(3.5)}));
+    EXPECT_EQ(s(FunctionId::Square, {Ruler(0)}, {Ruler(0.5)}), (V{Ruler(1)}));  // the derivative at 0 is 0, the slope is not
+    EXPECT_EQ(s(FunctionId::Cube, {Ruler(2)}, {Ruler(1)}), (V{Ruler(27)}));
+    EXPECT_EQ(s(FunctionId::Divide, {Ruler(1), Ruler(4)}, {Ruler(1), Ruler(2)}), (V{Ruler(0.25), Ruler(0.5)}));  // 2 / 2²
+    EXPECT_EQ(s(FunctionId::Mod, {Ruler(7), Ruler(3)}, {Ruler(1), Ruler(1)}), (V{Ruler(1), Ruler(4)}));        // trunc(8 / 2)
+    EXPECT_EQ(s(FunctionId::Factorial, {Ruler(5)}, {Ruler(0)}), (V{Ruler(0)}));
+    EXPECT_TRUE(close(s(FunctionId::Power, {Ruler(2), Ruler(3)}, {Ruler(1), Ruler(0)})[0], Ruler(27)));  // 3 · 3²
+    EXPECT_TRUE(close(s(FunctionId::Power, {Ruler(2), Ruler(-1)}, {Ruler(1), Ruler(0)})[0], Ruler(1)));  // 1 · 1⁻²
+}
+
+TEST(Slopes, InfiniteWhereAnIntervalReachesAnUnboundedDerivative) {
+    const auto s = [](FunctionId id, std::vector<Ruler> a, std::vector<Ruler> b, std::size_t k) {
+        return slopes(id, a, b)[k];
+    };
+    EXPECT_FALSE(isFinite(s(FunctionId::Divide, {Ruler(1), Ruler(0.1)}, {Ruler(0), Ruler(0.1)}, 1)));
+    EXPECT_FALSE(isFinite(s(FunctionId::Mod, {Ruler(1), Ruler(0.1)}, {Ruler(0), Ruler(0.2)}, 1)));
+    EXPECT_FALSE(isFinite(s(FunctionId::Power, {Ruler(0.5), Ruler(-2)}, {Ruler(0.5), Ruler(0)}, 0)));
+    EXPECT_FALSE(isFinite(s(FunctionId::Power, {Ruler(0.5), Ruler(0.5)}, {Ruler(0.6), Ruler(0)}, 0)));
+    EXPECT_FALSE(isFinite(s(FunctionId::Power, {Ruler(0.5), Ruler(2.5)}, {Ruler(0.6), Ruler(0)}, 0)));  // x < 0: undefined
+    EXPECT_TRUE(isFinite(s(FunctionId::Power, {Ruler(0.5), Ruler(2)}, {Ruler(0.6), Ruler(0)}, 0)));     // x² is smooth at 0
+}
+
+TEST(Slopes, FunctionsDominateTheirDerivativesOverTheirIntervals) {
+    using F = FunctionId;
+    const SlopeCase cases[] = {
+        {F::Sqrt, {0.7}, {0.2}},   {F::Cbrt, {-0.7}, {0.2}},  {F::Cbrt, {0.7}, {0.2}},  {F::Exp, {0.7}, {0.5}},
+        {F::Exp, {-3}, {1}},       {F::Ln, {0.7}, {0.2}},     {F::Log10, {0.7}, {0.2}}, {F::Sin, {0.7}, {0.3}},
+        {F::Sin, {3}, {2}},        {F::Cos, {0.7}, {0.3}},    {F::Tan, {0.7}, {0.3}},   {F::Tan, {-2}, {0.3}},
+        {F::Asin, {0.5}, {0.3}},   {F::Acos, {-0.5}, {0.3}},  {F::Atan, {0.7}, {2}},    {F::Sinh, {-0.7}, {0.3}},
+        {F::Cosh, {0.7}, {0.3}},   {F::Cosh, {0.1}, {0.3}},   {F::Tanh, {0.7}, {2}},    {F::Asinh, {-0.7}, {0.3}},
+        {F::Acosh, {1.7}, {0.3}},  {F::Atanh, {0.3}, {0.3}},  {F::Sqrt, {0.7}, {0}},    {F::Tan, {0.7}, {0}},
+        {F::Root, {0.7, 3}, {0.2, 0}}, {F::Root, {-8, 3}, {1, 0}}, {F::Root, {0.7, 3}, {0.2, 0.5}},
+        {F::Root, {32, 5}, {0, 0}},    {F::LogBase, {8, 2}, {1, 0.5}}, {F::LogBase, {0.5, 0.3}, {0.1, 0.05}},
+        {F::LogBase, {8, 2}, {0, 0}},
+    };
+    for (const SlopeCase& c : cases) {
+        SCOPED_TRACE(std::to_string(static_cast<int>(c.id)) + " at " + std::to_string(c.point[0]));
+        expectSlopesDominate(c.id, c.point, c.radius);
+    }
+}
+
+TEST(Slopes, FunctionsAreInfiniteWhereAnIntervalReachesAnUnboundedDerivative) {
+    using F = FunctionId;
+    const SlopeCase cases[] = {
+        {F::Sqrt, {0.5}, {0.5}},   {F::Ln, {0.1}, {0.2}},     {F::Log10, {0.1}, {0.2}}, {F::Tan, {1.5}, {0.1}},
+        {F::Asin, {0.95}, {0.1}},  {F::Acos, {-0.95}, {0.1}}, {F::Atanh, {-0.95}, {0.1}}, {F::Acosh, {1.05}, {0.1}},
+        {F::Cbrt, {-0.01}, {0.02}}, {F::Root, {0.001, 3}, {0.01, 0}}, {F::LogBase, {0.1, 2}, {0.2, 0}},
+    };
+    for (const SlopeCase& c : cases) {
+        std::vector<Ruler> a, b;
+        for (const double x : c.point) a.push_back(Ruler(x));
+        for (const double r : c.radius) b.push_back(Ruler(r));
+        EXPECT_FALSE(isFinite(slopes(c.id, a, b)[0])) << static_cast<int>(c.id);
+    }
+    EXPECT_FALSE(isFinite(slopes(F::LogBase, {Ruler(8), Ruler(1.05)}, {Ruler(0), Ruler(0.1)})[1]));  // base near 1
+}
+
+TEST(ExactPower, AResultTooLargeToWriteDownIsAnOverflow) {
+    Rational out;
+    // 0.7^479001600: some 400 million digits above and below the fraction bar.
+    EXPECT_EQ(impl::exactPower(Rational(7, 10), Rational(479001600), out), ErrorCode::Overflow);
+    EXPECT_EQ(impl::exactPower(Rational(2), Rational(4000000), out), ErrorCode::Overflow);  // 1 204 120 digits
+    EXPECT_EQ(impl::exactPower(Rational(2), Rational(3000000), out), std::nullopt);         // 903 090 digits: allowed
+    EXPECT_EQ(out, Rational(Integer(1) << 3000000));
+    EXPECT_EQ(impl::exactPower(Rational(1, 2), Rational(-3000000), out), std::nullopt);
+    EXPECT_EQ(impl::exactPower(Rational(1), Rational(479001600), out), std::nullopt);       // 1 stays 1
+    EXPECT_EQ(out, Rational(1));
+}
+
+TEST(Slopes, AnInfiniteBoundGivesInfiniteSlopesAtOnce) {
+    // An argument whose error is unbounded (an edge reached upstream) never reaches the ruler's kernels.
+    const Ruler inf = std::numeric_limits<Ruler>::infinity();
+    EXPECT_FALSE(isFinite(slopes(FunctionId::Power, {Ruler(1e32), Ruler(1)}, {Ruler(0), inf})[1]));
+    EXPECT_FALSE(isFinite(slopes(FunctionId::Exp, {Ruler(1)}, {inf})[0]));
+    EXPECT_FALSE(isFinite(slopes(FunctionId::Sinh, {Ruler(1)}, {inf})[0]));
+    EXPECT_FALSE(isFinite(slopes(FunctionId::Cosh, {Ruler(1)}, {inf})[0]));
+    EXPECT_EQ(slopes(FunctionId::Sin, {Ruler(1)}, {inf})[0], Ruler(1));   // |cos| <= 1 everywhere
+    EXPECT_EQ(slopes(FunctionId::Atan, {Ruler(1)}, {inf})[0], Ruler(1));  // steepest at 0
+}
+
+namespace {
+
+// One input of a function: the arguments (exact small values or a named extreme) and what must come out.
+struct Expect {
+    FunctionId id;
+    std::vector<double> args;      // converted exactly to T
+    std::optional<double> value;   // exact expected value, or
+    std::optional<ErrorCode> error;  // the error it must give
+};
+
+const std::vector<Expect>& classes() {
+    using F = FunctionId;
+    using E = ErrorCode;
+    static const std::vector<Expect> list{
+        {F::Sqrt, {0}, 0, {}},       {F::Sqrt, {4}, 2, {}},        {F::Sqrt, {-1}, {}, E::DomainError},
+        {F::Cbrt, {0}, 0, {}},       {F::Cbrt, {-8}, -2, {}},      {F::Cbrt, {27}, 3, {}},
+        {F::Root, {32, 5}, 2, {}},   {F::Root, {-8, 3}, -2, {}},   {F::Root, {-8, 2}, {}, E::DomainError},
+        {F::Root, {2, 0}, {}, E::DomainError}, {F::Root, {0, -1}, {}, E::DivisionByZero}, {F::Root, {0, 2}, 0, {}},
+        {F::Exp, {0}, 1, {}},        {F::Exp, {1e7}, {}, E::Overflow}, {F::Exp, {-1e7}, 0, {}},
+        {F::Ln, {1}, 0, {}},         {F::Ln, {0}, {}, E::DomainError}, {F::Ln, {-1}, {}, E::DomainError},
+        {F::Log10, {1}, 0, {}},      {F::Log10, {0}, {}, E::DomainError},
+        {F::LogBase, {1, 2}, 0, {}}, {F::LogBase, {8, 1}, {}, E::DomainError}, {F::LogBase, {8, 0}, {}, E::DomainError},
+        {F::LogBase, {8, -2}, {}, E::DomainError}, {F::LogBase, {-8, 2}, {}, E::DomainError},
+        {F::Sin, {0}, 0, {}},        {F::Cos, {0}, 1, {}},         {F::Tan, {0}, 0, {}},
+        {F::Asin, {0}, 0, {}},       {F::Asin, {1.5}, {}, E::DomainError}, {F::Acos, {1}, 0, {}},
+        {F::Acos, {-1.5}, {}, E::DomainError}, {F::Atan, {0}, 0, {}},
+        {F::Sinh, {0}, 0, {}},       {F::Cosh, {0}, 1, {}},        {F::Tanh, {0}, 0, {}},
+        {F::Tanh, {1e6}, 1, {}},     {F::Tanh, {-1e6}, -1, {}},    {F::Sinh, {1e7}, {}, E::Overflow},
+        {F::Asinh, {0}, 0, {}},      {F::Acosh, {1}, 0, {}},       {F::Acosh, {0.5}, {}, E::DomainError},
+        {F::Atanh, {0}, 0, {}},      {F::Atanh, {1}, {}, E::DomainError}, {F::Atanh, {-1}, {}, E::DomainError},
+        {F::Abs, {-3}, 3, {}},       {F::Abs, {0}, 0, {}},         {F::Abs, {2.5}, 2.5, {}},
+        {F::Mod, {7, 3}, 1, {}},     {F::Mod, {-7, 3}, -1, {}},    {F::Mod, {7, -3}, 1, {}},  {F::Mod, {7, 0}, {}, E::DivisionByZero},
+        {F::Mod, {0, 3}, 0, {}},     {F::Mod, {5.5, 2}, 1.5, {}},
+        {F::Gcd, {12, 18}, 6, {}},   {F::Gcd, {0, 5}, 5, {}},      {F::Gcd, {-12, 18}, 6, {}}, {F::Gcd, {1.5, 3}, {}, E::NotAnInteger},
+        {F::Lcm, {4, 6}, 12, {}},    {F::Lcm, {0, 5}, 0, {}},      {F::Lcm, {-4, 6}, 12, {}},
+        {F::Ncr, {5, 2}, 10, {}},    {F::Ncr, {5, 0}, 1, {}},      {F::Ncr, {5, 6}, 0, {}},   {F::Ncr, {-5, 2}, {}, E::DomainError},
+        {F::Npr, {5, 2}, 20, {}},    {F::Npr, {5, 5}, 120, {}},    {F::Npr, {5, 6}, 0, {}},
+        {F::Factorial, {0}, 1, {}},  {F::Factorial, {5}, 120, {}}, {F::Factorial, {-1}, {}, E::DomainError},
+        {F::Factorial, {2.5}, {}, E::NotAnInteger},
+        {F::Power, {0, 0}, 1, {}},   {F::Power, {0, 3}, 0, {}},    {F::Power, {0, -1}, {}, E::DivisionByZero},
+        {F::Power, {-2, 3}, -8, {}}, {F::Power, {-8, 0.5}, {}, E::DomainError}, {F::Power, {2, -2}, 0.25, {}},
+        {F::Percent, {50}, 0.5, {}}, {F::Square, {-3}, 9, {}},     {F::Cube, {-2}, -8, {}},   {F::Negate, {0}, 0, {}},
+        {F::Divide, {1, 0}, {}, E::DivisionByZero}, {F::Divide, {0, 5}, 0, {}},
+        {F::Median, {3}, 3, {}},     {F::Median, {3, 1, 2}, 2, {}}, {F::Median, {4, 1, 3, 2}, 2.5, {}},
+    };
+    return list;
+}
+
+}  // namespace
+
+TYPED_TEST(ApplyTest, EveryExistingFunctionOnItsInputClasses) {
+    using T = TypeParam;
+    for (const Expect& c : classes()) {
+        std::vector<T> args;
+        for (const double a : c.args) args.push_back(T(a));
+        const Applied<T> r = applyFunction<T>(c.id, args);
+        const std::string where = std::string(functionInfo(c.id).name) + " #" + std::to_string(&c - classes().data());
+        if (isExact<T> && !functionInfo(c.id).exact) {  // checked first: Exact refuses before any domain check
+            ASSERT_TRUE(r.error) << where;
+            EXPECT_EQ(*r.error, ErrorCode::NotAvailableInExact) << where;
+            continue;
+        }
+        if (c.error) {
+            ASSERT_TRUE(r.error) << where;
+            EXPECT_EQ(*r.error, *c.error) << where;
+            continue;
+        }
+        ASSERT_FALSE(r.error) << where;
+        EXPECT_EQ(r.value, T(*c.value)) << where;
+    }
+}
+
+TYPED_TEST(ApplyTest, ExtremesOfTheTypeStayFiniteOrSayOverflow) {
+    using T = TypeParam;
+    if constexpr (!isExact<T>) {
+        const T big = (std::numeric_limits<T>::max)();
+        const T tiny = (std::numeric_limits<T>::min)();
+        for (FunctionId id : {FunctionId::Sqrt, FunctionId::Cbrt, FunctionId::Ln, FunctionId::Atan, FunctionId::Tanh,
+                              FunctionId::Asinh, FunctionId::Abs})
+            for (const T& x : {big, tiny, T(-tiny)}) {
+                const Applied<T> r = applyFunction<T>(id, {x});
+                if (r.error) EXPECT_TRUE(*r.error == ErrorCode::DomainError || *r.error == ErrorCode::Overflow);
+                else EXPECT_TRUE(isFinite(r.value)) << static_cast<int>(id);
+            }
+        EXPECT_EQ(applyFunction<T>(FunctionId::Multiply, {big, T(2)}).error.value_or(ErrorCode::Cancelled), ErrorCode::Overflow);
+        EXPECT_EQ(applyFunction<T>(FunctionId::Square, {big}).error.value_or(ErrorCode::Cancelled), ErrorCode::Overflow);
+        EXPECT_EQ(applyFunction<T>(FunctionId::Exp, {big}).error.value_or(ErrorCode::Cancelled), ErrorCode::Overflow);
+    }
+}
+
+TEST(FunctionInfo, OperatorsAreNamedByTheirSigns) {
+    EXPECT_EQ(symbolOf(FunctionId::Divide), "÷");
+    EXPECT_EQ(symbolOf(FunctionId::Power), "^");
+    EXPECT_EQ(symbolOf(FunctionId::Factorial), "!");
+    EXPECT_EQ(symbolOf(FunctionId::Sqrt), "sqrt");
+}
+
+TEST(FunctionInfo, EveryFunctionTakesItsArgumentCount) {
+    using F = FunctionId;
+    const std::tuple<F, int, int> arity[] = {
+        {F::Literal, 0, 0}, {F::Pi, 0, 0}, {F::E, 0, 0}, {F::Add, 2, 2}, {F::Subtract, 2, 2}, {F::Multiply, 2, 2},
+        {F::Divide, 2, 2}, {F::Negate, 1, 1}, {F::Power, 2, 2}, {F::Percent, 1, 1}, {F::Square, 1, 1},
+        {F::Cube, 1, 1}, {F::Factorial, 1, 1}, {F::Sqrt, 1, 1}, {F::Cbrt, 1, 1}, {F::Root, 2, 2}, {F::Exp, 1, 1},
+        {F::Ln, 1, 1}, {F::Log10, 1, 1}, {F::LogBase, 2, 2}, {F::Sin, 1, 1}, {F::Cos, 1, 1}, {F::Tan, 1, 1},
+        {F::Asin, 1, 1}, {F::Acos, 1, 1}, {F::Atan, 1, 1}, {F::Sinh, 1, 1}, {F::Cosh, 1, 1}, {F::Tanh, 1, 1},
+        {F::Asinh, 1, 1}, {F::Acosh, 1, 1}, {F::Atanh, 1, 1}, {F::Abs, 1, 1}, {F::Mod, 2, 2}, {F::Gcd, 2, 2},
+        {F::Lcm, 2, 2}, {F::Ncr, 2, 2}, {F::Npr, 2, 2}, {F::Median, 1, -1}
+    };
+    for (const auto& [id, minArgs, maxArgs] : arity) {
+        EXPECT_EQ(functionInfo(id).minArgs, minArgs) << static_cast<int>(id);
+        EXPECT_EQ(functionInfo(id).maxArgs, maxArgs) << static_cast<int>(id);
+    }
+}
+
+TYPED_TEST(ApplyTest, LcmWithOne) {
+    using T = TypeParam;
+    EXPECT_EQ(applyFunction<T>(FunctionId::Lcm, {T(1), T(5)}).value, T(5));
+    EXPECT_EQ(applyFunction<T>(FunctionId::Lcm, {T(5), T(1)}).value, T(5));
+}
+
+TEST(LocalError, ExactResultsHaveNone) {
+    const auto local = [](FunctionId id, const std::vector<double>& a) {
+        return localError<double>(id, a, applyFunction<double>(id, a));
+    };
+    EXPECT_EQ(local(FunctionId::Cube, {2}), 0);
+    EXPECT_EQ(local(FunctionId::Lcm, {4, 6}), 0);
+    EXPECT_EQ(local(FunctionId::Root, {1, 3}), 0);
+    EXPECT_EQ(local(FunctionId::Root, {8, 3}), 0);
+    EXPECT_EQ(local(FunctionId::Root, {0.125, -3}), 0);
+    EXPECT_GT(local(FunctionId::Root, {2, 3}), 0);  // irrational
+}
+
+TEST(Partials, NegationFlipsTheSign) {
+    EXPECT_EQ(partials<Ruler>(FunctionId::Negate, {Ruler(3)}, Ruler(-3)), (std::vector<Ruler>{Ruler(-1)}));
+}
+
+TEST(Slopes, MoreBoundaries) {
+    // x^1 is linear: slope 1 even where the interval reaches 0.
+    EXPECT_EQ(slopes(FunctionId::Power, {Ruler(0), Ruler(1)}, {Ruler(0.5), Ruler(0)})[0], Ruler(1));
+    // An even count: the medians of the ends are (1 + 1.4)/2 and (1 + 2)/2, and 10 ± 8.6 reaches that range.
+    EXPECT_EQ(slopes(FunctionId::Median, {Ruler(0), Ruler(1), Ruler(2), Ruler(10)},
+                     {Ruler(0), Ruler(0), Ruler(0), Ruler(8.6)}),
+              (std::vector<Ruler>{Ruler(0), Ruler(0.5), Ruler(0.5), Ruler(1)}));
+    using F = FunctionId;
+    const SlopeCase cases[] = {
+        {F::Power, {0.5, -2}, {0.1, 0.5}}, {F::Root, {32, 5}, {1, 0.5}},  // the largest power at the lower corner
+        {F::Root, {0.5, -3}, {0.1, 0.5}},  // and at the upper corner of a negative order
+        {F::Cbrt, {0.7}, {0}},   {F::Exp, {0.7}, {0}},   {F::Ln, {0.7}, {0}},    {F::Log10, {0.7}, {0}},
+        {F::Sin, {0.7}, {0}},    {F::Cos, {0.7}, {0}},   {F::Asin, {0.5}, {0}},  {F::Acos, {-0.5}, {0}},
+        {F::Atan, {0.7}, {0}},   {F::Sinh, {-0.7}, {0}}, {F::Cosh, {-0.7}, {0}}, {F::Tanh, {0.7}, {0}},
+        {F::Asinh, {-0.7}, {0}}, {F::Acosh, {1.7}, {0}}, {F::Atanh, {0.3}, {0}},
+    };
+    for (const SlopeCase& c : cases) {
+        SCOPED_TRACE(std::to_string(static_cast<int>(c.id)) + " at " + std::to_string(c.point[0]));
+        expectSlopesDominate(c.id, c.point, c.radius);
+    }
 }

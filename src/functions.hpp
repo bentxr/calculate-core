@@ -27,61 +27,79 @@ enum class ErrorClass {
     Library,   // an elementary kernel: at most claim * u * max(|v|, min)
 };
 
+// How a function's value responds to a small change of its arguments.
+enum class Continuity {
+    Continuous,  // derivatives carry the arguments' errors
+    Discrete,    // whole-number valued: any uncertain argument is refused (R.4)
+    Piecewise,   // continuous between jumps: refused only when the arguments' errors could reach one
+};
+
 struct FunctionInfo {
     FunctionId id;
     std::string_view name;  // spelling in the language; empty for operators and literals
     int minArgs;
     int maxArgs;            // -1: any number
     ErrorClass errorClass;
-    bool discrete;          // argument uncertainty cannot propagate through it
+    Continuity continuity;
     bool exact;             // available for the Exact type
 };
 
 inline const FunctionInfo& functionInfo(FunctionId id) {
     using F = FunctionId;
     using C = ErrorClass;
+    using K = Continuity;
     static const std::array<FunctionInfo, functionCount> table{{
-        {F::Literal, "", 0, 0, C::Input, false, true},
-        {F::Pi, "pi", 0, 0, C::Input, false, false},
-        {F::E, "e", 0, 0, C::Input, false, false},
-        {F::Add, "", 2, 2, C::Checked, false, true},
-        {F::Subtract, "", 2, 2, C::Checked, false, true},
-        {F::Multiply, "", 2, 2, C::Checked, false, true},
-        {F::Divide, "", 2, 2, C::Checked, false, true},
-        {F::Negate, "", 1, 1, C::Exact, false, true},
-        {F::Power, "", 2, 2, C::Library, false, true},
-        {F::Percent, "", 1, 1, C::Checked, false, true},
-        {F::Square, "", 1, 1, C::Checked, false, true},
-        {F::Cube, "", 1, 1, C::Checked, false, true},
-        {F::Factorial, "", 1, 1, C::Counted, true, true},
-        {F::Sqrt, "sqrt", 1, 1, C::Rounded, false, true},
-        {F::Cbrt, "cbrt", 1, 1, C::Library, false, true},
-        {F::Root, "root", 2, 2, C::Library, false, true},
-        {F::Exp, "exp", 1, 1, C::Library, false, false},
-        {F::Ln, "ln", 1, 1, C::Library, false, false},
-        {F::Log10, "log", 1, 1, C::Library, false, false},
-        {F::LogBase, "log", 2, 2, C::Library, false, false},
-        {F::Sin, "sin", 1, 1, C::Library, false, false},
-        {F::Cos, "cos", 1, 1, C::Library, false, false},
-        {F::Tan, "tan", 1, 1, C::Library, false, false},
-        {F::Asin, "asin", 1, 1, C::Library, false, false},
-        {F::Acos, "acos", 1, 1, C::Library, false, false},
-        {F::Atan, "atan", 1, 1, C::Library, false, false},
-        {F::Sinh, "sinh", 1, 1, C::Library, false, false},
-        {F::Cosh, "cosh", 1, 1, C::Library, false, false},
-        {F::Tanh, "tanh", 1, 1, C::Library, false, false},
-        {F::Asinh, "asinh", 1, 1, C::Library, false, false},
-        {F::Acosh, "acosh", 1, 1, C::Library, false, false},
-        {F::Atanh, "atanh", 1, 1, C::Library, false, false},
-        {F::Abs, "abs", 1, 1, C::Exact, false, true},
-        {F::Mod, "mod", 2, 2, C::Exact, false, true},
-        {F::Gcd, "gcd", 2, 2, C::Exact, true, true},
-        {F::Lcm, "lcm", 2, 2, C::Checked, true, true},
-        {F::Ncr, "nCr", 2, 2, C::Counted, true, true},
-        {F::Npr, "nPr", 2, 2, C::Counted, true, true},
-        {F::Median, "median", 1, -1, C::Checked, false, true},
+        {F::Literal, "", 0, 0, C::Input, K::Continuous, true},
+        {F::Pi, "pi", 0, 0, C::Input, K::Continuous, false},
+        {F::E, "e", 0, 0, C::Input, K::Continuous, false},
+        {F::Add, "", 2, 2, C::Checked, K::Continuous, true},
+        {F::Subtract, "", 2, 2, C::Checked, K::Continuous, true},
+        {F::Multiply, "", 2, 2, C::Checked, K::Continuous, true},
+        {F::Divide, "", 2, 2, C::Checked, K::Continuous, true},
+        {F::Negate, "", 1, 1, C::Exact, K::Continuous, true},
+        {F::Power, "", 2, 2, C::Library, K::Continuous, true},
+        {F::Percent, "", 1, 1, C::Checked, K::Continuous, true},
+        {F::Square, "", 1, 1, C::Checked, K::Continuous, true},
+        {F::Cube, "", 1, 1, C::Checked, K::Continuous, true},
+        {F::Factorial, "", 1, 1, C::Counted, K::Discrete, true},
+        {F::Sqrt, "sqrt", 1, 1, C::Rounded, K::Continuous, true},
+        {F::Cbrt, "cbrt", 1, 1, C::Library, K::Continuous, true},
+        {F::Root, "root", 2, 2, C::Library, K::Continuous, true},
+        {F::Exp, "exp", 1, 1, C::Library, K::Continuous, false},
+        {F::Ln, "ln", 1, 1, C::Library, K::Continuous, false},
+        {F::Log10, "log", 1, 1, C::Library, K::Continuous, false},
+        {F::LogBase, "log", 2, 2, C::Library, K::Continuous, false},
+        {F::Sin, "sin", 1, 1, C::Library, K::Continuous, false},
+        {F::Cos, "cos", 1, 1, C::Library, K::Continuous, false},
+        {F::Tan, "tan", 1, 1, C::Library, K::Continuous, false},
+        {F::Asin, "asin", 1, 1, C::Library, K::Continuous, false},
+        {F::Acos, "acos", 1, 1, C::Library, K::Continuous, false},
+        {F::Atan, "atan", 1, 1, C::Library, K::Continuous, false},
+        {F::Sinh, "sinh", 1, 1, C::Library, K::Continuous, false},
+        {F::Cosh, "cosh", 1, 1, C::Library, K::Continuous, false},
+        {F::Tanh, "tanh", 1, 1, C::Library, K::Continuous, false},
+        {F::Asinh, "asinh", 1, 1, C::Library, K::Continuous, false},
+        {F::Acosh, "acosh", 1, 1, C::Library, K::Continuous, false},
+        {F::Atanh, "atanh", 1, 1, C::Library, K::Continuous, false},
+        {F::Abs, "abs", 1, 1, C::Exact, K::Continuous, true},
+        {F::Mod, "mod", 2, 2, C::Exact, K::Piecewise, true},
+        {F::Gcd, "gcd", 2, 2, C::Exact, K::Discrete, true},
+        {F::Lcm, "lcm", 2, 2, C::Checked, K::Discrete, true},
+        {F::Ncr, "nCr", 2, 2, C::Counted, K::Discrete, true},
+        {F::Npr, "nPr", 2, 2, C::Counted, K::Discrete, true},
+        {F::Median, "median", 1, -1, C::Checked, K::Continuous, true},
     }};
     return table[static_cast<std::size_t>(id)];
+}
+
+// How messages name a node: operators by their sign, functions by their name.
+inline std::string_view symbolOf(FunctionId id) {
+    switch (id) {
+    case FunctionId::Divide: return "÷";
+    case FunctionId::Power: return "^";
+    case FunctionId::Factorial: return "!";
+    default: return functionInfo(id).name;
+    }
 }
 
 // English messages; `name` is the function's name and may be empty.
@@ -97,6 +115,8 @@ inline std::string errorMessage(ErrorCode code, std::string_view name) {
     case ErrorCode::ArgumentTooLarge: return "The argument of " + n + " is too large to reduce accurately";
     case ErrorCode::NotAnInteger: return n + " needs a whole-number argument";
     case ErrorCode::UncertainDiscreteArgument: return n + " needs an exactly known argument";
+    case ErrorCode::ArgumentNearJump: return n + " jumps within the error of its arguments";
+    case ErrorCode::ArgumentNearEdge: return n + " is not defined or not smooth within the error of its argument";
     case ErrorCode::Cancelled: return "Cancelled";
     default: return "Invalid expression";
     }
@@ -257,6 +277,9 @@ inline std::optional<ErrorCode> exactPower(const Rational& x, const Rational& y,
         if (const auto e = exactRoot(x, denominator(y), base)) return e;
     const Integer p = abs(numerator(y));
     if (p > std::numeric_limits<unsigned>::max()) return ErrorCode::Overflow;  // cannot be stored
+    // n^p has at least p * msb(n) bits, so at least p * msb(n) * 0.30103 decimal digits.
+    for (const Integer& n : {Integer(abs(numerator(base))), denominator(base)})  // both > 0: the base is not 0
+        if (p * msb(n) * 30103 > Integer(exactDigitsLimit) * 100000) return ErrorCode::Overflow;
     const unsigned e = p.convert_to<unsigned>();
     out = Rational(pow(numerator(base), e), pow(denominator(base), e));
     if (y < 0) out = 1 / out;  // base != 0
@@ -532,6 +555,215 @@ std::vector<R> partials(FunctionId id, const std::vector<R>& a, const R& v) {
         return d;
     }
     default: return std::vector<R>(a.size(), R(0));  // discrete functions and constants
+    }
+}
+
+namespace impl {
+
+// f(x) in the ruler's arithmetic, infinite where it cannot be computed (a slope may then only be too large).
+// An infinite argument (an unbounded error upstream) never reaches the kernels, which expect finite ones.
+inline Ruler rulerValue(FunctionId id, const std::vector<Ruler>& a) {
+    for (const Ruler& x : a)
+        if (!isFinite(x)) return std::numeric_limits<Ruler>::infinity();
+    const Applied<Ruler> r = applyFunction<Ruler>(id, a);
+    return r.error ? std::numeric_limits<Ruler>::infinity() : r.value;
+}
+
+// x^y: x moves with y at its value, then y moves with x anywhere in its interval.
+inline std::vector<Ruler> powerSlopes(const std::vector<Ruler>& a, const std::vector<Ruler>& b) {
+    using std::abs;
+    const Ruler inf = std::numeric_limits<Ruler>::infinity();
+    const Ruler& y = a[1];
+    const Ruler lo = a[0] - b[0];
+    const Ruler hi = a[0] + b[0];
+    // d/dx = y * x^(y-1): |x|^(y-1) grows with |x| when y >= 1 and shrinks when y < 1. A fractional y needs x >= 0.
+    Ruler dx;
+    if (y == 0) dx = 0;
+    else if (!isInteger(y) && lo < 0) dx = inf;
+    else if (y >= 1) dx = abs(y) * rulerValue(FunctionId::Power, {abs(a[0]) + b[0], y - 1});
+    else if (abs(a[0]) > b[0]) dx = abs(y) * rulerValue(FunctionId::Power, {abs(a[0]) - b[0], y - 1});
+    else dx = inf;
+    // d/dy = x^y * ln x. A negative base exists only at whole exponents, where no slope carries the exponent's error.
+    Ruler dy;
+    if (hi <= 0) dy = 0;
+    else if (lo <= 0) dy = inf;
+    else {
+        Ruler top = 0;  // x^y is monotone in x and in y, so its largest value is at a corner
+        for (const Ruler& x : {lo, hi})
+            for (const Ruler& e : {Ruler(y - b[1]), Ruler(y + b[1])})
+                top = std::max(top, rulerValue(FunctionId::Power, {x, e}));
+        dy = top * std::max(abs(rulerValue(FunctionId::Ln, {lo})), abs(rulerValue(FunctionId::Ln, {hi})));
+    }
+    return {dx, dy};
+}
+
+// root(x, n) = x^(1/n): x moves with n at its value, then n moves with x anywhere in its interval.
+inline std::vector<Ruler> rootSlopes(const std::vector<Ruler>& a, const std::vector<Ruler>& b) {
+    using std::abs;
+    const Ruler inf = std::numeric_limits<Ruler>::infinity();
+    const Ruler far = abs(a[0]) + b[0];   // the largest |x| in its interval
+    const Ruler near = abs(a[0]) - b[0];  // the smallest, when the interval stays clear of 0
+    // d/dx = |x|^(1/n - 1) / |n|: grows with |x| when 1/n >= 1, shrinks otherwise.
+    const Ruler e = 1 / a[1] - 1;
+    Ruler dx = inf;
+    if (e >= 0) dx = rulerValue(FunctionId::Power, {far, e}) / abs(a[1]);
+    else if (near > 0) dx = rulerValue(FunctionId::Power, {near, e}) / abs(a[1]);
+    // d/dn = -x^(1/n) * ln|x| / n^2: at most the largest |x|^(1/n) (at a corner: it is monotone in |x| and in 1/n)
+    // times the largest |ln|x||, over the smallest n^2.
+    const Ruler nNear = abs(a[1]) - b[1];
+    Ruler dn = inf;
+    if (near > 0 && nNear > 0) {
+        Ruler top = 0;
+        for (const Ruler& m : {near, far})
+            for (const Ruler& n : {Ruler(a[1] - b[1]), Ruler(a[1] + b[1])})
+                top = std::max(top, rulerValue(FunctionId::Power, {m, Ruler(1 / n)}));
+        const Ruler ln = std::max(abs(rulerValue(FunctionId::Ln, {near})), abs(rulerValue(FunctionId::Ln, {far})));
+        dn = top * ln / (nNear * nNear);
+    }
+    return {dx, dn};
+}
+
+// log(x, b) = ln x / ln b: x moves with b at its value, then b moves with x anywhere in its interval.
+inline std::vector<Ruler> logBaseSlopes(const std::vector<Ruler>& a, const std::vector<Ruler>& b) {
+    using std::abs;
+    const Ruler inf = std::numeric_limits<Ruler>::infinity();
+    const auto ln = [](const Ruler& t) { return rulerValue(FunctionId::Ln, {t}); };
+    const Ruler lo = a[0] - b[0];
+    const Ruler baseLo = a[1] - b[1];
+    const Ruler baseHi = a[1] + b[1];
+    const Ruler dx = lo > 0 ? Ruler(1 / (lo * abs(ln(a[1])))) : inf;
+    // d/db = -ln x / (b * ln^2 b): the largest |ln x| over the smallest b and the smallest ln^2 b (at b's end
+    // nearest 1). Unbounded where b's interval reaches 0 or 1.
+    Ruler db = inf;
+    if (lo > 0 && baseLo > 0 && (baseHi < 1 || baseLo > 1)) {
+        const Ruler nearOne = baseHi < 1 ? abs(ln(baseHi)) : ln(baseLo);
+        db = std::max(abs(ln(lo)), abs(ln(a[0] + b[0]))) / (baseLo * nearOne * nearOne);
+    }
+    return {dx, db};
+}
+
+// The median selects an argument, so its derivative is 1 for the selected one and 0 for the others. It is
+// non-decreasing in every argument, so the median of the exact arguments lies between the medians of the
+// intervals' lower and upper ends: every argument whose interval meets that range can be the true median and gets
+// slope 1 (the median then moves by at most the largest of their errors); the selected ones keep their weights.
+inline std::vector<Ruler> medianSlopes(const std::vector<Ruler>& a, const std::vector<Ruler>& b) {
+    for (const Ruler& r : b)
+        if (!isFinite(r)) return std::vector<Ruler>(a.size(), Ruler(1));  // the bound is infinite anyway
+    const auto median = [](std::vector<Rational> v) {
+        std::sort(v.begin(), v.end());
+        const std::size_t n = v.size();
+        return n % 2 ? v[n / 2] : Rational((v[n / 2 - 1] + v[n / 2]) / 2);
+    };
+    std::vector<Rational> lo;
+    std::vector<Rational> hi;
+    for (std::size_t k = 0; k < a.size(); ++k) {
+        lo.push_back(toRational(a[k]) - toRational(b[k]));
+        hi.push_back(toRational(a[k]) + toRational(b[k]));
+    }
+    const Rational low = median(lo);
+    const Rational high = median(hi);
+    std::vector<Ruler> s = partials<Ruler>(FunctionId::Median, a, Ruler(0));
+    for (std::size_t k = 0; k < a.size(); ++k)
+        if (s[k] == 0 && b[k] > 0 && hi[k] >= low && lo[k] <= high) s[k] = 1;
+    return s;
+}
+
+// One-argument functions: the largest |f'| over [x - b, x + b]. Each f' there is monotone in x or in |x| (or, for
+// sin and cos, 1-Lipschitz), so its largest value is at an end of the interval, or at the |x| farthest from or
+// nearest to 0.
+inline Ruler functionSlope(FunctionId id, const Ruler& x, const Ruler& b) {
+    using std::abs;
+    using std::floor;
+    using std::sqrt;
+    const Ruler inf = std::numeric_limits<Ruler>::infinity();
+    const auto f = [](FunctionId g, const Ruler& t) { return rulerValue(g, {t}); };
+    const Ruler lo = x - b;
+    const Ruler hi = x + b;
+    const Ruler far = abs(x) + b;                                  // the largest |x| in the interval
+    const Ruler near = abs(x) > b ? Ruler(abs(x) - b) : Ruler(0);  // the smallest
+    switch (id) {
+    case FunctionId::Sqrt: return lo > 0 ? Ruler(1 / (2 * sqrt(lo))) : inf;
+    case FunctionId::Cbrt: {
+        const Ruler c = f(FunctionId::Cbrt, near);
+        return near > 0 ? Ruler(1 / (3 * c * c)) : inf;
+    }
+    case FunctionId::Exp: return f(FunctionId::Exp, hi);
+    case FunctionId::Ln: return lo > 0 ? Ruler(1 / lo) : inf;
+    case FunctionId::Log10: return lo > 0 ? Ruler(1 / (lo * constantValue<Ruler>(ConstantId::Ln10))) : inf;
+    case FunctionId::Sin: return std::min(Ruler(1), Ruler(abs(f(FunctionId::Cos, x)) + b));
+    case FunctionId::Cos: return std::min(Ruler(1), Ruler(abs(f(FunctionId::Sin, x)) + b));
+    case FunctionId::Tan: {  // 1 + tan^2: unbounded at the poles (k + 1/2)pi, else largest at an end
+        const Ruler pi = constantValue<Ruler>(ConstantId::Pi);
+        const Ruler pole = (floor(hi / pi - Ruler(0.5)) + Ruler(0.5)) * pi;  // the last pole at or below hi
+        if (pole >= lo) return inf;
+        const Ruler t = std::max(abs(f(FunctionId::Tan, lo)), abs(f(FunctionId::Tan, hi)));
+        return 1 + t * t;
+    }
+    case FunctionId::Asin:
+    case FunctionId::Acos: return far < 1 ? Ruler(1 / sqrt(1 - far * far)) : inf;
+    case FunctionId::Atan: return 1 / (1 + near * near);
+    case FunctionId::Sinh: return f(FunctionId::Cosh, far);
+    case FunctionId::Cosh: return f(FunctionId::Sinh, far);
+    case FunctionId::Tanh: {  // 1 - tanh^2, written 1 / cosh^2 to keep its precision when it is tiny
+        const Ruler c = f(FunctionId::Cosh, near);
+        return 1 / (c * c);
+    }
+    case FunctionId::Asinh: return 1 / sqrt(near * near + 1);
+    case FunctionId::Acosh: return lo > 1 ? Ruler(1 / sqrt(lo * lo - 1)) : inf;
+    case FunctionId::Atanh: return far < 1 ? Ruler(1 / (1 - far * far)) : inf;
+    default: return inf;  // not a one-argument function
+    }
+}
+
+}  // namespace impl
+
+// Upper bounds of |d f / d arg_k| over the arguments' error intervals [a_j - b_j, a_j + b_j], one argument at a
+// time: argument k and those before it anywhere in their intervals, those after it at their computed values. The
+// mean value theorem, applied to one argument after another, gives |f(computed) - f(exact)| <= sum_k slope_k * b_k
+// with nothing dropped. Infinite where an interval reaches a point where the derivative is unbounded or f undefined.
+inline std::vector<Ruler> slopes(FunctionId id, const std::vector<Ruler>& a, const std::vector<Ruler>& b) {
+    using std::abs;
+    using std::floor;
+    const Ruler inf = std::numeric_limits<Ruler>::infinity();
+    switch (id) {
+    case FunctionId::Add:
+    case FunctionId::Subtract: return {Ruler(1), Ruler(1)};
+    case FunctionId::Negate:
+    case FunctionId::Abs: return {Ruler(1)};
+    case FunctionId::Percent: return {Ruler(1) / 100};
+    case FunctionId::Multiply: return {abs(a[1]), abs(a[0]) + b[0]};
+    case FunctionId::Divide: {
+        const Ruler nearest = abs(a[1]) - b[1];  // the smallest |y| in its interval
+        return {Ruler(1) / abs(a[1]), nearest > 0 ? Ruler((abs(a[0]) + b[0]) / (nearest * nearest)) : inf};
+    }
+    case FunctionId::Square: return {2 * (abs(a[0]) + b[0])};
+    case FunctionId::Cube: return {3 * (abs(a[0]) + b[0]) * (abs(a[0]) + b[0])};
+    case FunctionId::Power: return impl::powerSlopes(a, b);
+    case FunctionId::Mod: {  // between its jumps: |trunc(x/y)| is largest at the largest |x| over the smallest |y|
+        const Ruler nearest = abs(a[1]) - b[1];
+        return {Ruler(1), nearest > 0 ? Ruler(floor((abs(a[0]) + b[0]) / nearest)) : inf};
+    }
+    case FunctionId::Root: return impl::rootSlopes(a, b);
+    case FunctionId::LogBase: return impl::logBaseSlopes(a, b);
+    case FunctionId::Median: return impl::medianSlopes(a, b);
+    case FunctionId::Sqrt:
+    case FunctionId::Cbrt:
+    case FunctionId::Exp:
+    case FunctionId::Ln:
+    case FunctionId::Log10:
+    case FunctionId::Sin:
+    case FunctionId::Cos:
+    case FunctionId::Tan:
+    case FunctionId::Asin:
+    case FunctionId::Acos:
+    case FunctionId::Atan:
+    case FunctionId::Sinh:
+    case FunctionId::Cosh:
+    case FunctionId::Tanh:
+    case FunctionId::Asinh:
+    case FunctionId::Acosh:
+    case FunctionId::Atanh: return {impl::functionSlope(id, a[0], b[0])};
+    default: return std::vector<Ruler>(a.size(), Ruler(0));  // discrete functions: uncertain arguments are refused
     }
 }
 
