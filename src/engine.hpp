@@ -119,9 +119,9 @@ struct Adjoints {
 };
 
 // Reverse sweep: parents come after their arguments, so walking backwards visits each node's
-// parents before the node itself.
-inline Adjoints adjoints(const Ast& ast, const std::vector<std::vector<Ruler>>& partials) {
-    using std::abs;
+// parents before the node itself. The signed adjoints use the derivatives, the absolute ones the slopes.
+inline Adjoints adjoints(const Ast& ast, const std::vector<std::vector<Ruler>>& partials,
+                         const std::vector<std::vector<Ruler>>& slopes) {
     Adjoints adj;
     adj.signedAdj.assign(ast.nodes.size(), Ruler(0));
     adj.absoluteAdj.assign(ast.nodes.size(), Ruler(0));
@@ -131,9 +131,18 @@ inline Adjoints adjoints(const Ast& ast, const std::vector<std::vector<Ruler>>& 
         for (std::size_t k = 0; k < ast.nodes[i].args.size(); ++k) {
             const int a = ast.nodes[i].args[k];
             adj.signedAdj[a] += impl::times(partials[i][k], adj.signedAdj[i]);
-            adj.absoluteAdj[a] += impl::times(abs(partials[i][k]), adj.absoluteAdj[i]);
+            adj.absoluteAdj[a] += impl::times(slopes[i][k], adj.absoluteAdj[i]);
         }
     return adj;
+}
+
+// The same with |derivatives| as the slopes: first order at the computed values.
+inline Adjoints adjoints(const Ast& ast, const std::vector<std::vector<Ruler>>& partials) {
+    using std::abs;
+    std::vector<std::vector<Ruler>> magnitudes = partials;
+    for (std::vector<Ruler>& node : magnitudes)
+        for (Ruler& d : node) d = abs(d);
+    return adjoints(ast, partials, magnitudes);
 }
 
 // First-order error bound of every node's value, computed forwards (Higham's running error bound).
@@ -147,6 +156,33 @@ inline std::vector<Ruler> forwardBounds(const Ast& ast, const std::vector<std::v
             bounds[i] += impl::times(abs(partials[i][k]), bounds[ast.nodes[i].args[k]]);
     }
     return bounds;
+}
+
+// Every node's error bound and the slopes it carries its arguments' bounds with (see `slopes`), computed forwards:
+// a node's slopes need its arguments' bounds.
+struct Propagation {
+    std::vector<Ruler> bounds;
+    std::vector<std::vector<Ruler>> slopes;
+};
+
+template <class T>
+Propagation propagate(const Ast& ast, const Forward<T>& fw, const std::vector<Ruler>& locals) {
+    Propagation p;
+    p.bounds = locals;
+    p.slopes.resize(ast.nodes.size());
+    for (std::size_t i = 0; i < ast.nodes.size(); ++i) {
+        const Node& node = ast.nodes[i];
+        if (node.args.empty()) continue;
+        std::vector<Ruler> args;
+        std::vector<Ruler> argBounds;
+        for (const int a : node.args) {
+            args.push_back(exactCast<Ruler>(fw.values[a]));
+            argBounds.push_back(p.bounds[a]);
+        }
+        p.slopes[i] = slopes(node.function, args, argBounds);
+        for (std::size_t k = 0; k < args.size(); ++k) p.bounds[i] += impl::times(p.slopes[i][k], argBounds[k]);
+    }
+    return p;
 }
 
 // Whether two reference evaluations agree within `tolerance`.
@@ -208,7 +244,7 @@ struct Report {
     Ruler input = 0;
     Ruler rounding = 0;
     Ruler library = 0;
-    Ruler bound = 0;     // guaranteed to first order: input + rounding + library
+    Ruler bound = 0;     // guaranteed: input + rounding + library
     Ruler measured = 0;  // |value - reference|
     Ruler condition = 0;
     bool measuredAvailable = false;
@@ -242,7 +278,8 @@ Evaluation<T> evaluate(const Ast& ast, const Options& options = {}) {
 
     // Discrete functions jump, so derivatives cannot carry their arguments' uncertainty:
     // refuse arguments that are not exactly known, unless the caller accepts an incomplete bound.
-    const std::vector<Ruler> bounds = forwardBounds(ast, parts, locals);
+    const Propagation propagation = propagate<T>(ast, fw, locals);
+    const std::vector<Ruler>& bounds = propagation.bounds;
     for (const Node& node : ast.nodes) {
         const FunctionInfo& info = functionInfo(node.function);
         if (!info.discrete) continue;
@@ -259,7 +296,7 @@ Evaluation<T> evaluate(const Ast& ast, const Options& options = {}) {
         }
     }
 
-    const Adjoints adj = adjoints(ast, parts);
+    const Adjoints adj = adjoints(ast, parts, propagation.slopes);
     Ruler weighted = 0;  // sum over the inputs of |d root / d input| * |input|
     for (std::size_t i = 0; i < ast.nodes.size(); ++i) {
         const Ruler term = impl::times(adj.absoluteAdj[i], locals[i]);

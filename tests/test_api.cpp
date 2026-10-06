@@ -207,3 +207,15 @@ TEST(Session, Memory) {
     s.clearHistory();
     EXPECT_TRUE(s.history().empty());
 }
+
+TEST(Api, AValueAsSmallAsItsErrorStillHasABound) {
+    // 1e-17 + 1 - 1 is 0 in double, with an error of about 1e-17: its square is not exactly 0.
+    for (const char* text : {"(1e-17+1-1)^2", "(1e-17+1-1)²", "(1e-17+1-1)*(1e-17+1-1)"}) {
+        const Result r = evaluate(text);
+        ASSERT_FALSE(r.error) << text;
+        EXPECT_EQ(r.value.digits, "0") << text;
+        EXPECT_NE(r.bound, "0") << text;
+        ASSERT_TRUE(r.measuredAvailable) << text;
+        EXPECT_GE(std::stod(r.bound), std::stod(r.measured)) << text;
+    }
+}

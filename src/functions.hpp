@@ -537,6 +537,79 @@ std::vector<R> partials(FunctionId id, const std::vector<R>& a, const R& v) {
 
 namespace impl {
 
+// f(x) in the ruler's arithmetic, infinite where it cannot be computed (a slope may then only be too large).
+inline Ruler rulerValue(FunctionId id, const std::vector<Ruler>& a) {
+    const Applied<Ruler> r = applyFunction<Ruler>(id, a);
+    return r.error ? std::numeric_limits<Ruler>::infinity() : r.value;
+}
+
+// x^y: x moves with y at its value, then y moves with x anywhere in its interval.
+inline std::vector<Ruler> powerSlopes(const std::vector<Ruler>& a, const std::vector<Ruler>& b) {
+    using std::abs;
+    const Ruler inf = std::numeric_limits<Ruler>::infinity();
+    const Ruler& y = a[1];
+    const Ruler lo = a[0] - b[0];
+    const Ruler hi = a[0] + b[0];
+    // d/dx = y * x^(y-1): |x|^(y-1) grows with |x| when y >= 1 and shrinks when y < 1. A fractional y needs x >= 0.
+    Ruler dx;
+    if (y == 0) dx = 0;
+    else if (!isInteger(y) && lo < 0) dx = inf;
+    else if (y >= 1) dx = abs(y) * rulerValue(FunctionId::Power, {abs(a[0]) + b[0], y - 1});
+    else if (abs(a[0]) > b[0]) dx = abs(y) * rulerValue(FunctionId::Power, {abs(a[0]) - b[0], y - 1});
+    else dx = inf;
+    // d/dy = x^y * ln x. A negative base exists only at whole exponents, where no slope carries the exponent's error.
+    Ruler dy;
+    if (hi <= 0) dy = 0;
+    else if (lo <= 0) dy = inf;
+    else {
+        Ruler top = 0;  // x^y is monotone in x and in y, so its largest value is at a corner
+        for (const Ruler& x : {lo, hi})
+            for (const Ruler& e : {Ruler(y - b[1]), Ruler(y + b[1])})
+                top = std::max(top, rulerValue(FunctionId::Power, {x, e}));
+        dy = top * std::max(abs(rulerValue(FunctionId::Ln, {lo})), abs(rulerValue(FunctionId::Ln, {hi})));
+    }
+    return {dx, dy};
+}
+
+}  // namespace impl
+
+// Upper bounds of |d f / d arg_k| over the arguments' error intervals [a_j - b_j, a_j + b_j], one argument at a
+// time: argument k and those before it anywhere in their intervals, those after it at their computed values. The
+// mean value theorem, applied to one argument after another, gives |f(computed) - f(exact)| <= sum_k slope_k * b_k
+// with nothing dropped. Infinite where an interval reaches a point where the derivative is unbounded or f undefined.
+inline std::vector<Ruler> slopes(FunctionId id, const std::vector<Ruler>& a, const std::vector<Ruler>& b) {
+    using std::abs;
+    using std::floor;
+    const Ruler inf = std::numeric_limits<Ruler>::infinity();
+    switch (id) {
+    case FunctionId::Add:
+    case FunctionId::Subtract: return {Ruler(1), Ruler(1)};
+    case FunctionId::Negate:
+    case FunctionId::Abs: return {Ruler(1)};
+    case FunctionId::Percent: return {Ruler(1) / 100};
+    case FunctionId::Multiply: return {abs(a[1]), abs(a[0]) + b[0]};
+    case FunctionId::Divide: {
+        const Ruler nearest = abs(a[1]) - b[1];  // the smallest |y| in its interval
+        return {Ruler(1) / abs(a[1]), nearest > 0 ? Ruler((abs(a[0]) + b[0]) / (nearest * nearest)) : inf};
+    }
+    case FunctionId::Square: return {2 * (abs(a[0]) + b[0])};
+    case FunctionId::Cube: return {3 * (abs(a[0]) + b[0]) * (abs(a[0]) + b[0])};
+    case FunctionId::Power: return impl::powerSlopes(a, b);
+    case FunctionId::Mod: {  // between its jumps: |trunc(x/y)| is largest at the largest |x| over the smallest |y|
+        const Ruler nearest = abs(a[1]) - b[1];
+        return {Ruler(1), nearest > 0 ? Ruler(floor((abs(a[0]) + b[0]) / nearest)) : inf};
+    }
+    default: {  // the derivatives at the computed arguments (discrete functions and the median never use the value)
+        const bool usesValue = !functionInfo(id).discrete && id != FunctionId::Median;
+        std::vector<Ruler> d = partials<Ruler>(id, a, usesValue ? impl::rulerValue(id, a) : Ruler(0));
+        for (Ruler& x : d) x = abs(x);
+        return d;
+    }
+    }
+}
+
+namespace impl {
+
 // The exact result of an operation on exact arguments, where rational arithmetic can give it.
 inline std::optional<Rational> exactResult(FunctionId id, const std::vector<Rational>& a) {
     switch (id) {

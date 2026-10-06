@@ -290,3 +290,110 @@ TEST(Partials, DiscreteFunctionsHaveZeroDerivatives) {
               (std::vector<Ruler>{Ruler(0), Ruler(0), Ruler(1)}));
     EXPECT_EQ(partials<Ruler>(FunctionId::Mod, {Ruler(7), Ruler(3)}, Ruler(1)), (std::vector<Ruler>{Ruler(1), Ruler(-2)}));
 }
+
+namespace {
+
+bool close(const Ruler& a, const Ruler& b) {
+    using std::abs;
+    using std::ldexp;
+    return abs(a - b) <= ldexp(Ruler(1), -800) * (abs(a) > abs(b) ? abs(a) : abs(b));
+}
+
+// The points of the box argument k's slope ranges over: the arguments up to k at both ends, the quarters and the
+// middle of their intervals; the later ones at their computed values.
+std::vector<std::vector<Ruler>> boxPoints(const std::vector<Ruler>& a, const std::vector<Ruler>& b, std::size_t k) {
+    std::vector<std::vector<Ruler>> points{a};
+    for (std::size_t j = 0; j <= k; ++j) {
+        std::vector<std::vector<Ruler>> next;
+        for (const std::vector<Ruler>& p : points)
+            for (const Ruler& shift : {Ruler(-1), Ruler(-0.5), Ruler(0), Ruler(0.5), Ruler(1)}) {
+                std::vector<Ruler> q = p;
+                q[j] = a[j] + shift * b[j];
+                next.push_back(q);
+            }
+        points = next;
+    }
+    return points;
+}
+
+// slopes(id, a, b)[k] is at least |d f / d arg_k| at every sampled point of argument k's box (a slope too small
+// breaks the bound), at most four times the steepest of them (one far too large loosens it), and, with exact
+// arguments, the derivative itself.
+void expectSlopesDominate(FunctionId id, const std::vector<double>& point, const std::vector<double>& radius) {
+    using std::abs;
+    using std::ldexp;
+    std::vector<Ruler> a, b;
+    for (const double x : point) a.push_back(Ruler(x));
+    for (const double r : radius) b.push_back(Ruler(r));
+    const bool exactArguments = std::all_of(b.begin(), b.end(), [](const Ruler& r) { return r == 0; });
+    const std::vector<Ruler> s = slopes(id, a, b);
+    ASSERT_EQ(s.size(), a.size());
+    const Ruler slack = ldexp(Ruler(1), -800);
+    for (std::size_t k = 0; k < a.size(); ++k) {
+        Ruler steepest = 0;
+        for (const std::vector<Ruler>& p : boxPoints(a, b, k)) {
+            const Applied<Ruler> v = applyFunction<Ruler>(id, p);
+            ASSERT_FALSE(v.error) << "argument " << k;  // every box of the tables stays inside the domain
+            const Ruler d = abs(partials<Ruler>(id, p, v.value)[k]);
+            EXPECT_GE(s[k], d * (1 - slack)) << "argument " << k;
+            if (d > steepest) steepest = d;
+        }
+        EXPECT_LE(s[k], 4 * steepest * (1 + slack)) << "argument " << k;
+        if (exactArguments) {
+            EXPECT_TRUE(close(s[k], steepest)) << "argument " << k;
+        }
+    }
+}
+
+struct SlopeCase {
+    FunctionId id;
+    std::vector<double> point;
+    std::vector<double> radius;
+};
+
+}  // namespace
+
+TEST(Slopes, OperatorsDominateTheirDerivativesOverTheirIntervals) {
+    using F = FunctionId;
+    const SlopeCase cases[] = {
+        {F::Add, {3, 5}, {1, 2}},          {F::Subtract, {3, 5}, {1, 2}},        {F::Negate, {2}, {1}},
+        {F::Percent, {2}, {1}},            {F::Abs, {0.5}, {1}},                 {F::Abs, {-2}, {0}},
+        {F::Multiply, {3, -5}, {0.5, 0.25}}, {F::Multiply, {0, 0}, {1e-17, 1e-17}}, {F::Multiply, {3, -5}, {0, 0}},
+        {F::Divide, {1, 4}, {1, 2}},       {F::Divide, {-3, -0.5}, {0.5, 0.25}}, {F::Divide, {1, 4}, {0, 0}},
+        {F::Square, {0}, {0.5}},           {F::Square, {-3}, {0.5}},             {F::Square, {-3}, {0}},
+        {F::Cube, {0}, {1e-17}},           {F::Cube, {-2}, {3}},                 {F::Cube, {-2}, {0}},
+        {F::Power, {2, 3}, {1, 0}},        {F::Power, {-2, 3}, {0.5, 0}},        {F::Power, {2, -2}, {0.5, 0}},
+        {F::Power, {2, 2.5}, {0.5, 0.25}}, {F::Power, {0.7, 0.5}, {0.1, 0.1}},   {F::Power, {0.7, 0.5}, {0, 0}},
+        {F::Power, {2, 0}, {1, 0}},        {F::Mod, {7, 3}, {0.5, 0.25}},        {F::Mod, {-7, 3}, {0, 0}},
+    };
+    for (const SlopeCase& c : cases) {
+        SCOPED_TRACE(std::to_string(static_cast<int>(c.id)) + " at " + std::to_string(c.point[0]));
+        expectSlopesDominate(c.id, c.point, c.radius);
+    }
+}
+
+TEST(Slopes, OperatorValues) {
+    const auto s = [](FunctionId id, std::vector<Ruler> a, std::vector<Ruler> b) { return slopes(id, a, b); };
+    using V = std::vector<Ruler>;
+    // x·y: x moves with y at its value, then y moves with x anywhere in its interval.
+    EXPECT_EQ(s(FunctionId::Multiply, {Ruler(3), Ruler(-5)}, {Ruler(0.5), Ruler(0.25)}), (V{Ruler(5), Ruler(3.5)}));
+    EXPECT_EQ(s(FunctionId::Square, {Ruler(0)}, {Ruler(0.5)}), (V{Ruler(1)}));  // the derivative at 0 is 0, the slope is not
+    EXPECT_EQ(s(FunctionId::Cube, {Ruler(2)}, {Ruler(1)}), (V{Ruler(27)}));
+    EXPECT_EQ(s(FunctionId::Divide, {Ruler(1), Ruler(4)}, {Ruler(1), Ruler(2)}), (V{Ruler(0.25), Ruler(0.5)}));  // 2 / 2²
+    EXPECT_EQ(s(FunctionId::Mod, {Ruler(7), Ruler(3)}, {Ruler(1), Ruler(1)}), (V{Ruler(1), Ruler(4)}));        // trunc(8 / 2)
+    EXPECT_EQ(s(FunctionId::Factorial, {Ruler(5)}, {Ruler(0)}), (V{Ruler(0)}));
+    EXPECT_TRUE(close(s(FunctionId::Power, {Ruler(2), Ruler(3)}, {Ruler(1), Ruler(0)})[0], Ruler(27)));  // 3 · 3²
+    EXPECT_TRUE(close(s(FunctionId::Power, {Ruler(2), Ruler(-1)}, {Ruler(1), Ruler(0)})[0], Ruler(1)));  // 1 · 1⁻²
+}
+
+TEST(Slopes, InfiniteWhereAnIntervalReachesAnUnboundedDerivative) {
+    const auto s = [](FunctionId id, std::vector<Ruler> a, std::vector<Ruler> b, std::size_t k) {
+        return slopes(id, a, b)[k];
+    };
+    EXPECT_FALSE(isFinite(s(FunctionId::Divide, {Ruler(1), Ruler(0.1)}, {Ruler(0), Ruler(0.1)}, 1)));
+    EXPECT_FALSE(isFinite(s(FunctionId::Mod, {Ruler(1), Ruler(0.1)}, {Ruler(0), Ruler(0.2)}, 1)));
+    EXPECT_FALSE(isFinite(s(FunctionId::Power, {Ruler(0.5), Ruler(-2)}, {Ruler(0.5), Ruler(0)}, 0)));
+    EXPECT_FALSE(isFinite(s(FunctionId::Power, {Ruler(0.5), Ruler(0.5)}, {Ruler(0.6), Ruler(0)}, 0)));
+    EXPECT_FALSE(isFinite(s(FunctionId::Power, {Ruler(0.5), Ruler(2.5)}, {Ruler(0.6), Ruler(0)}, 0)));  // x < 0: undefined
+    EXPECT_TRUE(isFinite(s(FunctionId::Power, {Ruler(0.5), Ruler(2)}, {Ruler(0.6), Ruler(0)}, 0)));     // x² is smooth at 0
+}

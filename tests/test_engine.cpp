@@ -1,6 +1,7 @@
 #include "accuracy.hpp"
 #include "ast_builder.hpp"
 #include "engine.hpp"
+#include "parser.hpp"
 #include "test_support.hpp"
 
 using namespace calculate_core;
@@ -314,4 +315,58 @@ TEST(SineOfTenBillion, IsUnavailableInExactArithmetic) {
     const Evaluation<Rational> ev = evaluate<Rational>(b.ast());
     ASSERT_TRUE(ev.error);
     EXPECT_EQ(ev.error->code, ErrorCode::NotAvailableInExact);
+}
+
+TEST(Propagation, CarriesAnErrorAsLargeAsItsValue) {
+    AstBuilder b;
+    const auto x = b.literal("1e-17") + b.literal("1") - b.literal("1");  // 0 in double, off by about 1e-17
+    x * x;
+    const Forward<double> fw = forward<double>(b.ast());
+    ASSERT_EQ(fw.values[x.index], 0);
+    const std::vector<Ruler> locals = localErrors<double>(b.ast(), fw);
+    const Propagation p = propagate<double>(b.ast(), fw, locals);
+    const Ruler bx = p.bounds[x.index];
+    EXPECT_GT(bx, 0);
+    EXPECT_EQ(p.slopes.back(), (std::vector<Ruler>{Ruler(0), bx}));  // |0|, then |0| + bx
+    EXPECT_EQ(p.bounds.back(), bx * bx);
+    // The absolute adjoints use the slopes, so the report's parts add up to the bound.
+    const Adjoints adj = adjoints(b.ast(), nodePartials<double>(b.ast(), fw), p.slopes);
+    Ruler total = 0;
+    for (std::size_t i = 0; i < locals.size(); ++i) total += adj.absoluteAdj[i] * locals[i];
+    EXPECT_TRUE(test::covers(total, p.bounds.back()) && test::covers(p.bounds.back(), total));
+    EXPECT_EQ(adj.signedAdj[x.index], 0);  // the derivative at the computed value is still 0
+}
+
+namespace {
+
+// Whether the bound of `text`, evaluated in T, covers its true error: the exact value from rational arithmetic.
+template <class T>
+::testing::AssertionResult coversExactError(const std::string& text) {
+    using std::abs;
+    const Parsed parsed = parse(text, AngleUnit::Radians);
+    if (parsed.error) return ::testing::AssertionFailure() << text << ": " << parsed.error->message;
+    const Evaluation<T> ev = evaluate<T>(parsed.ast);
+    if (ev.error && ev.error->code == ErrorCode::Overflow) return ::testing::AssertionSuccess();  // too large for T
+    if (ev.error) return ::testing::AssertionFailure() << text << ": " << ev.error->message;
+    const Forward<Rational> exact = forward<Rational>(parsed.ast);
+    if (exact.error) return ::testing::AssertionFailure() << text << ": no exact value";
+    const Ruler error = fromRational<Ruler>(abs(toRational(ev.value) - exact.values.back()));
+    if (test::covers(ev.report.bound, error)) return ::testing::AssertionSuccess();
+    return ::testing::AssertionFailure() << text << ": bound " << formatScientific(ev.report.bound, 6) << " < true error "
+                                         << formatScientific(error, 6);
+}
+
+template <class T>
+class BoundTest : public ::testing::Test {};
+TYPED_TEST_SUITE(BoundTest, test::FloatingTypes, test::TypeNames);
+
+}  // namespace
+
+// Found by the random-expression property: errors as large as the value, and ties at the u² level.
+TYPED_TEST(BoundTest, ArgumentErrorsAreCarriedWhole) {
+    for (const char* text : {"(1e-17+1-1)^2", "(1e-17+1-1)*(1e-17+1-1)", "(1e-17+1-1)³", "(1e-17+1-1)²",
+                             "1e-300*1e-300", "(-(1e-300*100))³", "(1e-300%)²", "0.7²", "0.7³", "0.3³", "1e-17²",
+                             "1e-17*(-1e-17)", "(-(0.3-0.2))²", "((20)!²)³", "1e-300³", "(1e16-3)³", "(0.7²)²",
+                             "(0.1*3)^3", "(0.1*3)^-2", "1/(0.7²)", "1/(1e16-3)"})
+        EXPECT_TRUE(coversExactError<TypeParam>(text));
 }

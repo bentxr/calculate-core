@@ -84,7 +84,7 @@ struct Result {
     std::optional<Fraction> exact;    // Exact only
     int trustedDigits = 0;            // leading significant digits guaranteed by the bound
     int trustedDigitsMeasured = 0;    // leading significant digits confirmed by the measured error
-    std::string bound;                // guaranteed first-order bound: input + rounding + library
+    std::string bound;                // guaranteed bound: input + rounding + library
     std::string inputError;
     std::string roundingError;
     std::string libraryError;
