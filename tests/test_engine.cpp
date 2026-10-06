@@ -410,3 +410,23 @@ TEST(Bound, EveryFunctionCarriesItsArgumentsErrorAtTheSteepestSlope) {
           "log(1-" + e + ", 3)", "log(8, 2-" + e + ")"})
         EXPECT_TRUE(coversMeasuredError<double>(text));
 }
+
+TEST(Edges, TheArgumentWhoseIntervalReachesThem) {
+    using F = FunctionId;
+    const Ruler some(0.5);
+    EXPECT_EQ(impl::edgeReached(F::Divide, {Rational(1), Rational(0)}, {Ruler(0), some}), 1);
+    EXPECT_EQ(impl::edgeReached(F::Mod, {Rational(5), Rational(0)}, {Ruler(0), some}), 1);
+    EXPECT_EQ(impl::edgeReached(F::LogBase, {Rational(8), Rational(1)}, {Ruler(0), some}), 1);
+    EXPECT_EQ(impl::edgeReached(F::LogBase, {Rational(0), Rational(2)}, {some, Ruler(0)}), 0);
+    EXPECT_EQ(impl::edgeReached(F::Sqrt, {Rational(0)}, {some}), 0);
+    EXPECT_EQ(impl::edgeReached(F::Sqrt, {Rational(1)}, {some}), -1);  // 0.5 to 1.5: clear of 0
+    EXPECT_EQ(impl::edgeReached(F::Sin, {Rational(0)}, {some}), -1);   // no edge at all
+}
+
+TEST(TrustedDigits, CountTheDecadesBetweenErrorAndValue) {
+    // floor(-log10(error / value)): 3/32 is 10^-1.03 and 1/16 is 10^-1.2, so one digit each.
+    EXPECT_EQ(trustedDigits(Ruler(1), Ruler(0.09375), 16), 1);
+    EXPECT_EQ(trustedDigits(Ruler(1), Ruler(0.0625), 16), 1);
+    EXPECT_EQ(trustedDigits(Ruler(1), Ruler(0.5), 16), 0);
+    EXPECT_EQ(trustedDigits(Ruler(1), Ruler(0), 16), 16);
+}
