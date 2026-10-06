@@ -260,7 +260,8 @@ TEST(Partials, EveryRuleMatchesAFiniteDifference) {
         {FunctionId::Sinh, {0.7}},  {FunctionId::Cosh, {0.7}},  {FunctionId::Tanh, {0.7}},
         {FunctionId::Asinh, {0.7}}, {FunctionId::Acosh, {1.7}}, {FunctionId::Atanh, {0.3}},
         {FunctionId::Sqrt, {0.7}},  {FunctionId::Cbrt, {0.7}},  {FunctionId::Power, {0.7, 2.5}},
-        {FunctionId::LogBase, {0.7, 3.0}}, {FunctionId::Root, {0.7, 3.0}}};
+        {FunctionId::LogBase, {0.7, 3.0}}, {FunctionId::Root, {0.7, 3.0}}, {FunctionId::Abs, {0.7}},
+        {FunctionId::Abs, {-0.7}}};
     for (const auto& [id, point] : cases) {
         std::vector<Ruler> args;
         std::vector<O> oracleArgs;

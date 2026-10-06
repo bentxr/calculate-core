@@ -322,6 +322,9 @@ TEST(Api, AMedianCountsEveryArgumentThatCanBeTheMedian) {
     ASSERT_FALSE(r.error);
     ASSERT_TRUE(r.measuredAvailable);
     EXPECT_GE(std::stod(r.bound), std::stod(r.measured));  // measured 0.5
+    const Result first = evaluate("median(0.5+(0.1+0.2-0.3)*1e16, 0, 1)");  // the uncertain argument first
+    ASSERT_TRUE(first.measuredAvailable);
+    EXPECT_GE(std::stod(first.bound), std::stod(first.measured));
     EXPECT_EQ(evaluate("median(1, 2, 3)").bound, "0");
     EXPECT_EQ(evaluate("median(0.1, 5, 9)").bound, "0");  // 0.1's error cannot reach 5
     const Result two = evaluate("median(0.1, 0.2)");     // even count: the mean of the two
