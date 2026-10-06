@@ -553,3 +553,63 @@ TEST(FunctionInfo, OperatorsAreNamedByTheirSigns) {
     EXPECT_EQ(symbolOf(FunctionId::Factorial), "!");
     EXPECT_EQ(symbolOf(FunctionId::Sqrt), "sqrt");
 }
+
+TEST(FunctionInfo, EveryFunctionTakesItsArgumentCount) {
+    using F = FunctionId;
+    const std::tuple<F, int, int> arity[] = {
+        {F::Literal, 0, 0}, {F::Pi, 0, 0}, {F::E, 0, 0}, {F::Add, 2, 2}, {F::Subtract, 2, 2}, {F::Multiply, 2, 2},
+        {F::Divide, 2, 2}, {F::Negate, 1, 1}, {F::Power, 2, 2}, {F::Percent, 1, 1}, {F::Square, 1, 1},
+        {F::Cube, 1, 1}, {F::Factorial, 1, 1}, {F::Sqrt, 1, 1}, {F::Cbrt, 1, 1}, {F::Root, 2, 2}, {F::Exp, 1, 1},
+        {F::Ln, 1, 1}, {F::Log10, 1, 1}, {F::LogBase, 2, 2}, {F::Sin, 1, 1}, {F::Cos, 1, 1}, {F::Tan, 1, 1},
+        {F::Asin, 1, 1}, {F::Acos, 1, 1}, {F::Atan, 1, 1}, {F::Sinh, 1, 1}, {F::Cosh, 1, 1}, {F::Tanh, 1, 1},
+        {F::Asinh, 1, 1}, {F::Acosh, 1, 1}, {F::Atanh, 1, 1}, {F::Abs, 1, 1}, {F::Mod, 2, 2}, {F::Gcd, 2, 2},
+        {F::Lcm, 2, 2}, {F::Ncr, 2, 2}, {F::Npr, 2, 2}, {F::Median, 1, -1}
+    };
+    for (const auto& [id, minArgs, maxArgs] : arity) {
+        EXPECT_EQ(functionInfo(id).minArgs, minArgs) << static_cast<int>(id);
+        EXPECT_EQ(functionInfo(id).maxArgs, maxArgs) << static_cast<int>(id);
+    }
+}
+
+TYPED_TEST(ApplyTest, LcmWithOne) {
+    using T = TypeParam;
+    EXPECT_EQ(applyFunction<T>(FunctionId::Lcm, {T(1), T(5)}).value, T(5));
+    EXPECT_EQ(applyFunction<T>(FunctionId::Lcm, {T(5), T(1)}).value, T(5));
+}
+
+TEST(LocalError, ExactResultsHaveNone) {
+    const auto local = [](FunctionId id, const std::vector<double>& a) {
+        return localError<double>(id, a, applyFunction<double>(id, a));
+    };
+    EXPECT_EQ(local(FunctionId::Cube, {2}), 0);
+    EXPECT_EQ(local(FunctionId::Lcm, {4, 6}), 0);
+    EXPECT_EQ(local(FunctionId::Root, {1, 3}), 0);
+    EXPECT_EQ(local(FunctionId::Root, {8, 3}), 0);
+    EXPECT_EQ(local(FunctionId::Root, {0.125, -3}), 0);
+    EXPECT_GT(local(FunctionId::Root, {2, 3}), 0);  // irrational
+}
+
+TEST(Partials, NegationFlipsTheSign) {
+    EXPECT_EQ(partials<Ruler>(FunctionId::Negate, {Ruler(3)}, Ruler(-3)), (std::vector<Ruler>{Ruler(-1)}));
+}
+
+TEST(Slopes, MoreBoundaries) {
+    // x^1 is linear: slope 1 even where the interval reaches 0.
+    EXPECT_EQ(slopes(FunctionId::Power, {Ruler(0), Ruler(1)}, {Ruler(0.5), Ruler(0)})[0], Ruler(1));
+    // An even count: the medians of the ends are (1 + 1.4)/2 and (1 + 2)/2, and 10 ± 8.6 reaches that range.
+    EXPECT_EQ(slopes(FunctionId::Median, {Ruler(0), Ruler(1), Ruler(2), Ruler(10)},
+                     {Ruler(0), Ruler(0), Ruler(0), Ruler(8.6)}),
+              (std::vector<Ruler>{Ruler(0), Ruler(0.5), Ruler(0.5), Ruler(1)}));
+    using F = FunctionId;
+    const SlopeCase cases[] = {
+        {F::Power, {0.5, -2}, {0.1, 0.5}}, {F::Root, {32, 5}, {1, 0.5}},  // the largest power at the lower corner
+        {F::Cbrt, {0.7}, {0}},   {F::Exp, {0.7}, {0}},   {F::Ln, {0.7}, {0}},    {F::Log10, {0.7}, {0}},
+        {F::Sin, {0.7}, {0}},    {F::Cos, {0.7}, {0}},   {F::Asin, {0.5}, {0}},  {F::Acos, {-0.5}, {0}},
+        {F::Atan, {0.7}, {0}},   {F::Sinh, {-0.7}, {0}}, {F::Cosh, {-0.7}, {0}}, {F::Tanh, {0.7}, {0}},
+        {F::Asinh, {-0.7}, {0}}, {F::Acosh, {1.7}, {0}}, {F::Atanh, {0.3}, {0}},
+    };
+    for (const SlopeCase& c : cases) {
+        SCOPED_TRACE(std::to_string(static_cast<int>(c.id)) + " at " + std::to_string(c.point[0]));
+        expectSlopesDominate(c.id, c.point, c.radius);
+    }
+}
