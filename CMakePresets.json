@@ -15,14 +15,27 @@
       "binaryDir": "${sourceDir}/build/wasm",
       "toolchainFile": "$env{EMSDK}/upstream/emscripten/cmake/Modules/Platform/Emscripten.cmake",
       "cacheVariables": { "CMAKE_BUILD_TYPE": "Release" }
+    },
+    {
+      "name": "coverage",
+      "displayName": "Native with line and branch coverage (Debug)",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/coverage",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_CXX_FLAGS": "--coverage -O0",
+        "CMAKE_EXE_LINKER_FLAGS": "--coverage"
+      }
     }
   ],
   "buildPresets": [
     { "name": "native", "configurePreset": "native" },
-    { "name": "wasm", "configurePreset": "wasm" }
+    { "name": "wasm", "configurePreset": "wasm" },
+    { "name": "coverage", "configurePreset": "coverage" }
   ],
   "testPresets": [
     { "name": "native", "configurePreset": "native", "output": { "outputOnFailure": true } },
-    { "name": "wasm", "configurePreset": "wasm", "output": { "outputOnFailure": true } }
+    { "name": "wasm", "configurePreset": "wasm", "output": { "outputOnFailure": true } },
+    { "name": "coverage", "configurePreset": "coverage", "output": { "outputOnFailure": true } }
   ]
 }
