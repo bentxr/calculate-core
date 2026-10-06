@@ -315,3 +315,14 @@ TEST(Api, AnUnboundedErrorUpstreamIsRefusedAtOnce) {
     EXPECT_EQ(anyway.bound, "inf");
     EXPECT_FALSE(anyway.boundComplete);
 }
+
+TEST(Api, AMedianCountsEveryArgumentThatCanBeTheMedian) {
+    const Result r = evaluate("median(0, 1, 0.5+(0.1+0.2-0.3)*1e16)");
+    ASSERT_FALSE(r.error);
+    ASSERT_TRUE(r.measuredAvailable);
+    EXPECT_GE(std::stod(r.bound), std::stod(r.measured));  // measured 0.5
+    EXPECT_EQ(evaluate("median(1, 2, 3)").bound, "0");
+    EXPECT_EQ(evaluate("median(0.1, 5, 9)").bound, "0");  // 0.1's error cannot reach 5
+    const Result two = evaluate("median(0.1, 0.2)");     // even count: the mean of the two
+    EXPECT_EQ(two.bound, evaluate("(0.1+0.2)/2").bound);
+}

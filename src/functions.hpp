@@ -642,6 +642,32 @@ inline std::vector<Ruler> logBaseSlopes(const std::vector<Ruler>& a, const std::
     return {dx, db};
 }
 
+// The median selects an argument, so its derivative is 1 for the selected one and 0 for the others. It is
+// non-decreasing in every argument, so the median of the exact arguments lies between the medians of the
+// intervals' lower and upper ends: every argument whose interval meets that range can be the true median and gets
+// slope 1 (the median then moves by at most the largest of their errors); the selected ones keep their weights.
+inline std::vector<Ruler> medianSlopes(const std::vector<Ruler>& a, const std::vector<Ruler>& b) {
+    for (const Ruler& r : b)
+        if (!isFinite(r)) return std::vector<Ruler>(a.size(), Ruler(1));  // the bound is infinite anyway
+    const auto median = [](std::vector<Rational> v) {
+        std::sort(v.begin(), v.end());
+        const std::size_t n = v.size();
+        return n % 2 ? v[n / 2] : Rational((v[n / 2 - 1] + v[n / 2]) / 2);
+    };
+    std::vector<Rational> lo;
+    std::vector<Rational> hi;
+    for (std::size_t k = 0; k < a.size(); ++k) {
+        lo.push_back(toRational(a[k]) - toRational(b[k]));
+        hi.push_back(toRational(a[k]) + toRational(b[k]));
+    }
+    const Rational low = median(lo);
+    const Rational high = median(hi);
+    std::vector<Ruler> s = partials<Ruler>(FunctionId::Median, a, Ruler(0));
+    for (std::size_t k = 0; k < a.size(); ++k)
+        if (s[k] == 0 && b[k] > 0 && hi[k] >= low && lo[k] <= high) s[k] = 1;
+    return s;
+}
+
 // One-argument functions: the largest |f'| over [x - b, x + b]. Each f' there is monotone in x or in |x| (or, for
 // sin and cos, 1-Lipschitz), so its largest value is at an end of the interval, or at the |x| farthest from or
 // nearest to 0.
@@ -719,6 +745,7 @@ inline std::vector<Ruler> slopes(FunctionId id, const std::vector<Ruler>& a, con
     }
     case FunctionId::Root: return impl::rootSlopes(a, b);
     case FunctionId::LogBase: return impl::logBaseSlopes(a, b);
+    case FunctionId::Median: return impl::medianSlopes(a, b);
     case FunctionId::Sqrt:
     case FunctionId::Cbrt:
     case FunctionId::Exp:
@@ -736,11 +763,7 @@ inline std::vector<Ruler> slopes(FunctionId id, const std::vector<Ruler>& a, con
     case FunctionId::Asinh:
     case FunctionId::Acosh:
     case FunctionId::Atanh: return {impl::functionSlope(id, a[0], b[0])};
-    default: {  // the median's weights at the computed arguments; the discrete functions' zeros
-        std::vector<Ruler> d = partials<Ruler>(id, a, Ruler(0));  // neither uses the value
-        for (Ruler& x : d) x = abs(x);
-        return d;
-    }
+    default: return std::vector<Ruler>(a.size(), Ruler(0));  // discrete functions: uncertain arguments are refused
     }
 }
 
