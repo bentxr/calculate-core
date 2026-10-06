@@ -29,7 +29,7 @@ struct Lexed {
     std::vector<Token> tokens;  // always ends with End when there is no error
 };
 
-// Locale-free; ASCII plus the UTF-8 aliases × ÷ − π √ ∛ ² ³.
+// Locale-free; ASCII plus the UTF-8 aliases × ÷ − π √ ∛ ² ³. `;` is a second spelling of the argument separator.
 Lexed lex(std::string_view source);
 
 // Named expressions (Ans, M): the name is replaced by its text, in parentheses.

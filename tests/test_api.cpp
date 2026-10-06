@@ -333,3 +333,9 @@ TEST(Api, AnArgumentTooLargeToReduceIsAnError) {
     EXPECT_EQ(r.error->code, ErrorCode::ArgumentTooLarge);
     EXPECT_EQ(r.error->message, "The argument of sin is too large to reduce accurately");
 }
+
+TEST(Api, SemicolonsInCalls) {
+    EXPECT_EQ(evaluate("nCr(5; 2)").value.digits, "1");  // 10
+    EXPECT_EQ(evaluate("nCr(5; 2)").value.exponent10, 1);
+    EXPECT_EQ(evaluate("nCr(5; 2)").expression, "nCr(5; 2)");  // kept as written
+}

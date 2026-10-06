@@ -53,7 +53,8 @@ TokenKind singleCharacter(char c) {
     case '^': return TokenKind::Caret;
     case '(': return TokenKind::LeftParen;
     case ')': return TokenKind::RightParen;
-    case ',': return TokenKind::Comma;
+    case ',':
+    case ';': return TokenKind::Comma;
     case '!': return TokenKind::Bang;
     case '%': return TokenKind::Percent;
     default: return TokenKind::End;  // not a single-character token

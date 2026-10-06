@@ -318,3 +318,15 @@ TEST(Parser, ParseReportsTheLexersError) {
     EXPECT_EQ(p.error->code, ErrorCode::InvalidCharacter);
     EXPECT_EQ(p.error->begin, 2u);
 }
+
+TEST(Parser, ASemicolonSeparatesArgumentsLikeAComma) {
+    EXPECT_EQ(tree("root(32; 5)"), tree("root(32, 5)"));
+    EXPECT_EQ(tree("mean(1; 2, 3)"), tree("mean(1, 2, 3)"));
+    EXPECT_EQ(tree("log(8; 2)"), tree("log(8, 2)"));
+    EXPECT_EQ(parseError("sin(1; 2)").code, ErrorCode::WrongArgumentCount);
+    EXPECT_EQ(parseError("1; 2").code, ErrorCode::UnexpectedToken);  // only inside a call
+    const Lexed l = lex("f(1;2)");
+    ASSERT_FALSE(l.error);
+    EXPECT_EQ(l.tokens[3].kind, TokenKind::Comma);
+    EXPECT_EQ(l.tokens[3].text, ";");
+}
