@@ -48,6 +48,50 @@ inline bool nearJump(const Rational& x, const Rational& y, const Ruler& bx, cons
     return false;
 }
 
+// Whether the error interval [value - bound, value + bound] reaches `point`. An exactly known value never does.
+inline bool near(const Rational& value, const Rational& point, const Ruler& bound) {
+    return bound > 0 && fromRational<Ruler>(abs(value - point)) <= bound;
+}
+
+// The argument whose error interval reaches a point where the node's function is not defined, not finite or
+// not smooth, or -1. Values and bounds are the arguments'.
+inline int edgeReached(FunctionId id, const std::vector<Rational>& x, const std::vector<Ruler>& b) {
+    switch (id) {
+    case FunctionId::Divide: return near(x[1], 0, b[1]) ? 1 : -1;
+    case FunctionId::Sqrt:
+    case FunctionId::Cbrt:
+    case FunctionId::Ln:
+    case FunctionId::Log10: return near(x[0], 0, b[0]) ? 0 : -1;
+    case FunctionId::Root: {
+        const bool linear = b[1] == 0 && abs(x[1]) == 1;
+        return !linear && near(x[0], 0, b[0]) ? 0 : -1;
+    }
+    case FunctionId::LogBase:
+        if (near(x[0], 0, b[0])) return 0;
+        return near(x[1], 0, b[1]) || near(x[1], 1, b[1]) ? 1 : -1;
+    case FunctionId::Power: {
+        const bool wholeExponent = b[1] == 0 && denominator(x[1]) == 1 && x[1] >= 0;
+        return !wholeExponent && near(x[0], 0, b[0]) ? 0 : -1;
+    }
+    case FunctionId::Asin:
+    case FunctionId::Acos:
+    case FunctionId::Atanh: return near(x[0], -1, b[0]) || near(x[0], 1, b[0]) ? 0 : -1;
+    case FunctionId::Acosh: return near(x[0], 1, b[0]) ? 0 : -1;
+    case FunctionId::Tan: {  // the nearest pole (k + 1/2)pi
+        const Rational pi = constantRational(ConstantId::Pi);
+        const Integer k = floorOf(x[0] / pi);
+        return near(x[0], (Rational(k) + Rational(1, 2)) * pi, b[0]) ? 0 : -1;
+    }
+    case FunctionId::Mod: return near(x[1], 0, b[1]) ? 1 : -1;
+    default: return -1;
+    }
+}
+
+// 0^y jumps at y = 0 (0^0 = 1, 0^y = 0 for y > 0).
+inline bool zeroPowerNearJump(const std::vector<Rational>& x, const std::vector<Ruler>& b) {
+    return x[0] == 0 && b[0] == 0 && near(x[1], 0, b[1]);
+}
+
 }  // namespace impl
 
 // Evaluates every node in T. The first error stops the pass and carries the failing node's span.
@@ -294,6 +338,27 @@ Evaluation<T> evaluate(const Ast& ast, const Options& options = {}) {
     const Propagation propagation = propagate<T>(ast, fw, locals);
     const std::vector<Ruler>& bounds = propagation.bounds;
     for (const Node& node : ast.nodes) {
+        if (!node.args.empty()) {
+            std::vector<Rational> x;
+            std::vector<Ruler> b;
+            for (const int a : node.args) {
+                x.push_back(toRational(fw.values[a]));
+                b.push_back(bounds[a]);
+            }
+            const int edge = impl::edgeReached(node.function, x, b);
+            const bool jump = node.function == FunctionId::Power && impl::zeroPowerNearJump(x, b);
+            if (edge >= 0 || jump) {
+                if (!options.allowUncertainDiscreteArguments) {
+                    const ErrorCode code = edge >= 0 ? ErrorCode::ArgumentNearEdge : ErrorCode::ArgumentNearJump;
+                    const std::string carrier = edge >= 0 ? "argument" : "exponent";
+                    ev.error = impl::nodeError(node, code,
+                                               errorMessage(code, symbolOf(node.function)) + "; its " + carrier
+                                                   + " carries an error of up to " + formatScientific(b[edge >= 0 ? edge : 1]));
+                    return ev;
+                }
+                r.boundComplete = false;
+            }
+        }
         const FunctionInfo& info = functionInfo(node.function);
         if (info.continuity == Continuity::Continuous) continue;
         const std::string name = info.name.empty() ? "!" : std::string(info.name);

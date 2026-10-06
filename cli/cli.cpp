@@ -79,6 +79,7 @@ const char* codeName(ErrorCode c) {
     case ErrorCode::NotAnInteger: return "NotAnInteger";
     case ErrorCode::UncertainDiscreteArgument: return "UncertainDiscreteArgument";
     case ErrorCode::ArgumentNearJump: return "ArgumentNearJump";
+    case ErrorCode::ArgumentNearEdge: return "ArgumentNearEdge";
     case ErrorCode::Cancelled: return "Cancelled";
     }
     return "";

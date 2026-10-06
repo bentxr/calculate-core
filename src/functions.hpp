@@ -92,6 +92,16 @@ inline const FunctionInfo& functionInfo(FunctionId id) {
     return table[static_cast<std::size_t>(id)];
 }
 
+// How messages name a node: operators by their sign, functions by their name.
+inline std::string_view symbolOf(FunctionId id) {
+    switch (id) {
+    case FunctionId::Divide: return "÷";
+    case FunctionId::Power: return "^";
+    case FunctionId::Factorial: return "!";
+    default: return functionInfo(id).name;
+    }
+}
+
 // English messages; `name` is the function's name and may be empty.
 inline std::string errorMessage(ErrorCode code, std::string_view name) {
     const std::string n(name);
@@ -106,6 +116,7 @@ inline std::string errorMessage(ErrorCode code, std::string_view name) {
     case ErrorCode::NotAnInteger: return n + " needs a whole-number argument";
     case ErrorCode::UncertainDiscreteArgument: return n + " needs an exactly known argument";
     case ErrorCode::ArgumentNearJump: return n + " jumps within the error of its arguments";
+    case ErrorCode::ArgumentNearEdge: return n + " is not defined or not smooth within the error of its argument";
     case ErrorCode::Cancelled: return "Cancelled";
     default: return "Invalid expression";
     }

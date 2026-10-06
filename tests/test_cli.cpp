@@ -131,3 +131,7 @@ TEST(Cli, AJumpWithinTheErrorIsAnErrorCode) {
     EXPECT_NE(r.out.find("\"code\":\"ArgumentNearJump\""), std::string::npos);
     EXPECT_EQ(invoke({"--allow-uncertain", "mod(0.7+0.1, 0.8)"}).code, 0);
 }
+
+TEST(Cli, AnEdgeWithinTheErrorIsAnErrorCode) {
+    EXPECT_NE(invoke({"--json", "sqrt(0.1+0.2-0.3)"}).out.find("\"code\":\"ArgumentNearEdge\""), std::string::npos);
+}

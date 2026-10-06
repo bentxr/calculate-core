@@ -250,3 +250,39 @@ TEST(Api, AnExactPowerTooLargeToWriteDownIsAnOverflow) {
     EXPECT_EQ(r.error->code, ErrorCode::Overflow);
     EXPECT_FALSE(evaluate("0.7^nPr(12, 12)").error);  // in double it underflows to 0, at once
 }
+
+TEST(Api, AnArgumentWhoseErrorReachesAnEdgeIsRefused) {
+    for (const char* text : {"sqrt(0.1+0.2-0.3)", "cbrt(0.1+0.2-0.3)", "ln(0.1+0.2-0.3)", "log(0.1+0.2-0.3)",
+                             "1/(0.1+0.2-0.3)", "(0.1+0.2-0.3)^0.5", "(0.1+0.2-0.3)^-1", "root(0.1+0.2-0.3, 3)",
+                             "tan(pi/2)", "asin(0.1*3+0.7)", "acos(0.1*3+0.7)", "acosh(1.1-0.1)", "log(8, 0.1+0.2-0.3)",
+                             "mod(5, 0.1+0.2-0.3)"}) {
+        const Result r = evaluate(text);
+        ASSERT_TRUE(r.error) << text;
+        EXPECT_EQ(r.error->code, ErrorCode::ArgumentNearEdge) << text;
+    }
+    const Result s = evaluate("sqrt(0.1+0.2-0.3)");
+    EXPECT_EQ(s.error->begin, 0u);
+    EXPECT_EQ(s.error->end, 17u);
+    EXPECT_EQ(s.error->message, "sqrt is not defined or not smooth within the error of its argument; "
+                                "its argument carries an error of up to 5.6e-17");
+    EXPECT_EQ(evaluate("1/(0.1+0.2-0.3)").error->message.rfind("÷ is not defined", 0), 0u);  // operators by their sign
+    EXPECT_EQ(evaluate("tan(90)", as(NumberType::Double, AngleUnit::Degrees)).error->code, ErrorCode::ArgumentNearEdge);
+    // Far from every edge, or exactly known: computed as before.
+    for (const char* text : {"sqrt(2)", "sqrt(0)", "1/3", "ln(1e-300)", "tan(1)", "asin(1)", "acos(0.5)",
+                             "(0.1+0.2-0.3)^2", "0^2", "(0.1+0.2)^0.5", "1/(0.1+0.2)", "root(-8, 3)", "atanh(0.5)"})
+        EXPECT_FALSE(evaluate(text).error) << text;
+    Options allow;
+    allow.allowUncertainDiscreteArguments = true;
+    const Result anyway = evaluate("sqrt(0.1+0.2-0.3)", allow);
+    ASSERT_FALSE(anyway.error);
+    EXPECT_FALSE(anyway.boundComplete);
+    EXPECT_FALSE(evaluate("sqrt(0.1+0.2-0.3)", as(NumberType::Exact)).error);  // exactly 0
+}
+
+TEST(Api, ZeroToAPowerJumpsAtZero) {
+    const Result r = evaluate("0^(0.1+0.2-0.3)");
+    ASSERT_TRUE(r.error);
+    EXPECT_EQ(r.error->code, ErrorCode::ArgumentNearJump);
+    EXPECT_FALSE(evaluate("0^(0.1+0.2)").error);  // far from 0
+    EXPECT_FALSE(evaluate("0^0").error);          // exactly 0: 1
+}
