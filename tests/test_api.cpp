@@ -339,3 +339,12 @@ TEST(Api, SemicolonsInCalls) {
     EXPECT_EQ(evaluate("nCr(5; 2)").value.exponent10, 1);
     EXPECT_EQ(evaluate("nCr(5; 2)").expression, "nCr(5; 2)");  // kept as written
 }
+
+TEST(Api, LongDoubleStorageFollowsItsFormat) {
+    // x87 extended is stored in 80 bits, binary128 in 128, a long double that is a double in 64.
+    for (const TypeInfo& t : numberTypes()) {
+        if (t.type == NumberType::LongDouble) {
+            EXPECT_EQ(t.storageBits, t.precisionBits == 64 ? 80 : t.precisionBits == 113 ? 128 : 64);
+        }
+    }
+}
