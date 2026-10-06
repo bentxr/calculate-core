@@ -102,6 +102,9 @@ bool isFinite(const T& x) {
     }
 }
 
+// Exact numbers beyond 10^±1000000 take minutes and gigabytes to compute and write down.
+inline constexpr long long exactDigitsLimit = 1000000;
+
 // q * 2^e, exactly.
 inline Rational scaleByPowerOfTwo(const Rational& q, long long e) {
     if (e == 0) return q;

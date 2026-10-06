@@ -266,6 +266,9 @@ inline std::optional<ErrorCode> exactPower(const Rational& x, const Rational& y,
         if (const auto e = exactRoot(x, denominator(y), base)) return e;
     const Integer p = abs(numerator(y));
     if (p > std::numeric_limits<unsigned>::max()) return ErrorCode::Overflow;  // cannot be stored
+    // n^p has at least p * msb(n) bits, so at least p * msb(n) * 0.30103 decimal digits.
+    for (const Integer& n : {Integer(abs(numerator(base))), denominator(base)})  // both > 0: the base is not 0
+        if (p * msb(n) * 30103 > Integer(exactDigitsLimit) * 100000) return ErrorCode::Overflow;
     const unsigned e = p.convert_to<unsigned>();
     out = Rational(pow(numerator(base), e), pow(denominator(base), e));
     if (y < 0) out = 1 / out;  // base != 0

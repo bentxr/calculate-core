@@ -433,3 +433,15 @@ TEST(Slopes, FunctionsAreInfiniteWhereAnIntervalReachesAnUnboundedDerivative) {
     }
     EXPECT_FALSE(isFinite(slopes(F::LogBase, {Ruler(8), Ruler(1.05)}, {Ruler(0), Ruler(0.1)})[1]));  // base near 1
 }
+
+TEST(ExactPower, AResultTooLargeToWriteDownIsAnOverflow) {
+    Rational out;
+    // 0.7^479001600: some 400 million digits above and below the fraction bar.
+    EXPECT_EQ(impl::exactPower(Rational(7, 10), Rational(479001600), out), ErrorCode::Overflow);
+    EXPECT_EQ(impl::exactPower(Rational(2), Rational(4000000), out), ErrorCode::Overflow);  // 1 204 120 digits
+    EXPECT_EQ(impl::exactPower(Rational(2), Rational(3000000), out), std::nullopt);         // 903 090 digits: allowed
+    EXPECT_EQ(out, Rational(Integer(1) << 3000000));
+    EXPECT_EQ(impl::exactPower(Rational(1, 2), Rational(-3000000), out), std::nullopt);
+    EXPECT_EQ(impl::exactPower(Rational(1), Rational(479001600), out), std::nullopt);       // 1 stays 1
+    EXPECT_EQ(out, Rational(1));
+}

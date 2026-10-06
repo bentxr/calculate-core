@@ -243,3 +243,10 @@ TEST(Api, ModuloRefusesArgumentsWhoseErrorReachesAJump) {
     EXPECT_EQ(evaluate("mod(-7, 3)").value.digits, "1");  // still truncated: -1
     EXPECT_TRUE(evaluate("mod(-7, 3)").value.negative);
 }
+
+TEST(Api, AnExactPowerTooLargeToWriteDownIsAnOverflow) {
+    const Result r = evaluate("0.7^nPr(12, 12)", as(NumberType::Exact));
+    ASSERT_TRUE(r.error);
+    EXPECT_EQ(r.error->code, ErrorCode::Overflow);
+    EXPECT_FALSE(evaluate("0.7^nPr(12, 12)").error);  // in double it underflows to 0, at once
+}

@@ -65,8 +65,8 @@ Forward<T> forward(const Ast& ast, const std::atomic<bool>* cancel = nullptr) {
         if (node.function == FunctionId::Literal) {
             // An exact literal beyond 10^±1000000 cannot be materialized in reasonable time or memory.
             const auto literal = parseDecimal(node.text);
-            const bool outOfRange =
-                !literal || (isExact<T> && (literal->exponent10 > 1000000 || literal->exponent10 < -1000000));
+            const bool outOfRange = !literal || (isExact<T> && (literal->exponent10 > exactDigitsLimit
+                                                                || literal->exponent10 < -exactDigitsLimit));
             if (!outOfRange) fw.values[i] = decimalTo<T>(*literal);
             if (outOfRange || !isFinite(fw.values[i])) {
                 fw.error = impl::nodeError(node, ErrorCode::LiteralOutOfRange,
