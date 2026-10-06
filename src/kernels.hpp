@@ -213,8 +213,15 @@ DoubleWord<T> cosSmall(const DoubleWord<T>& r) {
 // atan by argument halving, atan(a) = 2 atan(a / (1 + sqrt(1 + a^2))), then its Taylor series.
 template <class T>
 DoubleWord<T> atanWord(DoubleWord<T> a) {
+    using std::ldexp;
     const bool negative = a.hi < 0;
     if (negative) a = -a;
+    // Beyond 2^p, atan(a) = pi/2 - 1/a to below 2^-2p (the next term is 1/(3a^3)); and 1/a as a double word
+    // would split a, which overflows near T's maximum.
+    if (a.hi > ldexp(T(1), precisionBits<T>())) {
+        const DoubleWord<T> r = impl::halfPi<T>() - dw(T(1) / a.hi);
+        return negative ? -r : r;
+    }
     const bool inverted = a.hi > 1;
     if (inverted) a = dw(T(1)) / a;
     const int s = impl::halvings<T>();
@@ -223,7 +230,9 @@ DoubleWord<T> atanWord(DoubleWord<T> a) {
     if (a.hi != 0) {
         const DoubleWord<T> a2 = a * a;
         DoubleWord<T> power = a;
-        for (int k = 3;; k += 2) {
+        // After the halvings each term is at least 4 times smaller than the one before, so p terms suffice; the
+        // limit also ends the loop on a NaN, which is never negligible.
+        for (int k = 3; k < 4 * precisionBits<T>(); k += 2) {
             power = -(power * a2);
             const DoubleWord<T> term = power / T(k);
             if (impl::negligible(term, sum)) break;

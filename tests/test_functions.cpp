@@ -456,3 +456,100 @@ TEST(Slopes, AnInfiniteBoundGivesInfiniteSlopesAtOnce) {
     EXPECT_EQ(slopes(FunctionId::Sin, {Ruler(1)}, {inf})[0], Ruler(1));   // |cos| <= 1 everywhere
     EXPECT_EQ(slopes(FunctionId::Atan, {Ruler(1)}, {inf})[0], Ruler(1));  // steepest at 0
 }
+
+namespace {
+
+// One input of a function: the arguments (exact small values or a named extreme) and what must come out.
+struct Expect {
+    FunctionId id;
+    std::vector<double> args;      // converted exactly to T
+    std::optional<double> value;   // exact expected value, or
+    std::optional<ErrorCode> error;  // the error it must give
+};
+
+const std::vector<Expect>& classes() {
+    using F = FunctionId;
+    using E = ErrorCode;
+    static const std::vector<Expect> list{
+        {F::Sqrt, {0}, 0, {}},       {F::Sqrt, {4}, 2, {}},        {F::Sqrt, {-1}, {}, E::DomainError},
+        {F::Cbrt, {0}, 0, {}},       {F::Cbrt, {-8}, -2, {}},      {F::Cbrt, {27}, 3, {}},
+        {F::Root, {32, 5}, 2, {}},   {F::Root, {-8, 3}, -2, {}},   {F::Root, {-8, 2}, {}, E::DomainError},
+        {F::Root, {2, 0}, {}, E::DomainError}, {F::Root, {0, -1}, {}, E::DivisionByZero}, {F::Root, {0, 2}, 0, {}},
+        {F::Exp, {0}, 1, {}},        {F::Exp, {1e7}, {}, E::Overflow}, {F::Exp, {-1e7}, 0, {}},
+        {F::Ln, {1}, 0, {}},         {F::Ln, {0}, {}, E::DomainError}, {F::Ln, {-1}, {}, E::DomainError},
+        {F::Log10, {1}, 0, {}},      {F::Log10, {0}, {}, E::DomainError},
+        {F::LogBase, {1, 2}, 0, {}}, {F::LogBase, {8, 1}, {}, E::DomainError}, {F::LogBase, {8, 0}, {}, E::DomainError},
+        {F::LogBase, {8, -2}, {}, E::DomainError}, {F::LogBase, {-8, 2}, {}, E::DomainError},
+        {F::Sin, {0}, 0, {}},        {F::Cos, {0}, 1, {}},         {F::Tan, {0}, 0, {}},
+        {F::Asin, {0}, 0, {}},       {F::Asin, {1.5}, {}, E::DomainError}, {F::Acos, {1}, 0, {}},
+        {F::Acos, {-1.5}, {}, E::DomainError}, {F::Atan, {0}, 0, {}},
+        {F::Sinh, {0}, 0, {}},       {F::Cosh, {0}, 1, {}},        {F::Tanh, {0}, 0, {}},
+        {F::Tanh, {1e6}, 1, {}},     {F::Tanh, {-1e6}, -1, {}},    {F::Sinh, {1e7}, {}, E::Overflow},
+        {F::Asinh, {0}, 0, {}},      {F::Acosh, {1}, 0, {}},       {F::Acosh, {0.5}, {}, E::DomainError},
+        {F::Atanh, {0}, 0, {}},      {F::Atanh, {1}, {}, E::DomainError}, {F::Atanh, {-1}, {}, E::DomainError},
+        {F::Abs, {-3}, 3, {}},       {F::Abs, {0}, 0, {}},         {F::Abs, {2.5}, 2.5, {}},
+        {F::Mod, {7, 3}, 1, {}},     {F::Mod, {-7, 3}, -1, {}},    {F::Mod, {7, -3}, 1, {}},  {F::Mod, {7, 0}, {}, E::DivisionByZero},
+        {F::Mod, {0, 3}, 0, {}},     {F::Mod, {5.5, 2}, 1.5, {}},
+        {F::Gcd, {12, 18}, 6, {}},   {F::Gcd, {0, 5}, 5, {}},      {F::Gcd, {-12, 18}, 6, {}}, {F::Gcd, {1.5, 3}, {}, E::NotAnInteger},
+        {F::Lcm, {4, 6}, 12, {}},    {F::Lcm, {0, 5}, 0, {}},      {F::Lcm, {-4, 6}, 12, {}},
+        {F::Ncr, {5, 2}, 10, {}},    {F::Ncr, {5, 0}, 1, {}},      {F::Ncr, {5, 6}, 0, {}},   {F::Ncr, {-5, 2}, {}, E::DomainError},
+        {F::Npr, {5, 2}, 20, {}},    {F::Npr, {5, 5}, 120, {}},    {F::Npr, {5, 6}, 0, {}},
+        {F::Factorial, {0}, 1, {}},  {F::Factorial, {5}, 120, {}}, {F::Factorial, {-1}, {}, E::DomainError},
+        {F::Factorial, {2.5}, {}, E::NotAnInteger},
+        {F::Power, {0, 0}, 1, {}},   {F::Power, {0, 3}, 0, {}},    {F::Power, {0, -1}, {}, E::DivisionByZero},
+        {F::Power, {-2, 3}, -8, {}}, {F::Power, {-8, 0.5}, {}, E::DomainError}, {F::Power, {2, -2}, 0.25, {}},
+        {F::Percent, {50}, 0.5, {}}, {F::Square, {-3}, 9, {}},     {F::Cube, {-2}, -8, {}},   {F::Negate, {0}, 0, {}},
+        {F::Divide, {1, 0}, {}, E::DivisionByZero}, {F::Divide, {0, 5}, 0, {}},
+        {F::Median, {3}, 3, {}},     {F::Median, {3, 1, 2}, 2, {}}, {F::Median, {4, 1, 3, 2}, 2.5, {}},
+    };
+    return list;
+}
+
+}  // namespace
+
+TYPED_TEST(ApplyTest, EveryExistingFunctionOnItsInputClasses) {
+    using T = TypeParam;
+    for (const Expect& c : classes()) {
+        std::vector<T> args;
+        for (const double a : c.args) args.push_back(T(a));
+        const Applied<T> r = applyFunction<T>(c.id, args);
+        const std::string where = std::string(functionInfo(c.id).name) + " #" + std::to_string(&c - classes().data());
+        if (isExact<T> && !functionInfo(c.id).exact) {  // checked first: Exact refuses before any domain check
+            ASSERT_TRUE(r.error) << where;
+            EXPECT_EQ(*r.error, ErrorCode::NotAvailableInExact) << where;
+            continue;
+        }
+        if (c.error) {
+            ASSERT_TRUE(r.error) << where;
+            EXPECT_EQ(*r.error, *c.error) << where;
+            continue;
+        }
+        ASSERT_FALSE(r.error) << where;
+        EXPECT_EQ(r.value, T(*c.value)) << where;
+    }
+}
+
+TYPED_TEST(ApplyTest, ExtremesOfTheTypeStayFiniteOrSayOverflow) {
+    using T = TypeParam;
+    if constexpr (!isExact<T>) {
+        const T big = (std::numeric_limits<T>::max)();
+        const T tiny = (std::numeric_limits<T>::min)();
+        for (FunctionId id : {FunctionId::Sqrt, FunctionId::Cbrt, FunctionId::Ln, FunctionId::Atan, FunctionId::Tanh,
+                              FunctionId::Asinh, FunctionId::Abs})
+            for (const T& x : {big, tiny, T(-tiny)}) {
+                const Applied<T> r = applyFunction<T>(id, {x});
+                if (r.error) EXPECT_TRUE(*r.error == ErrorCode::DomainError || *r.error == ErrorCode::Overflow);
+                else EXPECT_TRUE(isFinite(r.value)) << static_cast<int>(id);
+            }
+        EXPECT_EQ(applyFunction<T>(FunctionId::Multiply, {big, T(2)}).error.value_or(ErrorCode::Cancelled), ErrorCode::Overflow);
+        EXPECT_EQ(applyFunction<T>(FunctionId::Square, {big}).error.value_or(ErrorCode::Cancelled), ErrorCode::Overflow);
+        EXPECT_EQ(applyFunction<T>(FunctionId::Exp, {big}).error.value_or(ErrorCode::Cancelled), ErrorCode::Overflow);
+    }
+}
+
+TEST(FunctionInfo, OperatorsAreNamedByTheirSigns) {
+    EXPECT_EQ(symbolOf(FunctionId::Divide), "÷");
+    EXPECT_EQ(symbolOf(FunctionId::Power), "^");
+    EXPECT_EQ(symbolOf(FunctionId::Factorial), "!");
+    EXPECT_EQ(symbolOf(FunctionId::Sqrt), "sqrt");
+}

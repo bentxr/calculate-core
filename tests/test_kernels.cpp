@@ -175,3 +175,20 @@ TEST(KernelAccuracy, TheRulerItselfIsAccurate) {
                   claimedFactor(id));
     }
 }
+
+TYPED_TEST(KernelTest, AtanOfTheLargestValues) {
+    using T = TypeParam;
+    // Near the maximum, 1/a as a double word would split a and overflow; atan(a) is pi/2 - 1/a there.
+    const T big = (std::numeric_limits<T>::max)();
+    for (const T& x : {big, T(-big), ldexp(T(1), maxExponent<T>() / 2)}) {
+        const Applied<T> r = applyFunction<T>(FunctionId::Atan, {x});
+        ASSERT_FALSE(r.error);
+        EXPECT_EQ(abs(r.value), toValue(impl::halfPi<T>()));  // 1/a is far below half an ulp of pi/2
+        EXPECT_EQ(r.value < 0, x < 0);
+    }
+}
+
+TYPED_TEST(KernelTest, AtanSeriesEndsEvenOnANaN) {
+    using T = TypeParam;
+    EXPECT_FALSE(isFinite(atanWord(dw(std::numeric_limits<T>::quiet_NaN())).hi));
+}

@@ -304,3 +304,17 @@ TEST(EndToEnd, UncertainFactorialArgument) {
     EXPECT_EQ(ev.error->code, ErrorCode::UncertainDiscreteArgument);
     EXPECT_EQ(evaluateText<double>("(5+1)!").value, 720.0);
 }
+
+TEST(Parser, ACallWithoutItsClosingParenthesis) {
+    const Error e = parseError("root(8, 2");
+    EXPECT_EQ(e.code, ErrorCode::MissingClosingParenthesis);
+    EXPECT_EQ(e.begin, 0u);
+    EXPECT_EQ(e.end, 9u);
+}
+
+TEST(Parser, ParseReportsTheLexersError) {
+    const Parsed p = parse("2 $ 3", AngleUnit::Radians);
+    ASSERT_TRUE(p.error);
+    EXPECT_EQ(p.error->code, ErrorCode::InvalidCharacter);
+    EXPECT_EQ(p.error->begin, 2u);
+}

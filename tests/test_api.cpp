@@ -326,3 +326,10 @@ TEST(Api, AMedianCountsEveryArgumentThatCanBeTheMedian) {
     const Result two = evaluate("median(0.1, 0.2)");     // even count: the mean of the two
     EXPECT_EQ(two.bound, evaluate("(0.1+0.2)/2").bound);
 }
+
+TEST(Api, AnArgumentTooLargeToReduceIsAnError) {
+    const Result r = evaluate("sin(1e4000)", as(NumberType::Binary128));
+    ASSERT_TRUE(r.error);
+    EXPECT_EQ(r.error->code, ErrorCode::ArgumentTooLarge);
+    EXPECT_EQ(r.error->message, "The argument of sin is too large to reduce accurately");
+}
