@@ -2,6 +2,8 @@
 #include "engine.hpp"
 #include "parser.hpp"
 
+#include <cstring>
+
 using namespace calculate_core;
 using namespace calculate_core::detail;
 
@@ -329,4 +331,25 @@ TEST(Parser, ASemicolonSeparatesArgumentsLikeAComma) {
     ASSERT_FALSE(l.error);
     EXPECT_EQ(l.tokens[3].kind, TokenKind::Comma);
     EXPECT_EQ(l.tokens[3].text, ";");
+}
+
+TEST(Lexer, StaysInsideItsView) {
+    // The views end before text that would extend their last token: nothing past the end is read.
+    // (The text alone would not show it: a token's text is clamped to the view, its span is not.)
+    for (const char* text : {"123", "1e55", "sinx"}) {
+        const std::string_view view(text, std::strlen(text) - 1);
+        const Lexed l = lex(view);
+        ASSERT_FALSE(l.error) << text;
+        EXPECT_EQ(l.tokens[0].text, view) << text;
+        EXPECT_EQ(l.tokens[0].span.end, view.size()) << text;
+    }
+    const Lexed dot = lex(std::string_view("1+.5", 3));
+    ASSERT_TRUE(dot.error);
+    EXPECT_EQ(dot.error->code, ErrorCode::InvalidNumber);
+}
+
+TEST(Parser, ArgumentCountsInTheirMessages) {
+    EXPECT_EQ(parseError("sin(1, 2)").message, "sin takes 1 argument");
+    EXPECT_EQ(parseError("root(8)").message, "root takes 2 arguments");
+    EXPECT_EQ(parseError("mean()").message, "mean takes at least 1 argument");
 }
