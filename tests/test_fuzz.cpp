@@ -23,7 +23,7 @@ struct Vocabulary {
     std::vector<std::string> prefix;   // written before an operand
     std::vector<std::string> infix;    // between two operands
     std::vector<std::string> postfix;  // after an operand
-    std::vector<std::pair<std::string, int>> calls;     // name and argument count (-1: one to four)
+    std::vector<std::pair<std::string, int>> calls;     // name and argument count (-n: n to four)
     std::vector<std::pair<std::string, int>> discrete;  // calls whose arguments come from `small`
 };
 
@@ -40,7 +40,7 @@ Vocabulary vocabulary() {
     v.calls = {{"abs", 1},  {"exp", 1},  {"sin", 1},   {"cos", 1},  {"atan", 1}, {"sinh", 1},
                {"cosh", 1}, {"tanh", 1}, {"asinh", 1}, {"mean", -1}, {"varp", -1}, {"mod", 2},
                {"sqrt", 1}, {"cbrt", 1}, {"root", 2}, {"ln", 1}, {"log", 1}, {"log", 2}, {"tan", 1},
-               {"asin", 1}, {"acos", 1}, {"acosh", 1}, {"atanh", 1}, {"var", -1}, {"stdev", -1}, {"stdevp", -1},
+               {"asin", 1}, {"acos", 1}, {"acosh", 1}, {"atanh", 1}, {"var", -2}, {"stdev", -2}, {"stdevp", -1},
                {"median", -1}};
     v.discrete = {{"gcd", 2}, {"lcm", 2}, {"nCr", 2}, {"nPr", 2}};
     return v;
@@ -61,7 +61,7 @@ public:
         case 4: return discreteCall();
         default: {
             const auto& [name, arity] = v_.calls[pick(v_.calls.size())];
-            const int n = arity < 0 ? 1 + static_cast<int>(pick(4)) : arity;
+            const int n = arity < 0 ? -arity + static_cast<int>(pick(static_cast<std::size_t>(5 + arity))) : arity;
             std::string s = name + "(";
             for (int i = 0; i < n; ++i) s += (i ? ", " : "") + expression(depth - 1);
             return s + ")";
@@ -95,7 +95,7 @@ template <class T>
 std::string violation(const std::string& text, const Options& options) {
     using std::abs;
     const Parsed parsed = parse(text, options.angle);
-    if (parsed.error) return parsed.error->end <= text.size() ? "" : "a parse error outside the text";
+    if (parsed.error) return "a parse error: " + parsed.error->message;  // the generator writes valid expressions
     const Evaluation<T> ev = detail::evaluate<T>(parsed.ast, options);
     if (ev.error) return ev.error->begin <= ev.error->end && ev.error->end <= text.size() ? "" : "an error outside the text";
     if (!isFinite(ev.value)) return "a value that is not finite";
@@ -165,5 +165,20 @@ TEST(Fuzz, ExactResultsAreTheRationalValue) {
         EXPECT_EQ(r.bound, "0") << text;
         EXPECT_EQ(r.roundingError, "0") << text;
         EXPECT_TRUE(r.measurementReliable) << text;
+    }
+}
+
+TEST(Fuzz, EveryCallOfTheVocabularyParses) {
+    // Deterministic, unlike the property: each call with every argument count the generator may give it.
+    const Vocabulary v = vocabulary();
+    std::vector<std::pair<std::string, int>> calls = v.calls;
+    calls.insert(calls.end(), v.discrete.begin(), v.discrete.end());
+    for (const auto& [name, arity] : calls) {
+        for (int n = arity < 0 ? -arity : arity; n <= (arity < 0 ? 4 : arity); ++n) {
+            std::string text = name + "(";
+            for (int i = 0; i < n; ++i) text += i ? ", 2" : "2";
+            text += ")";
+            EXPECT_FALSE(parse(text, AngleUnit::Radians).error) << text;
+        }
     }
 }
