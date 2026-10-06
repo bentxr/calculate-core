@@ -5,6 +5,7 @@
 
 #include <cfloat>
 #include <chrono>
+#include <set>
 
 using namespace calculate_core;
 
@@ -361,4 +362,27 @@ TEST(Session, APreviewChangesNothing) {
     EXPECT_TRUE(s.memoryAdd());
     EXPECT_EQ(s.preview("M + 1").value.digits, "4");
     EXPECT_EQ(s.memory(), "1 + 2");
+}
+
+TEST(Api, ExactHasNoSizes) {
+    for (const TypeInfo& t : numberTypes()) {
+        if (t.type != NumberType::Exact) continue;
+        EXPECT_EQ(t.storageBits, 0);
+        EXPECT_EQ(t.precisionBits, 0);
+        EXPECT_EQ(t.decimalDigits, 0);
+    }
+}
+
+TEST(Api, EveryFunctionIsListedOnceByName) {
+    const std::vector<FunctionDescription> list = functions();
+    std::set<std::string> names;
+    for (const FunctionDescription& f : list) {
+        EXPECT_FALSE(f.name.empty());
+        EXPECT_TRUE(names.insert(f.name).second) << f.name;  // log covers both arities
+    }
+    for (const FunctionDescription& f : list) {
+        if (f.name == "var" || f.name == "stdev") {
+            EXPECT_EQ(f.maxArgs, -1) << f.name;
+        }
+    }
 }
