@@ -523,3 +523,53 @@ TEST(Parser, ATargetAloneConvertsThePreviousResult) {
     EXPECT_EQ(p.ast.nodes[0].span.end, 2u);
     EXPECT_EQ(parseError("→ fraction").code, ErrorCode::UnknownName);  // no Ans yet
 }
+
+TEST(Parser, SumsAndProductsAreWrittenOutTermByTerm) {
+    EXPECT_EQ(tree("sum(x^2, 1, 3)"), "(+ (+ (^ 1 2) (^ 2 2)) (^ 3 2))");
+    EXPECT_EQ(tree("product(k, 1, 3, k)"), "(* (* 1 2) 3)");
+    EXPECT_EQ(tree("sum(x, -1, 1)"), "(+ (+ (neg 1) 0) 1)");
+    EXPECT_EQ(tree("sum(1, 1, 1)"), "1");
+    EXPECT_EQ(tree("sum(x, 5, 1)"), "0");  // an empty range
+    EXPECT_EQ(tree("product(x, 5, 1)"), "1");
+    EXPECT_EQ(tree("sum(x, 1, 2) + x"), "error: Unknown name 'x'");  // the variable lives inside only
+    EXPECT_EQ(tree("sum(sum(y, 1, x, y), 1, 3)"), "(+ (+ 1 (+ 1 2)) (+ (+ 1 2) 3))");  // a limit may use an outer variable
+}
+
+TEST(Parser, ATermPointsAtItsPlaceInTheBody) {
+    const Parsed p = parse("sum(1/x, 1, 2)", AngleUnit::Radians);
+    ASSERT_FALSE(p.error);
+    const Node& divide = p.ast.nodes[2];  // 1, x = 1, /: the limits' nodes were dropped after use
+    EXPECT_EQ(divide.function, FunctionId::Divide);
+    EXPECT_EQ(divide.span.begin, 4u);
+    EXPECT_EQ(divide.span.end, 7u);
+    EXPECT_EQ(p.expanded, "sum(1/x, 1, 2)");
+}
+
+TEST(Parser, LimitsAreExactWholeNumbers) {
+    EXPECT_EQ(tree("sum(x, 1, 2+1)"), "(+ (+ 1 2) 3)");
+    EXPECT_EQ(tree("sum(x, 1, 0.1*30)"), "(+ (+ 1 2) 3)");  // exactly 3, whatever the number type
+    const Error half = parseError("sum(x, 1, 5/2)");
+    EXPECT_EQ(half.code, ErrorCode::NotAnInteger);
+    EXPECT_EQ(half.begin, 10u);
+    EXPECT_EQ(half.end, 13u);
+    EXPECT_EQ(half.message, "The limits of sum must be exact whole numbers");
+    EXPECT_EQ(parseError("sum(x, 1, pi)").code, ErrorCode::NotAnInteger);
+    EXPECT_EQ(parseError("sum(x, 1, sqrt(2))").code, ErrorCode::IrrationalResult);
+    EXPECT_EQ(parseError("sum(x, 1, 1/0)").code, ErrorCode::DivisionByZero);
+    std::atomic<bool> stop{true};
+    Options cancelled;
+    cancelled.cancel = &stop;
+    EXPECT_EQ(parse("sum(x; 1; 2)", cancelled).error->code, ErrorCode::Cancelled);
+}
+
+TEST(Parser, SumArgumentErrors) {
+    EXPECT_EQ(parseError("sum(x, 1)").code, ErrorCode::WrongArgumentCount);
+    EXPECT_EQ(parseError("sum(x, 1, 2, 3)").code, ErrorCode::UnexpectedToken);    // the 4th is a name
+    EXPECT_EQ(parseError("sum(x, 1, 2, pi)").code, ErrorCode::UnexpectedToken);   // not a constant
+    EXPECT_EQ(parseError("sum(x, 1, 2, sin)").code, ErrorCode::UnexpectedToken);  // nor a function
+    EXPECT_EQ(parseError("sum(sum(x, 1, 2), 1, 3)").code, ErrorCode::UnexpectedToken);  // x is taken by the outer sum
+    EXPECT_EQ(parseError("sum(x+, 1, 2)").code, ErrorCode::UnexpectedToken);
+    EXPECT_EQ(parseError("sum(x+, 5, 1)").code, ErrorCode::UnexpectedToken);  // an empty range still checks its body
+    EXPECT_EQ(parseError("sum(x, 1, 2").code, ErrorCode::MissingClosingParenthesis);
+    EXPECT_EQ(parseError("sum + 1").code, ErrorCode::UnexpectedToken);  // needs its arguments in parentheses
+}

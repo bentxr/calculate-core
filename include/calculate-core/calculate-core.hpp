@@ -18,7 +18,7 @@ enum class ErrorCode {
     InvalidCharacter, InvalidNumber, UnexpectedToken, UnexpectedEnd, MissingClosingParenthesis,
     MissingOperator, UnknownName, WrongArgumentCount, NotAvailableInExact, LiteralOutOfRange,
     DivisionByZero, DomainError, Overflow, IrrationalResult, ArgumentTooLarge, NotAnInteger,
-    UncertainDiscreteArgument, ArgumentNearJump, UnknownTarget, ArgumentNearEdge, Cancelled
+    UncertainDiscreteArgument, ArgumentNearJump, UnknownTarget, TooManyTerms, ArgumentNearEdge, Cancelled
 };
 
 // begin/end: byte offsets of the offending part of the expression, [begin, end).

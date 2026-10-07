@@ -585,3 +585,16 @@ TEST(Api, TheLcmWithOneIsExact) {
     EXPECT_EQ(r.value.digits, "5");
     EXPECT_EQ(r.bound, "0");  // the exact check knows lcm(x, 1) = |x|
 }
+
+TEST(Api, SumsAndProducts) {
+    EXPECT_EQ(evaluate("sum(x^2; 1; 4)").value.digits, "3");  // 30; arguments separated by ; or ,
+    EXPECT_EQ(evaluate("sum(x^2; 1; 4)").value.exponent10, 1);
+    EXPECT_EQ(evaluate("sum(x^2, 1, 4)").value.digits, "3");
+    EXPECT_EQ(evaluate("sum(x^2; 1; 4)").expression, "sum(x^2; 1; 4)");
+    const Result harmonic = evaluate("sum(1/k; 1; 10; k)", as(NumberType::Exact));
+    EXPECT_EQ(harmonic.exact->numerator, "7381");
+    EXPECT_EQ(harmonic.exact->denominator, "2520");
+    EXPECT_EQ(evaluate("product(x, 1, 5)").value.digits, "12");  // 120
+    EXPECT_EQ(evaluate("sum(x^2, -2, 2)").value.digits, "1");    // 10
+    EXPECT_EQ(evaluate("sum(sum(y, 1, x, y), 1, 3)").value.digits, "1");  // 1 + 3 + 6 = 10
+}

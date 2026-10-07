@@ -1,5 +1,6 @@
 #include "parser.hpp"
 
+#include "engine.hpp"
 #include "functions.hpp"
 #include "numbers.hpp"
 
@@ -226,7 +227,24 @@ int leftPower(TokenKind k) {
 
 // A Pratt parser that appends nodes to a post-order arena. After the first error every method
 // returns -1 and nothing else is parsed.
+enum class Range { None, Sum, Product };
+
+Range rangeNamed(std::string_view name) {
+    if (name == "sum") return Range::Sum;
+    if (name == "product") return Range::Product;
+    return Range::None;
+}
+
+// Sums and products write out at most this many terms in one expression, nested ones included:
+// each term costs a full error analysis, in the browser too.
+constexpr long long maxTerms = 10000;
+
 class Parser {
+    struct TokenRange {
+        std::size_t begin;  // [begin, end): token indices
+        std::size_t end;
+    };
+
 public:
     Parser(std::string_view source, std::vector<Token> tokens, const Options& options, const Names& names)
         : source_(source), tokens_(std::move(tokens)), options_(options), names_(names) {}
@@ -383,13 +401,15 @@ private:
 
     int identifier(const Token& t) {
         const std::string name(t.text);
+        for (auto b = bound_.rbegin(); b != bound_.rend(); ++b)
+            if (b->name == name && peek().kind != TokenKind::LeftParen) return index(b->value, t.span);
         if (peek().kind == TokenKind::LeftParen) return call(t);
         if (const auto found = names_.find(name); found != names_.end()) return expand(t, found->second);
         if (name == "pi") return node(FunctionId::Pi, {}, t.span);
         if (name == "e") return node(FunctionId::E, {}, t.span);
         if (name == "Ans") return fail(ErrorCode::UnknownName, "There is no previous result yet", t.span);
         if (name == "M") return fail(ErrorCode::UnknownName, "The memory is empty", t.span);
-        if (functionNamed(name) || name == "mod" || statisticNamed(name) != Statistic::None)
+        if (functionNamed(name) || name == "mod" || statisticNamed(name) != Statistic::None || rangeNamed(name) != Range::None)
             return fail(ErrorCode::UnexpectedToken, name + " needs its arguments in parentheses: " + name + "(…)", t.span);
         return fail(ErrorCode::UnknownName, "Unknown name '" + name + "'", t.span);
     }
@@ -409,7 +429,134 @@ private:
         return static_cast<int>(ast_.nodes.size()) - 1;
     }
 
+    // An index of a sum: an exact integer literal (literals carry no sign; the grammar does).
+    int index(const Integer& k, Span span) {
+        const int literal = node(FunctionId::Literal, {}, span, Integer(abs(k)).str());
+        return k < 0 ? node(FunctionId::Negate, {literal}, span) : literal;
+    }
+
+    // The arguments of the call whose '(' is at token `open`, split at its own commas. The last
+    // range ends at its ')'. Empty when the ')' is missing.
+    std::vector<TokenRange> arguments(std::size_t open) const {
+        std::vector<TokenRange> parts;
+        int depth = 0;
+        std::size_t begin = open + 1;
+        for (std::size_t i = open + 1; i < tokens_.size(); ++i) {
+            const TokenKind k = tokens_[i].kind;
+            if (k == TokenKind::End) return {};
+            if (k == TokenKind::LeftParen) ++depth;
+            else if (k == TokenKind::RightParen && depth > 0) --depth;
+            else if (depth == 0 && (k == TokenKind::Comma || k == TokenKind::RightParen)) {
+                parts.push_back({begin, i});
+                if (k == TokenKind::RightParen) return parts;
+                begin = i + 1;
+            }
+        }
+        return {};
+    }
+
+    // One argument, which must use up exactly its tokens.
+    int argument(const TokenRange& r) {
+        position_ = r.begin;
+        const int value = expression(0);
+        if (error_) return -1;
+        if (position_ != r.end) return fail(ErrorCode::UnexpectedToken, "Unexpected '" + std::string(peek().text) + "'", peek().span);
+        return value;
+    }
+
+    // A limit of a sum or product: an expression evaluated exactly, which must be a whole number. Its
+    // nodes refer only to each other, so they are copied out, evaluated, and dropped.
+    bool limit(const TokenRange& r, const std::string& name, Integer& out) {
+        const std::size_t first = ast_.nodes.size();
+        const int root = argument(r);
+        if (root < 0) return false;
+        Ast own;
+        for (std::size_t i = first; i < ast_.nodes.size(); ++i) {
+            Node n = ast_.nodes[i];
+            for (int& a : n.args) a -= static_cast<int>(first);
+            own.nodes.push_back(std::move(n));
+        }
+        if (root - static_cast<int>(first) != own.root()) own.nodes.push_back(own.nodes[static_cast<std::size_t>(root) - first]);
+        ast_.nodes.resize(first);
+        const Span span{tokens_[r.begin].span.begin, tokens_[r.end - 1].span.end};
+        const std::string message = "The limits of " + name + " must be exact whole numbers";
+        if (checkExact(own)) {
+            fail(ErrorCode::NotAnInteger, message, span);
+            return false;
+        }
+        const Forward<Rational> fw = forward<Rational>(own, options_.cancel);
+        if (fw.error) {
+            fail(fw.error->code, fw.error->message, {fw.error->begin, fw.error->end});
+            return false;
+        }
+        if (denominator(fw.values.back()) != 1) {
+            fail(ErrorCode::NotAnInteger, message, span);
+            return false;
+        }
+        out = numerator(fw.values.back());
+        return true;
+    }
+
+    // sum(f, from, to[, variable]) and product(…): f written out once per index, joined left to right.
+    int range(const Token& t, Range kind) {
+        const std::string name = kind == Range::Sum ? "sum" : "product";
+        const std::vector<TokenRange> parts = arguments(position_);
+        if (parts.empty())
+            return fail(ErrorCode::MissingClosingParenthesis, "Missing ')'", {t.span.begin, tokens_.back().span.begin});
+        const std::size_t close = parts.back().end;
+        const Span span{t.span.begin, tokens_[close].span.end};
+        if (parts.size() != 3 && parts.size() != 4)
+            return fail(ErrorCode::WrongArgumentCount, name + " takes 3 or 4 arguments: " + name + "(f; from; to) or "
+                                                           + name + "(f; from; to; variable)", span);
+        std::string variable = "x";
+        if (parts.size() == 4) {
+            const TokenRange& v = parts[3];
+            const Token& token = tokens_[v.begin];
+            if (v.end != v.begin + 1 || token.kind != TokenKind::Identifier)
+                return fail(ErrorCode::UnexpectedToken, "The 4th argument of " + name + " is its variable's name",
+                            v.end > v.begin ? token.span : span);
+            variable = std::string(token.text);
+            if (reserved(variable))
+                return fail(ErrorCode::UnexpectedToken, "'" + variable + "' cannot be the variable of " + name, token.span);
+        }
+        for (const Binding& b : bound_)
+            if (b.name == variable)
+                return fail(ErrorCode::UnexpectedToken, "'" + variable + "' is already the variable of an outer sum or product", span);
+        Integer from, to;
+        if (!limit(parts[1], name, from) || !limit(parts[2], name, to)) return -1;
+        const Integer count = to < from ? Integer(0) : Integer(to - from + 1);
+        if (count > maxTerms - terms_)
+            return fail(ErrorCode::TooManyTerms, name + " is limited to " + std::to_string(maxTerms) + " terms", span);
+        terms_ += count.convert_to<long long>();  // 0 <= count <= maxTerms: it fits (the Boost guard rule)
+        int total = -1;
+        if (count == 0) {  // nothing to add up, but the body must still be valid
+            const std::size_t size = ast_.nodes.size();
+            bound_.push_back({variable, from});
+            const int body = argument(parts[0]);
+            bound_.pop_back();
+            if (body < 0) return -1;
+            ast_.nodes.resize(size);
+            total = node(FunctionId::Literal, {}, span, kind == Range::Sum ? "0" : "1");
+        }
+        for (Integer k = from; k <= to; ++k) {
+            bound_.push_back({variable, k});
+            const int term = argument(parts[0]);
+            bound_.pop_back();
+            if (term < 0) return -1;
+            total = total < 0 ? term : node(kind == Range::Sum ? FunctionId::Add : FunctionId::Multiply, {total, term}, span);
+        }
+        position_ = close + 1;
+        return total;
+    }
+
+    // Names a sum's variable cannot take.
+    static bool reserved(const std::string& n) {
+        return n == "pi" || n == "e" || n == "Ans" || n == "M" || functionNamed(n) || statisticNamed(n) != Statistic::None
+            || rangeNamed(n) != Range::None;
+    }
+
     int call(const Token& t) {
+        if (const Range r = rangeNamed(std::string(t.text)); r != Range::None) return range(t, r);
         next();  // (
         std::vector<int> args;
         if (peek().kind != TokenKind::RightParen) {
@@ -499,7 +646,13 @@ private:
     Ast ast_;
     std::size_t position_ = 0;
     std::optional<Error> error_;
-    std::map<std::size_t, std::pair<std::size_t, std::string>> replacements_;  // a span's begin → (its end, its text)
+    std::map<std::size_t, std::pair<std::size_t, std::string>> replacements_;
+    struct Binding {
+        std::string name;
+        Integer value;
+    };
+    std::vector<Binding> bound_;  // the variables of the sums and products being written out, innermost last
+    long long terms_ = 0;         // terms written out so far  // a span's begin → (its end, its text)
 };
 
 }  // namespace
