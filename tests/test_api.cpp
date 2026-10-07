@@ -572,3 +572,16 @@ TEST(Session, ATargetAloneConvertsAns) {
     EXPECT_EQ(s.answer(), "((0.1)) + 0");  // the target is never part of Ans
     EXPECT_EQ(s.history().back().input, "Ans + 0 to fraction");
 }
+
+// Mutation survivors of Checkpoint A (Plan 1).
+TEST(Api, ARemainderNearZeroSeesTheJumpOnItsNegativeSide) {
+    // -0.297 ± 0.83 reaches -1, where rem(x, 1) jumps, but not +1: the nearest whole quotient is 0, so the jump checked
+    // must be its lower neighbour.
+    EXPECT_EQ(evaluate("rem(-1.13 + (0.1+0.2-0.3)*1.5e16, 1)").error->code, ErrorCode::ArgumentNearJump);
+}
+
+TEST(Api, TheLcmWithOneIsExact) {
+    const Result r = evaluate("lcm(5, 1)");
+    EXPECT_EQ(r.value.digits, "5");
+    EXPECT_EQ(r.bound, "0");  // the exact check knows lcm(x, 1) = |x|
+}
