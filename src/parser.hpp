@@ -41,7 +41,12 @@ struct Parsed {
     std::string expanded;  // the source with every name replaced by "(" + its text + ")"
 };
 
-Parsed parse(std::string_view source, AngleUnit angle, const Names& names = {});
+Parsed parse(std::string_view source, const Options& options, const Names& names = {});
+inline Parsed parse(std::string_view source, AngleUnit angle, const Names& names = {}) {
+    Options o;
+    o.angle = angle;
+    return parse(source, o, names);
+}
 
 // The first node the Exact type cannot evaluate, as an error.
 std::optional<Error> checkExact(const Ast& ast);

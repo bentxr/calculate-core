@@ -29,9 +29,22 @@ struct Error {
     std::size_t end = 0;
 };
 
+// How the words whose meaning differs between traditions are read. Results and stored texts (Ans, M,
+// variables) are written in a canonical spelling (log10, ln, rem, floormod, the percentage written out), so
+// changing a convention never changes what an earlier result means.
+struct Conventions {
+    enum class Log { Base10, Natural };
+    enum class Mod { Truncated, Floored };
+    enum class Percent { Divide, OfValue };
+    Log log = Log::Base10;
+    Mod mod = Mod::Truncated;
+    Percent percent = Percent::Divide;
+};
+
 struct Options {
     NumberType type = NumberType::Double;
     AngleUnit angle = AngleUnit::Radians;
+    Conventions conventions;
     // Accept arguments whose error reaches a jump, an edge or a whole-number requirement; the bound is then incomplete.
     bool allowUncertainDiscreteArguments = false;
     const std::atomic<bool>* cancel = nullptr;

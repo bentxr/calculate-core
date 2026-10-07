@@ -94,7 +94,7 @@ int samples(int normal) {
 template <class T>
 std::string violation(const std::string& text, const Options& options) {
     using std::abs;
-    const Parsed parsed = parse(text, options.angle);
+    const Parsed parsed = parse(text, options);
     if (parsed.error) return "a parse error: " + parsed.error->message;  // the generator writes valid expressions
     const Evaluation<T> ev = detail::evaluate<T>(parsed.ast, options);
     if (ev.error) return ev.error->begin <= ev.error->end && ev.error->end <= text.size() ? "" : "an error outside the text";
@@ -130,10 +130,12 @@ TYPED_TEST_SUITE(FuzzTest, test::FloatingTypes, test::TypeNames);
 TYPED_TEST(FuzzTest, NoExpressionBeatsItsBound) {
     using T = TypeParam;
     const int count = samples(std::is_floating_point_v<T> ? 120 : 25);
-    for (const AngleUnit angle : {AngleUnit::Radians, AngleUnit::Degrees}) {
-        Generator g(vocabulary(), 2026u + static_cast<unsigned>(angle));
-        Options options;
-        options.angle = angle;
+    Options other;  // degrees, and the other reading of log and mod
+    other.angle = AngleUnit::Degrees;
+    other.conventions.log = Conventions::Log::Natural;
+    other.conventions.mod = Conventions::Mod::Floored;
+    for (const Options& options : {Options(), other}) {
+        Generator g(vocabulary(), 2026u + static_cast<unsigned>(options.angle));
         for (int i = 0; i < count; ++i) {
             const std::string text = g.expression(3);
             EXPECT_EQ(violation<T>(text, options), "") << text;

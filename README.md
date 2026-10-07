@@ -123,12 +123,17 @@ transcendental functions are unavailable.
 | Constants | `pi` (or `π`), `e`, `Ans`, `M` |
 | Roots, powers and logarithms | `sqrt  cbrt  root(x, n)  exp  ln  log(x)  log(x, b)  abs` |
 | Trigonometry | `sin  cos  tan  asin  acos  atan` and `sinh  cosh  tanh  asinh  acosh  atanh` |
-| Integers | `mod(a, b)  gcd  lcm  nCr  nPr` |
+| Integers | `mod(a, b)  rem(a, b)  floormod(a, b)  gcd  lcm  nCr  nPr` |
 | Statistics | `mean  median  var  stdev  varp  stdevp` of any number of values |
 
 `^` is right-associative, `-2^2` is −4, `%` divides by 100, `log(x)` is base 10 (`log10(x)` is always base 10), and `mod` keeps
 the sign of `a`. There is no implicit multiplication: write `2π` as `2×π`.
 Arguments are separated by `,` or `;`.
+
+Two words mean different things in different traditions, so their meaning is a setting (`Options::conventions`):
+`log(x)` is base 10 by default or natural, and `mod(a, b)` is truncated by default (`rem`, the sign of `a`) or
+floored (`floormod`, the sign of `b`). Results and stored texts (Ans, M) are written with the explicit names
+(`log10`, `ln`, `rem`, `floormod`), so changing a setting never changes what an earlier result means.
 The Spanish names work too: `sen  arcsen  arccos  arctan`, `senh  arcsenh  arccosh  arctanh`,
 `mcd` (gcd) and `mcm` (lcm).
 

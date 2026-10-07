@@ -137,11 +137,11 @@ Statistic statisticNamed(std::string_view name) {
 // Spanish names of functions, in lowercase like every other name, and the function each one stands for.
 // Other spellings of functions: Spanish calculator names and common variants. They name the function
 // itself, so a convention that changes what `log` means leaves `log10` alone.
-constexpr std::array<std::pair<std::string_view, FunctionId>, 12> functionAliases{{
+constexpr std::array<std::pair<std::string_view, FunctionId>, 11> functionAliases{{
     {"sen", FunctionId::Sin}, {"arcsen", FunctionId::Asin}, {"arccos", FunctionId::Acos},
     {"arctan", FunctionId::Atan}, {"senh", FunctionId::Sinh}, {"arcsenh", FunctionId::Asinh},
     {"arccosh", FunctionId::Acosh}, {"arctanh", FunctionId::Atanh}, {"mcd", FunctionId::Gcd},
-    {"mcm", FunctionId::Lcm}, {"log10", FunctionId::Log10}, {"mod", FunctionId::Rem},
+    {"mcm", FunctionId::Lcm}, {"log10", FunctionId::Log10},
 }};
 
 // The function with this name (pi and e are constants, not functions).
@@ -184,8 +184,8 @@ int leftPower(TokenKind k) {
 // returns -1 and nothing else is parsed.
 class Parser {
 public:
-    Parser(std::string_view source, std::vector<Token> tokens, AngleUnit angle, const Names& names)
-        : source_(source), tokens_(std::move(tokens)), angle_(angle), names_(names) {}
+    Parser(std::string_view source, std::vector<Token> tokens, const Options& options, const Names& names)
+        : source_(source), tokens_(std::move(tokens)), options_(options), names_(names) {}
 
     Parsed run() {
         Parsed out;
@@ -198,8 +198,23 @@ public:
         }
         if (root != static_cast<int>(ast_.nodes.size()) - 1) ast_.nodes.push_back(ast_.nodes[root]);  // root last
         out.ast = std::move(ast_);
-        out.expanded = expanded_ + std::string(source_.substr(copied_));
+        out.expanded = expandedText({0, peek().span.begin});
         return out;
+    }
+
+    // The source in `s` with every recorded replacement applied, in source order; a replacement inside one already
+    // applied is skipped (the outer one's text holds it). Trailing spaces are trimmed.
+    std::string expandedText(Span s) const {
+        std::string text;
+        std::size_t copied = s.begin;
+        for (auto it = replacements_.lower_bound(s.begin); it != replacements_.end() && it->first < s.end; ++it) {
+            if (it->first < copied) continue;
+            text += std::string(source_.substr(copied, it->first - copied)) + it->second.second;
+            copied = it->second.first;
+        }
+        if (copied < s.end) text += std::string(source_.substr(copied, s.end - copied));
+        while (!text.empty() && text.back() == ' ') text.pop_back();
+        return text;
     }
 
 private:
@@ -301,7 +316,7 @@ private:
         if (name == "e") return node(FunctionId::E, {}, t.span);
         if (name == "Ans") return fail(ErrorCode::UnknownName, "There is no previous result yet", t.span);
         if (name == "M") return fail(ErrorCode::UnknownName, "The memory is empty", t.span);
-        if (functionNamed(name) || statisticNamed(name) != Statistic::None)
+        if (functionNamed(name) || name == "mod" || statisticNamed(name) != Statistic::None)
             return fail(ErrorCode::UnexpectedToken, name + " needs its arguments in parentheses: " + name + "(…)", t.span);
         return fail(ErrorCode::UnknownName, "Unknown name '" + name + "'", t.span);
     }
@@ -309,7 +324,7 @@ private:
     // A stored expression: its nodes join this tree (all with the name's span), and the expanded
     // text gets it in parentheses. Stored texts are already expanded, so they contain no names.
     int expand(const Token& t, const std::string& text) {
-        const Parsed inner = parse(text, angle_, {});
+        const Parsed inner = parse(text, options_, {});
         if (inner.error) return fail(inner.error->code, inner.error->message, t.span);
         const int offset = static_cast<int>(ast_.nodes.size());
         for (Node n : inner.ast.nodes) {
@@ -317,8 +332,7 @@ private:
             n.span = t.span;
             ast_.nodes.push_back(std::move(n));
         }
-        expanded_ += std::string(source_.substr(copied_, t.span.begin - copied_)) + "(" + text + ")";
-        copied_ = t.span.end;
+        replacements_[t.span.begin] = {t.span.end, "(" + text + ")"};
         return static_cast<int>(ast_.nodes.size()) - 1;
     }
 
@@ -339,9 +353,20 @@ private:
         const std::string name(t.text);
         const int count = static_cast<int>(args.size());
         if (const Statistic s = statisticNamed(name); s != Statistic::None) return statistic(s, name, args, span);
-        std::optional<FunctionId> id = functionNamed(name);
+        const Conventions& conventions = options_.conventions;
+        const bool floored = conventions.mod == Conventions::Mod::Floored;
+        std::optional<FunctionId> id = name == "mod" ? (floored ? FunctionId::FloorMod : FunctionId::Rem) : functionNamed(name);
         if (!id) return fail(ErrorCode::UnknownName, "Unknown function '" + name + "'", t.span);
-        if (*id == FunctionId::Log10 && count == 2 && name == "log") id = FunctionId::LogBase;
+        // The words a convention reads are stored in their canonical spelling.
+        if (name == "mod") replacements_[t.span.begin] = {t.span.end, floored ? "floormod" : "rem"};
+        if (*id == FunctionId::Log10 && name == "log") {
+            const bool natural = conventions.log == Conventions::Log::Natural;
+            if (count == 2) id = FunctionId::LogBase;
+            else {
+                if (natural) id = FunctionId::Ln;
+                replacements_[t.span.begin] = {t.span.end, natural ? "ln" : "log10"};
+            }
+        }
         const FunctionInfo& info = functionInfo(*id);
         if (count < info.minArgs || (info.maxArgs >= 0 && count > info.maxArgs)) {
             const std::string expected = name == "log" ? "1 or 2 arguments" : argumentCount(info.minArgs, info.maxArgs < 0);
@@ -355,8 +380,8 @@ private:
     int withAngles(FunctionId id, std::vector<int> args, Span span, const std::string& written) {
         const bool direct = id == FunctionId::Sin || id == FunctionId::Cos || id == FunctionId::Tan;
         const bool inverse = id == FunctionId::Asin || id == FunctionId::Acos || id == FunctionId::Atan;
-        if (angle_ == AngleUnit::Radians || (!direct && !inverse)) return named(node(id, std::move(args), span), written);
-        const std::string full = angle_ == AngleUnit::Degrees ? "180" : "200";
+        if (options_.angle == AngleUnit::Radians || (!direct && !inverse)) return named(node(id, std::move(args), span), written);
+        const std::string full = options_.angle == AngleUnit::Degrees ? "180" : "200";
         if (direct) {
             const int pi = node(FunctionId::Pi, {}, span);
             const int factor = node(FunctionId::Divide, {pi, node(FunctionId::Literal, {}, span, full)}, span);
@@ -396,25 +421,24 @@ private:
 
     std::string_view source_;
     std::vector<Token> tokens_;
-    AngleUnit angle_;
+    const Options& options_;
     const Names& names_;
     Ast ast_;
     std::size_t position_ = 0;
     std::optional<Error> error_;
-    std::string expanded_;  // the expanded source up to `copied_`
-    std::size_t copied_ = 0;
+    std::map<std::size_t, std::pair<std::size_t, std::string>> replacements_;  // a span's begin → (its end, its text)
 };
 
 }  // namespace
 
-Parsed parse(std::string_view source, AngleUnit angle, const Names& names) {
+Parsed parse(std::string_view source, const Options& options, const Names& names) {
     Lexed lexed = lex(source);
     if (lexed.error) {
         Parsed out;
         out.error = lexed.error;
         return out;
     }
-    return Parser(source, std::move(lexed.tokens), angle, names).run();
+    return Parser(source, std::move(lexed.tokens), options, names).run();
 }
 
 std::optional<Error> checkExact(const Ast& ast) {

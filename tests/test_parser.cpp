@@ -371,3 +371,41 @@ TEST(Parser, RemIsTheTruncatedRemainderAndModSpellsIt) {
     EXPECT_EQ(tree("rem(-7, 3)"), "(rem (neg 7) 3)");
     EXPECT_EQ(tree("mod(-7, 3)"), "(rem (neg 7) 3)");  // the default convention; 1.04 makes it a setting
 }
+
+namespace {
+
+std::string treeWith(std::string_view text, const Options& options, const Names& names = {}) {
+    const Parsed p = parse(text, options, names);
+    if (p.error) return "error: " + p.error->message;
+    return sexpr(p.ast, p.ast.root());
+}
+
+Options conventions(Conventions::Log log, Conventions::Mod mod) {
+    Options o;
+    o.conventions.log = log;
+    o.conventions.mod = mod;
+    return o;
+}
+
+}  // namespace
+
+TEST(Parser, ConventionsDecideWhatLogAndModMean) {
+    const Options base10 = conventions(Conventions::Log::Base10, Conventions::Mod::Truncated);
+    const Options natural = conventions(Conventions::Log::Natural, Conventions::Mod::Floored);
+    EXPECT_EQ(treeWith("log(100)", base10), "(log 100)");
+    EXPECT_EQ(treeWith("log(100)", natural), "(ln 100)");
+    EXPECT_EQ(treeWith("log(8, 2)", natural), "(logb 8 2)");  // two arguments: always the base
+    EXPECT_EQ(treeWith("log10(100)", natural), "(log 100)");  // explicit names never change
+    EXPECT_EQ(treeWith("mod(-7, 3)", base10), "(rem (neg 7) 3)");
+    EXPECT_EQ(treeWith("mod(-7, 3)", natural), "(floormod (neg 7) 3)");
+    EXPECT_EQ(treeWith("rem(-7, 3)", natural), "(rem (neg 7) 3)");
+}
+
+TEST(Parser, StoredTextsUseTheCanonicalSpelling) {
+    const Options base10 = conventions(Conventions::Log::Base10, Conventions::Mod::Truncated);
+    const Options natural = conventions(Conventions::Log::Natural, Conventions::Mod::Floored);
+    EXPECT_EQ(parse("log(100) + mod(7, 3)", base10).expanded, "log10(100) + rem(7, 3)");
+    EXPECT_EQ(parse("log(100) + mod(7, 3)", natural).expanded, "ln(100) + floormod(7, 3)");
+    EXPECT_EQ(parse("log(8, 2) + sen(1)", natural).expanded, "log(8, 2) + sen(1)");  // nothing ambiguous
+    EXPECT_EQ(parse("Ans*log(2)", natural, {{"Ans", "log10(5)"}}).expanded, "(log10(5))*ln(2)");
+}

@@ -438,3 +438,20 @@ TEST(Api, AFlooredModuloAlsoJumpsAtZero) {
     EXPECT_EQ(evaluate("floormod(5, 0.1+0.2-0.3)").error->code, ErrorCode::ArgumentNearEdge);
     EXPECT_FALSE(evaluate("floormod(-0.3, 1)").error);
 }
+
+TEST(Session, ChangingAConventionNeverChangesAnEarlierResult) {
+    Session s;
+    Options natural;
+    natural.conventions.log = Conventions::Log::Natural;
+    s.evaluate("log(100)");  // base 10: 2
+    EXPECT_EQ(s.answer(), "log10(100)");
+    const Result r = s.evaluate("Ans + log(1)", natural);  // Ans keeps its meaning; this log is ln
+    EXPECT_EQ(r.value.digits, "2");
+    EXPECT_EQ(r.expression, "(log10(100)) + ln(1)");
+    EXPECT_EQ(s.history()[0].input, "log(100)");  // the history keeps what was typed
+    Options floored;
+    floored.conventions.mod = Conventions::Mod::Floored;
+    EXPECT_EQ(evaluate("mod(-7, 3)", floored).value.digits, "2");
+    EXPECT_FALSE(evaluate("mod(-7, 3)", floored).value.negative);
+    EXPECT_EQ(evaluate("mod(-7, 3)").value.digits, "1");  // the default: truncated, -1
+}

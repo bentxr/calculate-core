@@ -74,7 +74,7 @@ Result build(const Parsed& parsed, const Options& options) {
 }
 
 Result evaluateWithNames(std::string_view text, const Options& options, const Names& names) {
-    const Parsed parsed = parse(text, options.angle, names);
+    const Parsed parsed = parse(text, options, names);
     Result r;
     r.type = options.type;
     if (parsed.error) {
