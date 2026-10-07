@@ -580,3 +580,15 @@ TEST(Parser, NamesInsideASumExpandOnce) {
     EXPECT_EQ(p.expanded, "sum((2)*x, 1, (2))");
     EXPECT_EQ(sexpr(p.ast, p.ast.root()), "(+ (* 2 1) (* 2 2))");
 }
+
+TEST(Parser, SumsHaveATermLimit) {
+    const Parsed p = parse("sum(x, 1, 10000)", AngleUnit::Radians);
+    ASSERT_FALSE(p.error);
+    EXPECT_EQ(p.ast.nodes.size(), 19999u);  // 10000 literals and 9999 additions
+    const Error e = parseError("sum(x, 1, 10001)");
+    EXPECT_EQ(e.code, ErrorCode::TooManyTerms);
+    EXPECT_EQ(e.begin, 0u);
+    EXPECT_EQ(e.end, 16u);
+    EXPECT_EQ(e.message, "sum is limited to 10000 terms");
+    EXPECT_EQ(parseError("sum(sum(y, 1, 100, y), 1, 101)").code, ErrorCode::TooManyTerms);  // inner terms count too
+}

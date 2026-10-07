@@ -170,3 +170,7 @@ TEST(Cli, ConversionsFollowTheValue) {
               std::string::npos);
     EXPECT_EQ(invoke({"0.1 to nothing"}).err, "0.1 to nothing\n       ^^^^^^^ Unknown conversion 'nothing'\n");
 }
+
+TEST(Cli, TooManyTermsIsAnErrorCode) {
+    EXPECT_NE(invoke({"--json", "sum(x, 1, 10001)"}).out.find("\"code\":\"TooManyTerms\""), std::string::npos);
+}
