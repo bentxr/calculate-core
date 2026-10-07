@@ -573,3 +573,10 @@ TEST(Parser, SumArgumentErrors) {
     EXPECT_EQ(parseError("sum(x, 1, 2").code, ErrorCode::MissingClosingParenthesis);
     EXPECT_EQ(parseError("sum + 1").code, ErrorCode::UnexpectedToken);  // needs its arguments in parentheses
 }
+
+TEST(Parser, NamesInsideASumExpandOnce) {
+    const Parsed p = parse("sum(Ans*x, 1, Ans)", AngleUnit::Radians, {{"Ans", "2"}});
+    ASSERT_FALSE(p.error);
+    EXPECT_EQ(p.expanded, "sum((2)*x, 1, (2))");
+    EXPECT_EQ(sexpr(p.ast, p.ast.root()), "(+ (* 2 1) (* 2 2))");
+}
