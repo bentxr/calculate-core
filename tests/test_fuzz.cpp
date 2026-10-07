@@ -196,3 +196,17 @@ TEST(Fuzz, OddFunctionsOfTinyArgumentsKeepTheirBound) {
     for (const char* text : {"asin(1e-40)", "atan(1e-40)", "tanh(1e-40)", "asinh(-1e-40)", "atanh(3e-39)"})
         EXPECT_EQ(violation<float>(text, Options()), "") << text;
 }
+
+TEST(Fuzz, CommentsAndConversionsLeaveTheResultAlone) {
+    Generator g(vocabulary(), 21);
+    for (int i = 0; i < 40; ++i) {
+        const std::string text = g.expression(3);
+        const Result plain = evaluate(text);
+        for (const char* suffix : {" # note", " to fraction"}) {
+            const Result r = evaluate(text + suffix);
+            EXPECT_EQ(plain.error.has_value(), r.error.has_value()) << text << suffix;
+            EXPECT_EQ(plain.value.digits, r.value.digits) << text << suffix;
+            EXPECT_EQ(plain.bound, r.bound) << text << suffix;
+        }
+    }
+}

@@ -2,6 +2,7 @@
 
 #include "engine.hpp"
 #include "parser.hpp"
+#include "targets.hpp"
 
 #include <utility>
 
@@ -71,6 +72,16 @@ Result build(const Parsed& parsed, const Options& options) {
     r.roundingOperations = report.roundingOperations;
     r.expression = parsed.expanded;
     r.comment = parsed.comment;
+    if (parsed.target) {
+        const Rational value = toRational(ev.value);
+        const TargetInput in{parsed, options, value, report};
+        if (auto e = findTarget(parsed.target->name)->apply(in, r)) {
+            Result failed;
+            failed.type = r.type;
+            failed.error = std::move(e);
+            return failed;
+        }
+    }
     return r;
 }
 
@@ -85,6 +96,11 @@ Result evaluateWithNames(std::string_view text, const Options& options, const Na
     if (parsed.commentOnly) {
         r.comment = parsed.comment;
         r.commentOnly = true;
+        return r;
+    }
+    if (parsed.target && !findTarget(parsed.target->name)) {
+        const TargetText& t = *parsed.target;
+        r.error = Error{ErrorCode::UnknownTarget, "Unknown conversion '" + t.name + "'", t.span.begin, t.span.begin + t.name.size()};
         return r;
     }
     if (options.type == NumberType::Exact) {
@@ -125,6 +141,12 @@ std::vector<TypeInfo> numberTypes() {
         describe<Binary256>(NumberType::Binary256, "Octuple", "binary256", 256, software),
         describe<Binary512>(NumberType::Binary512, "Binary512", "binary512", 512, software),
     };
+}
+
+std::vector<TargetDescription> conversionTargets() {
+    std::vector<TargetDescription> list;
+    for (const Target& t : targets()) list.push_back({std::string(t.name), std::string(t.summary)});
+    return list;
 }
 
 std::vector<FunctionDescription> functions() {

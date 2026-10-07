@@ -18,7 +18,7 @@ enum class ErrorCode {
     InvalidCharacter, InvalidNumber, UnexpectedToken, UnexpectedEnd, MissingClosingParenthesis,
     MissingOperator, UnknownName, WrongArgumentCount, NotAvailableInExact, LiteralOutOfRange,
     DivisionByZero, DomainError, Overflow, IrrationalResult, ArgumentTooLarge, NotAnInteger,
-    UncertainDiscreteArgument, ArgumentNearJump, ArgumentNearEdge, Cancelled
+    UncertainDiscreteArgument, ArgumentNearJump, UnknownTarget, ArgumentNearEdge, Cancelled
 };
 
 // begin/end: byte offsets of the offending part of the expression, [begin, end).
@@ -73,6 +73,20 @@ struct FunctionDescription {
 
 std::vector<FunctionDescription> functions();
 
+// What "to <target>" made of a result: the same value in another form.
+struct Conversion {
+    std::string target;  // the target's name, "fraction"
+    std::string text;    // the converted result as plain text, "3602879701896397/36028797018963968"
+};
+
+// A conversion target, for completion and keys.
+struct TargetDescription {
+    std::string name;
+    std::string summary;  // one line, English
+};
+
+std::vector<TargetDescription> conversionTargets();
+
 // value = (negative ? -1 : 1) * d1.d2d3... * 10^exponent10: every digit, nothing truncated.
 struct Digits {
     bool negative = false;
@@ -111,6 +125,7 @@ struct Result {
     std::string expression;           // what was evaluated, with Ans and M expanded
     std::string comment;              // the text after '#', "" when none
     bool commentOnly = false;         // the input was only a comment: a note with no value
+    std::optional<Conversion> conversion;  // set when the input ended in "to <target>"
 };
 
 Result evaluate(std::string_view expression, const Options& options = {});

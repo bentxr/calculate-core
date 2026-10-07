@@ -530,3 +530,45 @@ TEST(Session, CommentsStayInTheHistoryButNotInAns) {
     EXPECT_EQ(s.history()[0].result.comment, "three");
     EXPECT_TRUE(s.history()[2].result.commentOnly);
 }
+
+TEST(Api, ToFractionShowsTheStoredValueExactly) {
+    const Result r = evaluate("0.1 to fraction");
+    ASSERT_FALSE(r.error);
+    ASSERT_TRUE(r.conversion);
+    EXPECT_EQ(r.conversion->target, "fraction");
+    EXPECT_EQ(r.conversion->text, "3602879701896397/36028797018963968");
+    EXPECT_EQ(r.value.digits, "1000000000000000055511151231257827021181583404541015625");  // the value and report stay
+    EXPECT_EQ(r.bound, "5.6e-18");
+    EXPECT_EQ(r.expression, "0.1");
+    EXPECT_EQ(evaluate("0.1 to fraction", as(NumberType::Float)).conversion->text, "13421773/134217728");
+    EXPECT_EQ(evaluate("-1/2 -> fraction").conversion->text, "-1/2");
+    EXPECT_EQ(evaluate("6 → fraction", as(NumberType::Exact)).conversion->text, "6");
+    EXPECT_EQ(evaluate("1/3 to fraction", as(NumberType::Exact)).conversion->text, "1/3");
+    EXPECT_FALSE(evaluate("0.1").conversion);
+}
+
+TEST(Api, UnknownTargetsAreErrors) {
+    const Result r = evaluate("0.1 to fractoin");
+    ASSERT_TRUE(r.error);
+    EXPECT_EQ(r.error->code, ErrorCode::UnknownTarget);
+    EXPECT_EQ(r.error->begin, 7u);
+    EXPECT_EQ(r.error->end, 15u);
+    EXPECT_EQ(r.error->message, "Unknown conversion 'fractoin'");
+    EXPECT_EQ(evaluate("0.1 to fraction 3").error->code, ErrorCode::UnexpectedToken);
+    bool listed = false;
+    for (const TargetDescription& t : conversionTargets()) listed = listed || (t.name == "fraction" && !t.summary.empty());
+    EXPECT_TRUE(listed);
+}
+
+TEST(Session, ATargetAloneConvertsAns) {
+    Session s;
+    EXPECT_EQ(s.evaluate("to fraction").error->code, ErrorCode::UnknownName);
+    s.evaluate("0.1");
+    const Result r = s.evaluate("to fraction");
+    ASSERT_FALSE(r.error);
+    EXPECT_EQ(r.conversion->text, "3602879701896397/36028797018963968");
+    EXPECT_EQ(s.answer(), "(0.1)");
+    EXPECT_EQ(s.evaluate("Ans + 0 to fraction").conversion->text, "3602879701896397/36028797018963968");
+    EXPECT_EQ(s.answer(), "((0.1)) + 0");  // the target is never part of Ans
+    EXPECT_EQ(s.history().back().input, "Ans + 0 to fraction");
+}
