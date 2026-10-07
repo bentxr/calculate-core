@@ -135,3 +135,15 @@ TEST(Cli, AJumpWithinTheErrorIsAnErrorCode) {
 TEST(Cli, AnEdgeWithinTheErrorIsAnErrorCode) {
     EXPECT_NE(invoke({"--json", "sqrt(0.1+0.2-0.3)"}).out.find("\"code\":\"ArgumentNearEdge\""), std::string::npos);
 }
+
+TEST(Cli, ConventionsAreOptions) {
+    EXPECT_NE(invoke({"--color", "never", "--log", "e", "log(1)"}).out.find("\n= 0\n"), std::string::npos);
+    EXPECT_NE(invoke({"--color", "never", "--mod", "floored", "mod(-7, 3)"}).out.find("\n= 2\n"), std::string::npos);
+    EXPECT_NE(invoke({"--color", "never", "--percent", "of-value", "100+10%"}).out.find("\n= 110\n"), std::string::npos);
+    EXPECT_NE(invoke({"--color", "never", "--type", "exact", "100+10%"}).out.find("\n= 1001/10 = 100.1\n"), std::string::npos);
+    const Outcome bad = invoke({"--log", "2", "1"});
+    EXPECT_EQ(bad.code, 2);
+    EXPECT_NE(bad.err.find("--log takes 10 or e"), std::string::npos);
+    EXPECT_NE(invoke({"--json", "--log", "e", "log(1)"}).out.find("\"expanded\":\"ln(1)\""), std::string::npos);
+    EXPECT_NE(invoke({"--help"}).out.find("--percent"), std::string::npos);
+}

@@ -86,6 +86,9 @@ share `Ans` and the memory `M`, which the lines `M+`, `M-` and `MC` update.
 |---|---|
 | `--type <t>` | The number type: `double` by default (see below) |
 | `--angle <u>` | `rad` (default), `deg` or `grad` |
+| `--log 10\|e` | What `log(x)` means: base 10 (default) or natural |
+| `--mod truncated\|floored` | The sign of `mod`: the dividend's (default) or the divisor's |
+| `--percent divide\|of-value` | `x + p%` adds p/100 (default) or p% of x |
 | `--json` | One JSON object per expression |
 | `--color <when>` | `auto` (default), `always` or `never` |
 | `--allow-uncertain` | Let `!`, `nCr`, `gcd`… take arguments that carry an error |

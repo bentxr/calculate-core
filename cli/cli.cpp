@@ -38,6 +38,9 @@ std::string usage() {
            "  --type <t>         float, double (default), long-double, exact,\n"
            "                     binary128, binary256 or binary512\n"
            "  --angle <u>        rad (default), deg or grad\n"
+           "  --log 10|e          what log(x) means (default 10)\n"
+           "  --mod truncated|floored   the sign of mod (default truncated)\n"
+           "  --percent divide|of-value   x + p% adds p/100, or p% of x (default divide)\n"
            "  --json             one JSON object per expression\n"
            "  --color <when>     auto (default), always or never\n"
            "  --allow-uncertain  let discrete functions take arguments that carry error\n"
@@ -308,6 +311,23 @@ int run(const std::vector<std::string>& args, std::istream& in, std::ostream& ou
             else if (*v == "grad") s.options.angle = AngleUnit::Gradians;
             else {
                 err << "calc: unknown angle unit '" << *v << "' (rad, deg or grad)\n";
+                return 2;
+            }
+            continue;
+        }
+        // The conventions: each word takes one of two values, the first being the default.
+        if (a == "--log" || a == "--mod" || a == "--percent") {
+            const auto v = value();
+            if (!v) return 2;
+            Conventions& c = s.options.conventions;
+            if (a == "--log" && (*v == "10" || *v == "e")) c.log = *v == "e" ? Conventions::Log::Natural : Conventions::Log::Base10;
+            else if (a == "--mod" && (*v == "truncated" || *v == "floored"))
+                c.mod = *v == "floored" ? Conventions::Mod::Floored : Conventions::Mod::Truncated;
+            else if (a == "--percent" && (*v == "divide" || *v == "of-value"))
+                c.percent = *v == "of-value" ? Conventions::Percent::OfValue : Conventions::Percent::Divide;
+            else {
+                const char* values = a == "--log" ? "10 or e" : a == "--mod" ? "truncated or floored" : "divide or of-value";
+                err << "calc: " << a << " takes " << values << "\n";
                 return 2;
             }
             continue;
