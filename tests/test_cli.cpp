@@ -147,3 +147,14 @@ TEST(Cli, ConventionsAreOptions) {
     EXPECT_NE(invoke({"--json", "--log", "e", "log(1)"}).out.find("\"expanded\":\"ln(1)\""), std::string::npos);
     EXPECT_NE(invoke({"--help"}).out.find("--percent"), std::string::npos);
 }
+
+TEST(Cli, CommentsAreShownWithTheirExpression) {
+    const Outcome r = invoke({"--color", "never", "1+1 # two", "# a note"});
+    EXPECT_EQ(r.code, 0);
+    EXPECT_EQ(r.out.substr(0, 14), "1+1 # two\n= 2\n");
+    EXPECT_NE(r.out.find("\n# a note\n"), std::string::npos);
+    EXPECT_EQ(r.err, "");
+    const Outcome json = invoke({"--json", "1+1 # two", "# a note"});
+    EXPECT_NE(json.out.find(",\"comment\":\"two\"}\n"), std::string::npos);
+    EXPECT_NE(json.out.find("{\"expression\":\"# a note\",\"type\":\"double\",\"comment\":\"a note\"}\n"), std::string::npos);
+}

@@ -96,6 +96,10 @@ void printJson(std::ostream& out, const std::string& input, const Result& r) {
             << jsonString(r.error->message) << ",\"begin\":" << r.error->begin << ",\"end\":" << r.error->end << "}}\n";
         return;
     }
+    if (r.commentOnly) {
+        out << ",\"comment\":" << jsonString(r.comment) << "}\n";
+        return;
+    }
     if (r.exact) {
         const Fraction& f = *r.exact;
         out << ",\"exact\":{\"negative\":" << flag(f.negative) << ",\"numerator\":" << jsonString(f.numerator)
@@ -112,7 +116,9 @@ void printJson(std::ostream& out, const std::string& input, const Result& r) {
         << ",\"measured\":" << jsonString(r.measured) << ",\"conditionNumber\":" << jsonString(r.conditionNumber)
         << ",\"measuredAvailable\":" << flag(r.measuredAvailable)
         << ",\"measurementReliable\":" << flag(r.measurementReliable) << ",\"boundComplete\":" << flag(r.boundComplete)
-        << ",\"roundingOperations\":" << r.roundingOperations << ",\"expanded\":" << jsonString(r.expression) << "}\n";
+        << ",\"roundingOperations\":" << r.roundingOperations << ",\"expanded\":" << jsonString(r.expression);
+    if (!r.comment.empty()) out << ",\"comment\":" << jsonString(r.comment);
+    out << "}\n";
 }
 
 void listTypes(std::ostream& out) {
@@ -147,6 +153,7 @@ void printError(std::ostream& err, const std::string& input, const Error& e) {
 
 void printHuman(std::ostream& out, const std::string& input, const Result& r, bool color) {
     out << input << "\n";
+    if (r.commentOnly) return;  // a note: the line alone
     if (r.exact) {
         out << "= " << formatFraction(*r.exact) << "\n";
         out << "  exact, no rounding error · κ " << r.conditionNumber << "\n";
