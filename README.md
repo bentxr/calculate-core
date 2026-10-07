@@ -124,19 +124,21 @@ transcendental functions are unavailable.
 |---|---|
 | Operators | `+  -  *  /  ^` and postfix `!  %  ²  ³`, prefix `√  ∛` (also `×  ÷  −`) |
 | Constants | `pi` (or `π`), `e`, `Ans`, `M` |
-| Roots, powers and logarithms | `sqrt  cbrt  root(x, n)  exp  ln  log(x)  log(x, b)  abs` |
+| Roots, powers and logarithms | `sqrt  cbrt  root(x, n)  exp  ln  log(x)  log10(x)  log(x, b)  abs` |
 | Trigonometry | `sin  cos  tan  asin  acos  atan` and `sinh  cosh  tanh  asinh  acosh  atanh` |
 | Integers | `mod(a, b)  rem(a, b)  floormod(a, b)  gcd  lcm  nCr  nPr` |
 | Statistics | `mean  median  var  stdev  varp  stdevp` of any number of values |
+| Sums and products | `sum(f; from; to)`, `sum(f; from; to; k)`, `product(…)`, also `Σ  ∑  Π  ∏`: the variable is `x` unless named, the limits exact whole numbers |
+| Conversions | `… to fraction` (also `->` and `→`): the same result in another form; `to fraction` alone converts Ans |
+| Comments | `# …` after an expression, or alone as a note: kept in the history, never evaluated |
 
-`^` is right-associative, `-2^2` is −4, `%` divides by 100, `log(x)` is base 10 (`log10(x)` is always base 10), and `mod` keeps
-the sign of `a`. There is no implicit multiplication: write `2π` as `2×π`.
+`^` is right-associative and `-2^2` is −4. There is no implicit multiplication: write `2π` as `2×π`.
 Arguments are separated by `,` or `;`.
 
-Two words mean different things in different traditions, so their meaning is a setting (`Options::conventions`):
-`log(x)` is base 10 by default or natural, and `mod(a, b)` is truncated by default (`rem`, the sign of `a`) or
-floored (`floormod`, the sign of `b`). Results and stored texts (Ans, M) are written with the explicit names
-(`log10`, `ln`, `rem`, `floormod`), so changing a setting never changes what an earlier result means.
+`log(x)` is base 10, `mod(a, b)` keeps the sign of a, and `%` divides by 100, by default; each is a setting
+(`Options::conventions`; `--log e`, `--mod floored`, `--percent of-value` for `calc`). `log10`, `ln`, `rem` (sign
+of a) and `floormod` (sign of b) never change. Results and stored texts (Ans, M) are written with these explicit
+names, so changing a setting never changes what an earlier result means.
 The Spanish names work too: `sen  arcsen  arccos  arctan`, `senh  arcsenh  arccosh  arctanh`,
 `mcd` (gcd) and `mcm` (lcm).
 
