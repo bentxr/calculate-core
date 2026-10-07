@@ -318,6 +318,25 @@ Applied<T> kernel(FunctionId id, const std::vector<T>& a) {
         if (e.underflow) return ok<T>(T(0));
         return ok<T>(withSign(toValue(expValue(e)), negative));
     };
+    // The odd functions with f(x) = x (1 + c x²), |c| <= 1/3: below 2^-(p/2+1) the relative difference from x is under
+    // u/6, so x itself is within the claim. The kernels below scale their argument, which would drop the low bits of
+    // a subnormal one.
+    switch (id) {
+    case FunctionId::Sin:
+    case FunctionId::Tan:
+    case FunctionId::Asin:
+    case FunctionId::Atan:
+    case FunctionId::Sinh:
+    case FunctionId::Tanh:
+    case FunctionId::Asinh:
+    case FunctionId::Atanh: {
+        using std::abs;
+        using std::ldexp;
+        if (abs(x) < ldexp(T(1), -(precisionBits<T>() / 2 + 1))) return ok<T>(x);
+        break;
+    }
+    default: break;
+    }
     switch (id) {
     case FunctionId::Exp: return fromExp(expParts(dw(x)), false);
     case FunctionId::Sqrt: {

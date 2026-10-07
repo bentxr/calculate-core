@@ -185,3 +185,14 @@ TEST(Fuzz, EveryCallOfTheVocabularyParses) {
         }
     }
 }
+
+// Found by the long run: kernels that scale their argument lost the low bits of a subnormal one (asin through atan's
+// halvings, tanh through expm1), so the result missed the claim's absolute floor.
+TEST(Fuzz, OddFunctionsOfTinyArgumentsKeepTheirBound) {
+    for (const char* text : {"asin((1e-17/1e300))", "tanh((1e-300/(20)!))", "atan(1e-320)", "sin(4e-320)",
+                             "tan(4e-320)", "sinh(4e-320)", "asinh(4e-320)", "atanh(4e-320)", "asin(-3e-310)",
+                             "atan(2e-309)", "tanh(-2e-309)", "asin(1e-6)", "tan(-3e-6)", "sinh(1e-7)", "atanh(2e-7)"})
+        EXPECT_EQ(violation<double>(text, Options()), "") << text;
+    for (const char* text : {"asin(1e-40)", "atan(1e-40)", "tanh(1e-40)", "asinh(-1e-40)", "atanh(3e-39)"})
+        EXPECT_EQ(violation<float>(text, Options()), "") << text;
+}
