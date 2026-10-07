@@ -83,6 +83,7 @@ inline const FunctionInfo& functionInfo(FunctionId id) {
         {F::Atanh, "atanh", 1, 1, C::Library, K::Continuous, false},
         {F::Abs, "abs", 1, 1, C::Exact, K::Continuous, true},
         {F::Rem, "rem", 2, 2, C::Exact, K::Piecewise, true},
+        {F::FloorMod, "floormod", 2, 2, C::Checked, K::Piecewise, true},  // can round: -1e-30 floormod 1
         {F::Gcd, "gcd", 2, 2, C::Exact, K::Discrete, true},
         {F::Lcm, "lcm", 2, 2, C::Checked, K::Discrete, true},
         {F::Ncr, "nCr", 2, 2, C::Counted, K::Discrete, true},
@@ -460,12 +461,14 @@ Applied<T> applyFunction(FunctionId id, const std::vector<T>& a, const std::atom
         r.value = abs(a[0]);
         break;
     }
-    case FunctionId::Rem: {  // truncated, like fmod, and exact
+    case FunctionId::FloorMod:  // floored: the sign of the divisor
+    case FunctionId::Rem: {     // truncated: the sign of the dividend, like fmod
         if (a[1] == 0) return impl::fail<T>(ErrorCode::DivisionByZero);
         const Rational x = toRational(a[0]);
         const Rational y = toRational(a[1]);
         const Rational q = x / y;
-        r.value = fromRational<T>(x - y * Rational(numerator(q) / denominator(q)));
+        const Integer whole = id == FunctionId::FloorMod ? floorOf(q) : Integer(numerator(q) / denominator(q));
+        r.value = fromRational<T>(x - y * Rational(whole));  // exact, then one correct rounding into T
         break;
     }
     case FunctionId::Median: {
@@ -547,6 +550,10 @@ std::vector<R> partials(FunctionId id, const std::vector<R>& a, const R& v) {
     case FunctionId::Atanh: return {R(1) / (R(1) - x * x)};
     case FunctionId::Abs: return {x < 0 ? R(-1) : R(1)};
     case FunctionId::Rem: return {R(1), R(-trunc(a[0] / a[1]))};
+    case FunctionId::FloorMod: {
+        using std::floor;
+        return {R(1), R(-floor(a[0] / a[1]))};
+    }
     case FunctionId::Median: {  // the selected element (or the two middle ones) gets the weight
         std::vector<int> order(a.size());
         for (std::size_t i = 0; i < a.size(); ++i) order[i] = static_cast<int>(i);
@@ -746,6 +753,18 @@ inline std::vector<Ruler> slopes(FunctionId id, const std::vector<Ruler>& a, con
         const Ruler nearest = abs(a[1]) - b[1];
         return {Ruler(1), nearest > 0 ? Ruler(floor((abs(a[0]) + b[0]) / nearest)) : inf};
     }
+    case FunctionId::FloorMod: {  // floor is monotonic: |floor(x/y)| is largest at an end of the quotient's interval
+        if (abs(a[1]) - b[1] <= 0) return {Ruler(1), inf};
+        Ruler low = inf, high = -inf;
+        for (const int sx : {-1, 1})
+            for (const int sy : {-1, 1}) {
+                const Ruler q = (a[0] + sx * b[0]) / (a[1] + sy * b[1]);
+                low = q < low ? q : low;
+                high = q > high ? q : high;
+            }
+        const Ruler l = abs(floor(low)), h = abs(floor(high));
+        return {Ruler(1), l > h ? l : h};
+    }
     case FunctionId::Root: return impl::rootSlopes(a, b);
     case FunctionId::LogBase: return impl::logBaseSlopes(a, b);
     case FunctionId::Median: return impl::medianSlopes(a, b);
@@ -779,6 +798,7 @@ inline std::optional<Rational> exactResult(FunctionId id, const std::vector<Rati
     case FunctionId::Subtract: return a[0] - a[1];
     case FunctionId::Multiply: return a[0] * a[1];
     case FunctionId::Divide: return a[1] == 0 ? std::optional<Rational>() : a[0] / a[1];
+    case FunctionId::FloorMod: return a[1] == 0 ? std::optional<Rational>() : a[0] - a[1] * Rational(floorOf(a[0] / a[1]));
     case FunctionId::Percent: return a[0] / 100;
     case FunctionId::Square: return a[0] * a[0];
     case FunctionId::Cube: return a[0] * a[0] * a[0];

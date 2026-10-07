@@ -35,13 +35,13 @@ inline Ruler times(const Ruler& a, const Ruler& b) {
     return a == 0 || b == 0 ? Ruler(0) : Ruler(a * b);
 }
 
-// Whether the arguments' errors could carry x/y across a whole number k != 0, where a truncated remainder
-// jumps (it is continuous at 0). To first order the jump at k is |x - k*y| away, and the errors move
-// x - k*y by at most bx + |k|*by. The nearest k and its two neighbours are enough.
-inline bool nearJump(const Rational& x, const Rational& y, const Ruler& bx, const Ruler& by) {
+// Whether the arguments' errors could carry x/y across a whole number k where a remainder jumps: every k for a
+// floored one, k != 0 for a truncated one (continuous at 0). To first order the jump at k is |x - k*y| away, and
+// the errors move x - k*y by at most bx + |k|*by. The nearest k and its two neighbours are enough.
+inline bool nearJump(const Rational& x, const Rational& y, const Ruler& bx, const Ruler& by, bool jumpsAtZero) {
     const Integer n = floorOf(x / y + Rational(1, 2));  // y != 0: the forward pass succeeded
     for (const Integer& k : {Integer(n - 1), n, Integer(n + 1)}) {
-        if (k == 0) continue;
+        if (k == 0 && !jumpsAtZero) continue;
         const Ruler distance = fromRational<Ruler>(abs(x - Rational(k) * y));
         if (distance <= bx + fromRational<Ruler>(Rational(abs(k))) * by) return true;
     }
@@ -82,7 +82,8 @@ inline int edgeReached(FunctionId id, const std::vector<Rational>& x, const std:
         const Integer k = floorOf(x[0] / pi);
         return near(x[0], (Rational(k) + Rational(1, 2)) * pi, b[0]) ? 0 : -1;
     }
-    case FunctionId::Rem: return near(x[1], 0, b[1]) ? 1 : -1;
+    case FunctionId::Rem:
+    case FunctionId::FloorMod: return near(x[1], 0, b[1]) ? 1 : -1;
     default: return -1;
     }
 }
@@ -381,7 +382,7 @@ Evaluation<T> evaluate(const Ast& ast, const Options& options = {}) {
             const Ruler& by = bounds[node.args[1]];
             const Rational x = toRational(fw.values[node.args[0]]);
             const Rational y = toRational(fw.values[node.args[1]]);
-            if ((bx == 0 && by == 0) || !impl::nearJump(x, y, bx, by)) continue;
+            if ((bx == 0 && by == 0) || !impl::nearJump(x, y, bx, by, node.function == FunctionId::FloorMod)) continue;
             if (!options.allowUncertainDiscreteArguments) {
                 ev.error = impl::nodeError(node, ErrorCode::ArgumentNearJump,
                                            errorMessage(ErrorCode::ArgumentNearJump, name) + "; they carry errors of up to "

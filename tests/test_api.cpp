@@ -417,3 +417,24 @@ TEST(Api, TheRemaindersAreListedAndExact) {
     EXPECT_EQ(evaluate("rem(-7, 3)").value.digits, "1");
     EXPECT_TRUE(evaluate("rem(-7, 3)").value.negative);
 }
+
+TEST(Api, AFlooredModuloCanRoundAndSaysSo) {
+    // -1e-30 floormod 1 is exactly 1 - 1e-30 (of the stored -1e-30), which double rounds to 1.
+    const Result r = evaluate("floormod(-1e-30, 1)");
+    ASSERT_FALSE(r.error);
+    EXPECT_EQ(r.value.digits, "1");
+    EXPECT_EQ(r.value.exponent10, 0);
+    EXPECT_EQ(r.roundingError, "1e-30");
+    EXPECT_EQ(r.inputError, "8.3e-47");
+    const Result exact = evaluate("floormod(-7/2, 3)", as(NumberType::Exact));
+    EXPECT_EQ(exact.exact->numerator, "5");
+    EXPECT_EQ(exact.exact->denominator, "2");
+}
+
+TEST(Api, AFlooredModuloAlsoJumpsAtZero) {
+    EXPECT_EQ(evaluate("floormod(0.1+0.2-0.3, 1)").error->code, ErrorCode::ArgumentNearJump);
+    EXPECT_FALSE(evaluate("rem(0.1+0.2-0.3, 1)").error);  // a truncated remainder is continuous at 0
+    EXPECT_EQ(evaluate("floormod(0.7 + 0.1, 0.8)").error->code, ErrorCode::ArgumentNearJump);
+    EXPECT_EQ(evaluate("floormod(5, 0.1+0.2-0.3)").error->code, ErrorCode::ArgumentNearEdge);
+    EXPECT_FALSE(evaluate("floormod(-0.3, 1)").error);
+}

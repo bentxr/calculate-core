@@ -637,3 +637,33 @@ TYPED_TEST(ApplyTest, RemainderKeepsTheSignOfTheDividend) {
 TEST(Partials, RemainderFollowsTheTruncatedQuotient) {
     EXPECT_EQ(partials<Ruler>(FunctionId::Rem, {Ruler(-7), Ruler(3)}, Ruler(-1)), (std::vector<Ruler>{Ruler(1), Ruler(2)}));
 }
+
+TYPED_TEST(ApplyTest, FlooredModuloKeepsTheSignOfTheDivisor) {
+    using T = TypeParam;
+    const auto mod = [](T x, T y) { return applyFunction<T>(FunctionId::FloorMod, {x, y}).value; };
+    EXPECT_EQ(mod(T(7), T(3)), T(1));
+    EXPECT_EQ(mod(T(-7), T(3)), T(2));
+    EXPECT_EQ(mod(T(7), T(-3)), T(-2));
+    EXPECT_EQ(mod(T(-7), T(-3)), T(-1));
+    EXPECT_EQ(mod(T(-11) / T(2), T(2)), T(1) / T(2));
+    EXPECT_EQ(mod(T(11) / T(2), T(2)), T(3) / T(2));
+    EXPECT_EQ(mod(T(-6), T(3)), T(0));
+    EXPECT_EQ(applyFunction<T>(FunctionId::FloorMod, {T(1), T(0)}).error.value_or(ErrorCode::Cancelled), ErrorCode::DivisionByZero);
+}
+
+TEST(Partials, FlooredModuloFollowsTheFlooredQuotient) {
+    EXPECT_EQ(partials<Ruler>(FunctionId::FloorMod, {Ruler(-7), Ruler(3)}, Ruler(2)), (std::vector<Ruler>{Ruler(1), Ruler(3)}));
+}
+
+// floor(x/y) can be further from 0 than |x/y| (for a negative quotient): the slope takes floor at the quotient's ends.
+TEST(Slopes, FlooredModuloDominatesItsDerivative) {
+    using F = FunctionId;
+    for (const SlopeCase& c : {SlopeCase{F::FloorMod, {-7, 3}, {0.5, 0.25}}, SlopeCase{F::FloorMod, {7, -3}, {0.5, 0.25}},
+                               SlopeCase{F::FloorMod, {7, 3}, {0, 0}}, SlopeCase{F::FloorMod, {-5.5, 2}, {0.25, 0.25}}}) {
+        SCOPED_TRACE(std::to_string(c.point[0]) + " floormod " + std::to_string(c.point[1]));
+        expectSlopesDominate(c.id, c.point, c.radius);
+    }
+    using V = std::vector<Ruler>;
+    EXPECT_EQ(slopes(F::FloorMod, {Ruler(-7), Ruler(3)}, {Ruler(1), Ruler(1)}), (V{Ruler(1), Ruler(4)}));  // |floor(-8 / 2)|
+    EXPECT_FALSE(isFinite(slopes(F::FloorMod, {Ruler(1), Ruler(0.1)}, {Ruler(0), Ruler(0.2)})[1]));
+}
