@@ -472,3 +472,28 @@ TEST(Parser, ACommentIsKeptApart) {
     EXPECT_TRUE(note.ast.nodes.empty());
     EXPECT_EQ(parseError("1 + # oops").code, ErrorCode::UnexpectedEnd);
 }
+
+TEST(Lexer, ToEndsTheExpressionAndKeepsItsTarget) {
+    const Lexed l = lex("0.1 to fraction # tenth");
+    ASSERT_FALSE(l.error);
+    EXPECT_EQ(kinds(l), (std::vector<TokenKind>{TokenKind::Number, TokenKind::End}));
+    ASSERT_TRUE(l.keyword);
+    EXPECT_EQ(l.keyword->begin, 4u);
+    EXPECT_EQ(l.keyword->end, 6u);
+    EXPECT_EQ(l.target.begin, 7u);
+    EXPECT_EQ(l.target.end, 15u);
+    ASSERT_TRUE(l.comment);
+    EXPECT_EQ(l.comment->begin, 18u);
+    EXPECT_EQ(l.tokens.back().span.begin, 4u);
+    for (const char* text : {"0.1 -> fraction", "0.1 → fraction", "0.1to fraction"}) {
+        const Lexed a = lex(text);
+        ASSERT_FALSE(a.error) << text;
+        EXPECT_TRUE(a.keyword) << text;
+    }
+    EXPECT_FALSE(lex("total + 1").keyword);  // only the whole word
+    const Lexed inside = lex("(1 to fraction)");
+    ASSERT_TRUE(inside.error);
+    EXPECT_EQ(inside.error->code, ErrorCode::UnexpectedToken);
+    EXPECT_EQ(inside.error->begin, 3u);
+    EXPECT_EQ(inside.error->end, 5u);
+}

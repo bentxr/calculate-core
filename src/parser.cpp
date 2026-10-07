@@ -81,6 +81,21 @@ Lexed lex(std::string_view s) {
     };
     std::size_t i = 0;
     std::size_t stop = s.size();
+    int depth = 0;  // open parentheses
+    // A keyword applies to the whole expression: it records the target (and a comment) and ends the lexing.
+    const auto keyword = [&](std::size_t begin, std::size_t end) {
+        if (depth > 0) {
+            out.error = makeError(ErrorCode::UnexpectedToken,
+                                  "'" + std::string(s.substr(begin, end - begin)) + "' applies to the whole expression: write it after the last ')'",
+                                  {begin, end});
+            return;
+        }
+        out.keyword = Span{begin, end};
+        const std::size_t hash = s.find('#', end);
+        out.target = trimmed(s, end, hash == std::string_view::npos ? s.size() : hash);
+        if (hash != std::string_view::npos) out.comment = trimmed(s, hash + 1, s.size());
+        stop = begin;
+    };
     while (i < s.size()) {
         const char c = s[i];
         if (c == ' ' || c == '\t' || c == '\n' || c == '\r') {
@@ -114,10 +129,22 @@ Lexed lex(std::string_view s) {
         if (isLetter(c)) {
             const std::size_t begin = i;
             while (i < s.size() && (isLetter(s[i]) || isDigit(s[i]))) ++i;
+            if (s.substr(begin, i - begin) == "to") {
+                keyword(begin, i);
+                if (out.error) return out;
+                break;
+            }
             push(TokenKind::Identifier, begin, i);
             continue;
         }
+        if (s.substr(i, 2) == "->" || s.substr(i, 3) == "\xE2\x86\x92") {  // before '-', and before the aliases
+            keyword(i, i + (c == '-' ? 2 : 3));
+            if (out.error) return out;
+            break;
+        }
         if (const TokenKind kind = singleCharacter(c); kind != TokenKind::End) {
+            if (kind == TokenKind::LeftParen) ++depth;
+            if (kind == TokenKind::RightParen && depth > 0) --depth;
             push(kind, i, i + 1);
             ++i;
             continue;

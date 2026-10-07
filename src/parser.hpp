@@ -28,10 +28,13 @@ struct Lexed {
     std::optional<Error> error;
     std::vector<Token> tokens;  // always ends with End when there is no error
     std::optional<Span> comment;  // the text after '#', without surrounding spaces; absent when there is no '#'
+    std::optional<Span> keyword;  // `to`, `->` or `→`, when a target follows the expression
+    Span target;                  // the text after the keyword, up to any '#', without surrounding spaces
 };
 
 // Locale-free; ASCII plus the UTF-8 aliases × ÷ − π √ ∛ ² ³. `;` is a second spelling of the argument separator.
-// A '#' starts a comment that runs to the end.
+// A '#' starts a comment that runs to the end. `to`, `->` or `→` ends the expression: what follows, up to a '#', is
+// a conversion target and is not lexed.
 Lexed lex(std::string_view source);
 
 // Named expressions (Ans, M): the name is replaced by its text, in parentheses.
