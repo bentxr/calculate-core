@@ -40,12 +40,20 @@ Lexed lex(std::string_view source);
 // Named expressions (Ans, M): the name is replaced by its text, in parentheses.
 using Names = std::map<std::string, std::string, std::less<>>;
 
+// "to <name> <argument>" after an expression: the form its result should be shown in.
+struct TargetText {
+    std::string name;      // the first word: "fraction"
+    std::string argument;  // the rest, trimmed: "32" in "to base 32"; usually empty
+    Span span;             // name and argument in the source
+};
+
 struct Parsed {
     std::optional<Error> error;
     Ast ast;
     std::string expanded;  // the expression only (no comment), every name replaced by "(" + its text + ")"
     std::string comment;   // the text after '#', trimmed; "" when none
     bool commentOnly = false;  // the source holds nothing but a comment
+    std::optional<TargetText> target;
 };
 
 Parsed parse(std::string_view source, const Options& options, const Names& names = {});

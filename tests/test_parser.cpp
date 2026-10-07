@@ -497,3 +497,29 @@ TEST(Lexer, ToEndsTheExpressionAndKeepsItsTarget) {
     EXPECT_EQ(inside.error->begin, 3u);
     EXPECT_EQ(inside.error->end, 5u);
 }
+
+TEST(Parser, ATargetFollowsTheExpression) {
+    const Parsed p = parse("0.1 + 0.2 to base 32 # x", AngleUnit::Radians);
+    ASSERT_FALSE(p.error);
+    EXPECT_EQ(sexpr(p.ast, p.ast.root()), "(+ 0.1 0.2)");
+    EXPECT_EQ(p.expanded, "0.1 + 0.2");
+    ASSERT_TRUE(p.target);
+    EXPECT_EQ(p.target->name, "base");
+    EXPECT_EQ(p.target->argument, "32");
+    EXPECT_EQ(p.target->span.begin, 13u);
+    EXPECT_EQ(p.target->span.end, 20u);
+    EXPECT_EQ(p.comment, "x");
+    EXPECT_FALSE(parse("0.1", AngleUnit::Radians).target);
+    EXPECT_EQ(parseError("1 + 2 to").code, ErrorCode::UnexpectedEnd);
+    EXPECT_EQ(parseError("1 + to fraction").code, ErrorCode::UnexpectedEnd);
+}
+
+TEST(Parser, ATargetAloneConvertsThePreviousResult) {
+    const Parsed p = parse("to fraction", AngleUnit::Radians, {{"Ans", "1+2"}});
+    ASSERT_FALSE(p.error);
+    EXPECT_EQ(sexpr(p.ast, p.ast.root()), "(+ 1 2)");
+    EXPECT_EQ(p.expanded, "(1+2)");
+    EXPECT_EQ(p.ast.nodes[0].span.begin, 0u);  // its nodes point at the keyword
+    EXPECT_EQ(p.ast.nodes[0].span.end, 2u);
+    EXPECT_EQ(parseError("→ fraction").code, ErrorCode::UnknownName);  // no Ans yet
+}

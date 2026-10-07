@@ -504,6 +504,29 @@ private:
 
 }  // namespace
 
+namespace {
+
+// `to …` alone converts Ans. Its nodes point at the keyword, as a name's point at the name.
+Parsed previousResult(Span keyword, const Options& options, const Names& names) {
+    Parsed out;
+    const auto ans = names.find("Ans");
+    if (ans == names.end()) {
+        out.error = makeError(ErrorCode::UnknownName, "There is no previous result yet", keyword);
+        return out;
+    }
+    out = parse(ans->second, options, {});  // stored texts contain no names, and are canonical
+    if (out.error) {
+        out.error->begin = keyword.begin;
+        out.error->end = keyword.end;
+        return out;
+    }
+    for (Node& n : out.ast.nodes) n.span = keyword;
+    out.expanded = "(" + ans->second + ")";
+    return out;
+}
+
+}  // namespace
+
 Parsed parse(std::string_view source, const Options& options, const Names& names) {
     Lexed lexed = lex(source);
     if (lexed.error) {
@@ -511,15 +534,32 @@ Parsed parse(std::string_view source, const Options& options, const Names& names
         out.error = lexed.error;
         return out;
     }
-    const std::string comment = lexed.comment ? std::string(source.substr(lexed.comment->begin, lexed.comment->end - lexed.comment->begin)) : "";
-    if (lexed.comment && lexed.tokens.size() == 1) {  // only End: a note
+    const auto text = [&](Span s) { return std::string(source.substr(s.begin, s.end - s.begin)); };
+    const std::string comment = lexed.comment ? text(*lexed.comment) : "";
+    std::optional<TargetText> target;
+    if (lexed.keyword) {
+        if (lexed.target.begin == lexed.target.end) {
+            Parsed out;
+            out.error = makeError(ErrorCode::UnexpectedEnd, "Write what to convert to after '" + text(*lexed.keyword) + "'", *lexed.keyword);
+            return out;
+        }
+        const std::string whole = text(lexed.target);
+        const std::size_t space = whole.find_first_of(" \t");
+        const Span rest = space == std::string::npos ? Span{lexed.target.end, lexed.target.end}
+                                                     : trimmed(source, lexed.target.begin + space, lexed.target.end);
+        target = TargetText{whole.substr(0, space), text(rest), lexed.target};
+    } else if (lexed.comment && lexed.tokens.size() == 1) {  // only End: a note
         Parsed out;
         out.comment = comment;
         out.commentOnly = true;
         return out;
     }
-    Parsed out = Parser(source, std::move(lexed.tokens), options, names).run();
-    if (!out.error) out.comment = comment;
+    Parsed out = lexed.keyword && lexed.tokens.size() == 1 ? previousResult(*lexed.keyword, options, names)
+                                                           : Parser(source, std::move(lexed.tokens), options, names).run();
+    if (!out.error) {
+        out.comment = comment;
+        out.target = target;
+    }
     return out;
 }
 
