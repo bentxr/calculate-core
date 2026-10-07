@@ -47,7 +47,8 @@ std::string usage() {
            "  --list-types       describe the number types of this build\n"
            "  --help, --version\n"
            "\n"
-           "Lines M+, M- and MC add Ans to, subtract it from, or clear the memory M.\n";
+           "Lines M+, M- and MC add Ans to, subtract it from, or clear the memory M.\n"
+           "An expression may end in 'to <target>' (to fraction: the exact stored value).\n";
 }
 
 struct Settings {
@@ -118,6 +119,8 @@ void printJson(std::ostream& out, const std::string& input, const Result& r) {
         << ",\"measuredAvailable\":" << flag(r.measuredAvailable)
         << ",\"measurementReliable\":" << flag(r.measurementReliable) << ",\"boundComplete\":" << flag(r.boundComplete)
         << ",\"roundingOperations\":" << r.roundingOperations << ",\"expanded\":" << jsonString(r.expression);
+    if (r.conversion)
+        out << ",\"conversion\":{\"target\":" << jsonString(r.conversion->target) << ",\"text\":" << jsonString(r.conversion->text) << "}";
     if (!r.comment.empty()) out << ",\"comment\":" << jsonString(r.comment);
     out << "}\n";
 }
@@ -157,10 +160,12 @@ void printHuman(std::ostream& out, const std::string& input, const Result& r, bo
     if (r.commentOnly) return;  // a note: the line alone
     if (r.exact) {
         out << "= " << formatFraction(*r.exact) << "\n";
+        if (r.conversion) out << "→ " << r.conversion->text << "\n";
         out << "  exact, no rounding error · κ " << r.conditionNumber << "\n";
         return;
     }
     out << "= " << formatValue(r.value, r.trustedDigits, color) << "\n";
+    if (r.conversion) out << "→ " << r.conversion->text << "\n";
     out << "  ± " << r.bound << "  input " << r.inputError << " · rounding " << r.roundingError << " · library "
         << r.libraryError;
     if (!r.boundComplete) out << "  (incomplete: an uncertain argument was accepted)";

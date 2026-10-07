@@ -158,3 +158,15 @@ TEST(Cli, CommentsAreShownWithTheirExpression) {
     EXPECT_NE(json.out.find(",\"comment\":\"two\"}\n"), std::string::npos);
     EXPECT_NE(json.out.find("{\"expression\":\"# a note\",\"type\":\"double\",\"comment\":\"a note\"}\n"), std::string::npos);
 }
+
+TEST(Cli, ConversionsFollowTheValue) {
+    const Outcome r = invoke({"--color", "never", "0.1 to fraction"});
+    EXPECT_EQ(r.code, 0);
+    EXPECT_NE(r.out.find("\n→ 3602879701896397/36028797018963968\n  ± "), std::string::npos);
+    const Outcome exact = invoke({"--type", "exact", "1/4 to fraction"});
+    EXPECT_EQ(exact.out, "1/4 to fraction\n= 1/4 = 0.25\n→ 1/4\n  exact, no rounding error · κ 2e+0\n");
+    const Outcome json = invoke({"--json", "0.1 to fraction"});
+    EXPECT_NE(json.out.find(",\"conversion\":{\"target\":\"fraction\",\"text\":\"3602879701896397/36028797018963968\"}"),
+              std::string::npos);
+    EXPECT_EQ(invoke({"0.1 to nothing"}).err, "0.1 to nothing\n       ^^^^^^^ Unknown conversion 'nothing'\n");
+}
