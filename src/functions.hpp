@@ -82,7 +82,7 @@ inline const FunctionInfo& functionInfo(FunctionId id) {
         {F::Acosh, "acosh", 1, 1, C::Library, K::Continuous, false},
         {F::Atanh, "atanh", 1, 1, C::Library, K::Continuous, false},
         {F::Abs, "abs", 1, 1, C::Exact, K::Continuous, true},
-        {F::Mod, "mod", 2, 2, C::Exact, K::Piecewise, true},
+        {F::Rem, "rem", 2, 2, C::Exact, K::Piecewise, true},
         {F::Gcd, "gcd", 2, 2, C::Exact, K::Discrete, true},
         {F::Lcm, "lcm", 2, 2, C::Checked, K::Discrete, true},
         {F::Ncr, "nCr", 2, 2, C::Counted, K::Discrete, true},
@@ -460,7 +460,7 @@ Applied<T> applyFunction(FunctionId id, const std::vector<T>& a, const std::atom
         r.value = abs(a[0]);
         break;
     }
-    case FunctionId::Mod: {  // truncated, like fmod, and exact
+    case FunctionId::Rem: {  // truncated, like fmod, and exact
         if (a[1] == 0) return impl::fail<T>(ErrorCode::DivisionByZero);
         const Rational x = toRational(a[0]);
         const Rational y = toRational(a[1]);
@@ -546,7 +546,7 @@ std::vector<R> partials(FunctionId id, const std::vector<R>& a, const R& v) {
     case FunctionId::Acosh: return {x == 1 ? inf : R(R(1) / sqrt(x * x - 1))};
     case FunctionId::Atanh: return {R(1) / (R(1) - x * x)};
     case FunctionId::Abs: return {x < 0 ? R(-1) : R(1)};
-    case FunctionId::Mod: return {R(1), R(-trunc(a[0] / a[1]))};
+    case FunctionId::Rem: return {R(1), R(-trunc(a[0] / a[1]))};
     case FunctionId::Median: {  // the selected element (or the two middle ones) gets the weight
         std::vector<int> order(a.size());
         for (std::size_t i = 0; i < a.size(); ++i) order[i] = static_cast<int>(i);
@@ -742,7 +742,7 @@ inline std::vector<Ruler> slopes(FunctionId id, const std::vector<Ruler>& a, con
     case FunctionId::Square: return {2 * (abs(a[0]) + b[0])};
     case FunctionId::Cube: return {3 * (abs(a[0]) + b[0]) * (abs(a[0]) + b[0])};
     case FunctionId::Power: return impl::powerSlopes(a, b);
-    case FunctionId::Mod: {  // between its jumps: |trunc(x/y)| is largest at the largest |x| over the smallest |y|
+    case FunctionId::Rem: {  // between its jumps: |trunc(x/y)| is largest at the largest |x| over the smallest |y|
         const Ruler nearest = abs(a[1]) - b[1];
         return {Ruler(1), nearest > 0 ? Ruler(floor((abs(a[0]) + b[0]) / nearest)) : inf};
     }

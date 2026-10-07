@@ -366,3 +366,8 @@ TEST(Parser, OtherSpellingsNameTheFunctionItself) {
     EXPECT_EQ(p.ast.nodes[3].written, "log10");
     EXPECT_EQ(p.ast.nodes[4].written, "");     // operators have no name
 }
+
+TEST(Parser, RemIsTheTruncatedRemainderAndModSpellsIt) {
+    EXPECT_EQ(tree("rem(-7, 3)"), "(rem (neg 7) 3)");
+    EXPECT_EQ(tree("mod(-7, 3)"), "(rem (neg 7) 3)");  // the default convention; 1.04 makes it a setting
+}

@@ -416,7 +416,7 @@ TEST(Edges, TheArgumentWhoseIntervalReachesThem) {
     const Ruler some(0.5);
     EXPECT_EQ(impl::edgeReached(F::Divide, {Rational(1), Rational(0)}, {Ruler(0), some}), 1);
     EXPECT_EQ(impl::edgeReached(F::Divide, {Rational(1), Rational(1)}, {Ruler(0), some}), -1);
-    EXPECT_EQ(impl::edgeReached(F::Mod, {Rational(5), Rational(0)}, {Ruler(0), some}), 1);
+    EXPECT_EQ(impl::edgeReached(F::Rem, {Rational(5), Rational(0)}, {Ruler(0), some}), 1);
     EXPECT_EQ(impl::edgeReached(F::LogBase, {Rational(8), Rational(1)}, {Ruler(0), some}), 1);
     EXPECT_EQ(impl::edgeReached(F::LogBase, {Rational(0), Rational(2)}, {some, Ruler(0)}), 0);
     EXPECT_EQ(impl::edgeReached(F::Sqrt, {Rational(0)}, {some}), 0);

@@ -12,7 +12,7 @@ enum class FunctionId {
     Add, Subtract, Multiply, Divide, Negate, Power, Percent, Square, Cube, Factorial,
     Sqrt, Cbrt, Root, Exp, Ln, Log10, LogBase,
     Sin, Cos, Tan, Asin, Acos, Atan, Sinh, Cosh, Tanh, Asinh, Acosh, Atanh,
-    Abs, Mod, Gcd, Lcm, Ncr, Npr, Median
+    Abs, Rem, Gcd, Lcm, Ncr, Npr, Median
 };
 
 inline constexpr int functionCount = static_cast<int>(FunctionId::Median) + 1;

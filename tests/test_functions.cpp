@@ -24,7 +24,7 @@ TEST(FunctionInfo, NamesAreUniqueExceptTheTwoLogarithms) {
 TEST(FunctionInfo, ContinuityAndExactFlags) {
     for (FunctionId id : {FunctionId::Factorial, FunctionId::Gcd, FunctionId::Lcm, FunctionId::Ncr, FunctionId::Npr})
         EXPECT_EQ(functionInfo(id).continuity, Continuity::Discrete);
-    EXPECT_EQ(functionInfo(FunctionId::Mod).continuity, Continuity::Piecewise);
+    EXPECT_EQ(functionInfo(FunctionId::Rem).continuity, Continuity::Piecewise);
     EXPECT_EQ(functionInfo(FunctionId::Sin).continuity, Continuity::Continuous);
     EXPECT_FALSE(functionInfo(FunctionId::Sin).exact);
     EXPECT_FALSE(functionInfo(FunctionId::Pi).exact);
@@ -169,10 +169,10 @@ TYPED_TEST(ApplyTest, IntegerFunctions) {
     EXPECT_EQ(value(FunctionId::Gcd, {T(12), T(18)}), T(6));
     EXPECT_EQ(value(FunctionId::Gcd, {T(0), T(0)}), T(0));
     EXPECT_EQ(value(FunctionId::Lcm, {T(4), T(6)}), T(12));
-    EXPECT_EQ(value(FunctionId::Mod, {T(7), T(3)}), T(1));
-    EXPECT_EQ(value(FunctionId::Mod, {T(-7), T(3)}), T(-1));  // truncated: the sign of the dividend
-    EXPECT_EQ(value(FunctionId::Mod, {T(7), T(-3)}), T(1));
-    EXPECT_EQ(value(FunctionId::Mod, {T(11) / T(2), T(2)}), T(3) / T(2));
+    EXPECT_EQ(value(FunctionId::Rem, {T(7), T(3)}), T(1));
+    EXPECT_EQ(value(FunctionId::Rem, {T(-7), T(3)}), T(-1));  // truncated: the sign of the dividend
+    EXPECT_EQ(value(FunctionId::Rem, {T(7), T(-3)}), T(1));
+    EXPECT_EQ(value(FunctionId::Rem, {T(11) / T(2), T(2)}), T(3) / T(2));
     EXPECT_EQ(value(FunctionId::Abs, {T(-3)}), T(3));
     EXPECT_EQ(value(FunctionId::Median, {T(3), T(1), T(2)}), T(2));
     EXPECT_EQ(value(FunctionId::Median, {T(4), T(1), T(3), T(2)}), T(5) / T(2));
@@ -188,7 +188,7 @@ TYPED_TEST(ApplyTest, IntegerFunctionErrors) {
     EXPECT_EQ(code(FunctionId::Factorial, {T(7) / T(2)}), ErrorCode::NotAnInteger);
     EXPECT_EQ(code(FunctionId::Factorial, {T(-1)}), ErrorCode::DomainError);
     EXPECT_EQ(code(FunctionId::Gcd, {T(1) / T(2), T(2)}), ErrorCode::NotAnInteger);
-    EXPECT_EQ(code(FunctionId::Mod, {T(1), T(0)}), ErrorCode::DivisionByZero);
+    EXPECT_EQ(code(FunctionId::Rem, {T(1), T(0)}), ErrorCode::DivisionByZero);
     EXPECT_EQ(code(FunctionId::Ncr, {T(-5), T(2)}), ErrorCode::DomainError);
 }
 
@@ -290,7 +290,7 @@ TEST(Partials, DiscreteFunctionsHaveZeroDerivatives) {
     EXPECT_EQ(partials<Ruler>(FunctionId::Factorial, {Ruler(5)}, Ruler(120)), (std::vector<Ruler>{Ruler(0)}));
     EXPECT_EQ(partials<Ruler>(FunctionId::Median, {Ruler(3), Ruler(1), Ruler(2)}, Ruler(2)),
               (std::vector<Ruler>{Ruler(0), Ruler(0), Ruler(1)}));
-    EXPECT_EQ(partials<Ruler>(FunctionId::Mod, {Ruler(7), Ruler(3)}, Ruler(1)), (std::vector<Ruler>{Ruler(1), Ruler(-2)}));
+    EXPECT_EQ(partials<Ruler>(FunctionId::Rem, {Ruler(7), Ruler(3)}, Ruler(1)), (std::vector<Ruler>{Ruler(1), Ruler(-2)}));
 }
 
 namespace {
@@ -366,7 +366,7 @@ TEST(Slopes, OperatorsDominateTheirDerivativesOverTheirIntervals) {
         {F::Cube, {0}, {1e-17}},           {F::Cube, {-2}, {3}},                 {F::Cube, {-2}, {0}},
         {F::Power, {2, 3}, {1, 0}},        {F::Power, {-2, 3}, {0.5, 0}},        {F::Power, {2, -2}, {0.5, 0}},
         {F::Power, {2, 2.5}, {0.5, 0.25}}, {F::Power, {0.7, 0.5}, {0.1, 0.1}},   {F::Power, {0.7, 0.5}, {0, 0}},
-        {F::Power, {2, 0}, {1, 0}},        {F::Mod, {7, 3}, {0.5, 0.25}},        {F::Mod, {-7, 3}, {0, 0}},
+        {F::Power, {2, 0}, {1, 0}},        {F::Rem, {7, 3}, {0.5, 0.25}},        {F::Rem, {-7, 3}, {0, 0}},
     };
     for (const SlopeCase& c : cases) {
         SCOPED_TRACE(std::to_string(static_cast<int>(c.id)) + " at " + std::to_string(c.point[0]));
@@ -382,7 +382,7 @@ TEST(Slopes, OperatorValues) {
     EXPECT_EQ(s(FunctionId::Square, {Ruler(0)}, {Ruler(0.5)}), (V{Ruler(1)}));  // the derivative at 0 is 0, the slope is not
     EXPECT_EQ(s(FunctionId::Cube, {Ruler(2)}, {Ruler(1)}), (V{Ruler(27)}));
     EXPECT_EQ(s(FunctionId::Divide, {Ruler(1), Ruler(4)}, {Ruler(1), Ruler(2)}), (V{Ruler(0.25), Ruler(0.5)}));  // 2 / 2²
-    EXPECT_EQ(s(FunctionId::Mod, {Ruler(7), Ruler(3)}, {Ruler(1), Ruler(1)}), (V{Ruler(1), Ruler(4)}));        // trunc(8 / 2)
+    EXPECT_EQ(s(FunctionId::Rem, {Ruler(7), Ruler(3)}, {Ruler(1), Ruler(1)}), (V{Ruler(1), Ruler(4)}));        // trunc(8 / 2)
     EXPECT_EQ(s(FunctionId::Factorial, {Ruler(5)}, {Ruler(0)}), (V{Ruler(0)}));
     EXPECT_TRUE(close(s(FunctionId::Power, {Ruler(2), Ruler(3)}, {Ruler(1), Ruler(0)})[0], Ruler(27)));  // 3 · 3²
     EXPECT_TRUE(close(s(FunctionId::Power, {Ruler(2), Ruler(-1)}, {Ruler(1), Ruler(0)})[0], Ruler(1)));  // 1 · 1⁻²
@@ -393,7 +393,7 @@ TEST(Slopes, InfiniteWhereAnIntervalReachesAnUnboundedDerivative) {
         return slopes(id, a, b)[k];
     };
     EXPECT_FALSE(isFinite(s(FunctionId::Divide, {Ruler(1), Ruler(0.1)}, {Ruler(0), Ruler(0.1)}, 1)));
-    EXPECT_FALSE(isFinite(s(FunctionId::Mod, {Ruler(1), Ruler(0.1)}, {Ruler(0), Ruler(0.2)}, 1)));
+    EXPECT_FALSE(isFinite(s(FunctionId::Rem, {Ruler(1), Ruler(0.1)}, {Ruler(0), Ruler(0.2)}, 1)));
     EXPECT_FALSE(isFinite(s(FunctionId::Power, {Ruler(0.5), Ruler(-2)}, {Ruler(0.5), Ruler(0)}, 0)));
     EXPECT_FALSE(isFinite(s(FunctionId::Power, {Ruler(0.5), Ruler(0.5)}, {Ruler(0.6), Ruler(0)}, 0)));
     EXPECT_FALSE(isFinite(s(FunctionId::Power, {Ruler(0.5), Ruler(2.5)}, {Ruler(0.6), Ruler(0)}, 0)));  // x < 0: undefined
@@ -489,8 +489,8 @@ const std::vector<Expect>& classes() {
         {F::Asinh, {0}, 0, {}},      {F::Acosh, {1}, 0, {}},       {F::Acosh, {0.5}, {}, E::DomainError},
         {F::Atanh, {0}, 0, {}},      {F::Atanh, {1}, {}, E::DomainError}, {F::Atanh, {-1}, {}, E::DomainError},
         {F::Abs, {-3}, 3, {}},       {F::Abs, {0}, 0, {}},         {F::Abs, {2.5}, 2.5, {}},
-        {F::Mod, {7, 3}, 1, {}},     {F::Mod, {-7, 3}, -1, {}},    {F::Mod, {7, -3}, 1, {}},  {F::Mod, {7, 0}, {}, E::DivisionByZero},
-        {F::Mod, {0, 3}, 0, {}},     {F::Mod, {5.5, 2}, 1.5, {}},
+        {F::Rem, {7, 3}, 1, {}},     {F::Rem, {-7, 3}, -1, {}},    {F::Rem, {7, -3}, 1, {}},  {F::Rem, {7, 0}, {}, E::DivisionByZero},
+        {F::Rem, {0, 3}, 0, {}},     {F::Rem, {5.5, 2}, 1.5, {}},
         {F::Gcd, {12, 18}, 6, {}},   {F::Gcd, {0, 5}, 5, {}},      {F::Gcd, {-12, 18}, 6, {}}, {F::Gcd, {1.5, 3}, {}, E::NotAnInteger},
         {F::Lcm, {4, 6}, 12, {}},    {F::Lcm, {0, 5}, 0, {}},      {F::Lcm, {-4, 6}, 12, {}},
         {F::Ncr, {5, 2}, 10, {}},    {F::Ncr, {5, 0}, 1, {}},      {F::Ncr, {5, 6}, 0, {}},   {F::Ncr, {-5, 2}, {}, E::DomainError},
@@ -563,7 +563,7 @@ TEST(FunctionInfo, EveryFunctionTakesItsArgumentCount) {
         {F::Cube, 1, 1}, {F::Factorial, 1, 1}, {F::Sqrt, 1, 1}, {F::Cbrt, 1, 1}, {F::Root, 2, 2}, {F::Exp, 1, 1},
         {F::Ln, 1, 1}, {F::Log10, 1, 1}, {F::LogBase, 2, 2}, {F::Sin, 1, 1}, {F::Cos, 1, 1}, {F::Tan, 1, 1},
         {F::Asin, 1, 1}, {F::Acos, 1, 1}, {F::Atan, 1, 1}, {F::Sinh, 1, 1}, {F::Cosh, 1, 1}, {F::Tanh, 1, 1},
-        {F::Asinh, 1, 1}, {F::Acosh, 1, 1}, {F::Atanh, 1, 1}, {F::Abs, 1, 1}, {F::Mod, 2, 2}, {F::Gcd, 2, 2},
+        {F::Asinh, 1, 1}, {F::Acosh, 1, 1}, {F::Atanh, 1, 1}, {F::Abs, 1, 1}, {F::Rem, 2, 2}, {F::Gcd, 2, 2},
         {F::Lcm, 2, 2}, {F::Ncr, 2, 2}, {F::Npr, 2, 2}, {F::Median, 1, -1}
     };
     for (const auto& [id, minArgs, maxArgs] : arity) {
@@ -614,4 +614,26 @@ TEST(Slopes, MoreBoundaries) {
         SCOPED_TRACE(std::to_string(static_cast<int>(c.id)) + " at " + std::to_string(c.point[0]));
         expectSlopesDominate(c.id, c.point, c.radius);
     }
+}
+
+TYPED_TEST(ApplyTest, RemainderKeepsTheSignOfTheDividend) {
+    using T = TypeParam;
+    const auto rem = [](T x, T y) {
+        const Applied<T> r = applyFunction<T>(FunctionId::Rem, {x, y});
+        EXPECT_FALSE(r.error);
+        return r.value;
+    };
+    EXPECT_EQ(rem(T(7), T(3)), T(1));
+    EXPECT_EQ(rem(T(-7), T(3)), T(-1));
+    EXPECT_EQ(rem(T(7), T(-3)), T(1));
+    EXPECT_EQ(rem(T(-7), T(-3)), T(-1));
+    EXPECT_EQ(rem(T(-11) / T(2), T(2)), T(-3) / T(2));
+    EXPECT_EQ(rem(T(0), T(5)), T(0));
+    EXPECT_EQ(rem(T(6), T(3)), T(0));
+    EXPECT_EQ(applyFunction<T>(FunctionId::Rem, {T(1), T(0)}).error.value_or(ErrorCode::Cancelled), ErrorCode::DivisionByZero);
+    EXPECT_EQ(functionInfo(FunctionId::Rem).name, "rem");
+}
+
+TEST(Partials, RemainderFollowsTheTruncatedQuotient) {
+    EXPECT_EQ(partials<Ruler>(FunctionId::Rem, {Ruler(-7), Ruler(3)}, Ruler(-1)), (std::vector<Ruler>{Ruler(1), Ruler(2)}));
 }

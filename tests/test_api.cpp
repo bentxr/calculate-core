@@ -408,3 +408,12 @@ TEST(Api, MessagesUseTheNameAsWritten) {
     EXPECT_EQ(evaluate("sen(1)", as(NumberType::Exact)).error->message,
               "sen is not available in exact arithmetic: its result is irrational");
 }
+
+TEST(Api, TheRemaindersAreListedAndExact) {
+    int found = 0;
+    for (const FunctionDescription& f : functions())
+        if ((f.name == "rem" || f.name == "mod") && f.minArgs == 2 && f.maxArgs == 2 && f.exact) ++found;
+    EXPECT_EQ(found, 2);
+    EXPECT_EQ(evaluate("rem(-7, 3)").value.digits, "1");
+    EXPECT_TRUE(evaluate("rem(-7, 3)").value.negative);
+}

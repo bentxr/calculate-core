@@ -130,6 +130,7 @@ std::vector<FunctionDescription> functions() {
     }
     for (const char* name : {"mean", "varp", "stdevp"}) list.push_back({name, 1, -1, true});
     for (const char* name : {"var", "stdev"}) list.push_back({name, 2, -1, true});
+    list.push_back({"mod", 2, 2, true});  // the word exists under every convention
     return list;
 }
 

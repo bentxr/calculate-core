@@ -82,7 +82,7 @@ inline int edgeReached(FunctionId id, const std::vector<Rational>& x, const std:
         const Integer k = floorOf(x[0] / pi);
         return near(x[0], (Rational(k) + Rational(1, 2)) * pi, b[0]) ? 0 : -1;
     }
-    case FunctionId::Mod: return near(x[1], 0, b[1]) ? 1 : -1;
+    case FunctionId::Rem: return near(x[1], 0, b[1]) ? 1 : -1;
     default: return -1;
     }
 }
