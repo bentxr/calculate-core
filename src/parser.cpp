@@ -63,17 +63,34 @@ TokenKind singleCharacter(char c) {
 
 }  // namespace
 
+namespace {
+
+// s[begin, end) without the spaces and tabs at either end.
+Span trimmed(std::string_view s, std::size_t begin, std::size_t end) {
+    while (begin < end && (s[begin] == ' ' || s[begin] == '\t')) ++begin;
+    while (end > begin && (s[end - 1] == ' ' || s[end - 1] == '\t')) --end;
+    return {begin, end};
+}
+
+}  // namespace
+
 Lexed lex(std::string_view s) {
     Lexed out;
     const auto push = [&](TokenKind kind, std::size_t begin, std::size_t end) {
         out.tokens.push_back({kind, s.substr(begin, end - begin), {begin, end}});
     };
     std::size_t i = 0;
+    std::size_t stop = s.size();
     while (i < s.size()) {
         const char c = s[i];
         if (c == ' ' || c == '\t' || c == '\n' || c == '\r') {
             ++i;
             continue;
+        }
+        if (c == '#') {
+            out.comment = trimmed(s, i + 1, s.size());
+            stop = i;
+            break;
         }
         if (isDigit(c) || (c == '.' && i + 1 < s.size() && isDigit(s[i + 1]))) {
             const std::size_t begin = i;
@@ -117,7 +134,7 @@ Lexed lex(std::string_view s) {
                               "Unexpected character '" + std::string(s.substr(i, length)) + "'", {i, i + length});
         return out;
     }
-    push(TokenKind::End, s.size(), s.size());
+    push(TokenKind::End, stop, stop);
     return out;
 }
 

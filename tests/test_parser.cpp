@@ -440,3 +440,21 @@ TEST(Parser, AnInfixPercentSuggestsRem) {
     EXPECT_EQ(e.code, ErrorCode::MissingOperator);
     EXPECT_NE(e.message.find("rem(3, 2)"), std::string::npos);
 }
+
+TEST(Lexer, ACommentEndsTheExpression) {
+    const Lexed l = lex("(5×2)/2 # triangle area");
+    ASSERT_FALSE(l.error);
+    EXPECT_EQ(kinds(l), (std::vector<TokenKind>{TokenKind::LeftParen, TokenKind::Number, TokenKind::Star, TokenKind::Number,
+                                                TokenKind::RightParen, TokenKind::Slash, TokenKind::Number, TokenKind::End}));
+    EXPECT_EQ(l.tokens.back().span.begin, 9u);  // End sits where the comment starts
+    ASSERT_TRUE(l.comment);
+    EXPECT_EQ(l.comment->begin, 11u);  // "triangle area", without the spaces around it
+    EXPECT_EQ(l.comment->end, 24u);
+    const Lexed bare = lex("1 + 2 #");
+    ASSERT_TRUE(bare.comment);
+    EXPECT_EQ(bare.comment->begin, bare.comment->end);
+    EXPECT_FALSE(lex("1 + 2").comment);
+    const Lexed note = lex("# only $ € here");  // nothing after # is lexed
+    ASSERT_FALSE(note.error);
+    EXPECT_EQ(kinds(note), (std::vector<TokenKind>{TokenKind::End}));
+}

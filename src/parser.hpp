@@ -27,9 +27,11 @@ struct Token {
 struct Lexed {
     std::optional<Error> error;
     std::vector<Token> tokens;  // always ends with End when there is no error
+    std::optional<Span> comment;  // the text after '#', without surrounding spaces; absent when there is no '#'
 };
 
 // Locale-free; ASCII plus the UTF-8 aliases × ÷ − π √ ∛ ² ³. `;` is a second spelling of the argument separator.
+// A '#' starts a comment that runs to the end.
 Lexed lex(std::string_view source);
 
 // Named expressions (Ans, M): the name is replaced by its text, in parentheses.
