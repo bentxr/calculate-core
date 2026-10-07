@@ -486,3 +486,20 @@ TEST(Session, APercentageKeepsItsMeaningInAns) {
     s.evaluate("200 + 10%", of);
     EXPECT_EQ(s.evaluate("Ans").value.digits, "22");  // 220 under the default too
 }
+
+// Where an elementary function's value is a known rational (ln 1 = 0, cos 0 = 1, log10 1000 = 3), the computed
+// value is checked against it, so a correct kernel claims no error there.
+TEST(Api, ElementaryFunctionsHaveNoErrorAtTheirExactPoints) {
+    for (const NumberType type : {NumberType::Float, NumberType::Double, NumberType::Binary128}) {
+        for (const char* text : {"ln(1)", "log10(1)", "log(1000)", "exp(0)", "sin(0)", "cos(0)", "tan(0)", "asin(0)",
+                                 "acos(1)", "atan(0)", "sinh(0)", "cosh(0)", "tanh(0)", "asinh(0)", "acosh(1)", "atanh(0)"}) {
+            const Result r = evaluate(text, as(type));
+            ASSERT_FALSE(r.error) << text;
+            EXPECT_EQ(r.bound, "0") << text;
+            EXPECT_EQ(r.trustedDigits, r.value.digits == "0" ? 1 : static_cast<int>(r.value.digits.size())) << text;
+        }
+    }
+    EXPECT_EQ(evaluate("ln(1)").value.digits, "0");
+    for (const char* text : {"ln(2)", "log10(0.001)", "sin(1e-300)", "exp(1e-300)", "cos(pi)", "log(1001)"})
+        EXPECT_NE(evaluate(text).bound, "0") << text;  // only the exact points
+}

@@ -836,6 +836,38 @@ bool exactRootResult(FunctionId id, const std::vector<T>& a, const T& value) {
     return false;
 }
 
+// The value of a one-argument elementary function where it is a known rational: ln 1 = 0, exp 0 = 1, sin 0 = 0,
+// cos 0 = 1, acos 1 = 0, log10 10^k = k…; nothing elsewhere.
+inline std::optional<Rational> exactPoint(FunctionId id, const Rational& x) {
+    switch (id) {
+    case FunctionId::Exp: return x == 0 ? std::optional<Rational>(1) : std::nullopt;
+    case FunctionId::Cos:
+    case FunctionId::Cosh: return x == 0 ? std::optional<Rational>(1) : std::nullopt;
+    case FunctionId::Sin:
+    case FunctionId::Tan:
+    case FunctionId::Asin:
+    case FunctionId::Atan:
+    case FunctionId::Sinh:
+    case FunctionId::Tanh:
+    case FunctionId::Asinh:
+    case FunctionId::Atanh: return x == 0 ? std::optional<Rational>(0) : std::nullopt;
+    case FunctionId::Ln:
+    case FunctionId::Acos:
+    case FunctionId::Acosh: return x == 1 ? std::optional<Rational>(0) : std::nullopt;
+    case FunctionId::Log10: {  // a whole power of ten (a binary type holds no negative ones)
+        if (x < 1 || denominator(x) != 1) return std::nullopt;
+        Integer n = numerator(x);
+        int k = 0;
+        while (n % 10 == 0) {
+            n /= 10;
+            ++k;
+        }
+        return n == 1 ? std::optional<Rational>(k) : std::nullopt;
+    }
+    default: return std::nullopt;
+    }
+}
+
 }  // namespace impl
 
 // A bound on |exact f(args) - computed value| for one node, with its arguments taken as exact.
@@ -855,6 +887,8 @@ Ruler localError(FunctionId id, const std::vector<T>& args, const Applied<T>& ap
                 return fromRational<Ruler>(abs(exact - toRational(applied.value)));
         }
         if (impl::exactRootResult(id, args, applied.value)) return Ruler(0);
+        if (args.size() == 1)
+            if (const auto exact = impl::exactPoint(id, exactArgs[0])) return fromRational<Ruler>(abs(*exact - toRational(applied.value)));
         switch (functionInfo(id).errorClass) {
         case ErrorClass::Exact: return Ruler(0);
         case ErrorClass::Checked: {
