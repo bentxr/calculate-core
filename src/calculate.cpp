@@ -162,6 +162,12 @@ bool Session::memorySubtract() {
     return true;
 }
 
+bool Session::memoryStore() {
+    if (answer_.empty()) return false;
+    memory_ = answer_;
+    return true;
+}
+
 void Session::memoryClear() { memory_.clear(); }
 
 }  // namespace calculate_core

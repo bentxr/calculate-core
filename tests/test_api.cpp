@@ -389,3 +389,15 @@ TEST(Api, EveryFunctionIsListedOnceByName) {
         }
     }
 }
+
+TEST(Session, MemoryStoreReplacesTheMemoryWithAns) {
+    Session s;
+    EXPECT_FALSE(s.memoryStore());  // nothing to store yet
+    EXPECT_EQ(s.memory(), "");
+    s.evaluate("2");
+    EXPECT_TRUE(s.memoryAdd());
+    s.evaluate("7");
+    EXPECT_TRUE(s.memoryStore());
+    EXPECT_EQ(s.memory(), "7");  // replaced, not added
+    EXPECT_EQ(s.evaluate("M + 1").value.digits, "8");
+}
