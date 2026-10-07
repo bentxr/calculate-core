@@ -409,3 +409,34 @@ TEST(Parser, StoredTextsUseTheCanonicalSpelling) {
     EXPECT_EQ(parse("log(8, 2) + sen(1)", natural).expanded, "log(8, 2) + sen(1)");  // nothing ambiguous
     EXPECT_EQ(parse("Ans*log(2)", natural, {{"Ans", "log10(5)"}}).expanded, "(log10(5))*ln(2)");
 }
+
+TEST(Parser, APercentageOfTheValueWhenTheConventionSaysSo) {
+    Options of;
+    of.conventions.percent = Conventions::Percent::OfValue;
+    EXPECT_EQ(treeWith("200+10%", of), "(+ 200 (/ (* 200 10) 100))");
+    EXPECT_EQ(treeWith("200-10%", of), "(- 200 (/ (* 200 10) 100))");
+    EXPECT_EQ(treeWith("200+(10%)", of), "(+ 200 (% 10))");   // parentheses block it
+    EXPECT_EQ(treeWith("200/10%", of), "(/ 200 (% 10))");     // only + and −
+    EXPECT_EQ(treeWith("200+2*10%", of), "(+ 200 (* 2 (% 10)))");  // only a whole percentage operand
+    EXPECT_EQ(treeWith("10%+200", of), "(+ (% 10) 200)");
+    EXPECT_EQ(tree("200+10%"), "(+ 200 (% 10))");             // the default divides
+    const Parsed p = parse("200+10%", of);
+    ASSERT_FALSE(p.error);
+    EXPECT_EQ(p.ast.nodes.size(), 6u);  // 200, 10, *, 100, /, +: 200 is shared and no % node is left behind
+}
+
+TEST(Parser, PercentagesAreWrittenOutInStoredTexts) {
+    Options of;
+    of.conventions.percent = Conventions::Percent::OfValue;
+    EXPECT_EQ(parse("200+10%", of).expanded, "200+((200)×(10))÷100");
+    EXPECT_EQ(parse("200+10%", AngleUnit::Radians).expanded, "200+(10%)");
+    EXPECT_EQ(parse("1+2-5%", of).expanded, "1+2-((1+2)×(5))÷100");
+    EXPECT_EQ(parse("Ans+10%", of, {{"Ans", "50"}}).expanded, "(50)+(((50))×(10))÷100");
+    EXPECT_EQ(parse("200*10%", of).expanded, "200*10%");  // nothing ambiguous
+}
+
+TEST(Parser, AnInfixPercentSuggestsRem) {
+    const Error e = parseError("3%2");
+    EXPECT_EQ(e.code, ErrorCode::MissingOperator);
+    EXPECT_NE(e.message.find("rem(3, 2)"), std::string::npos);
+}

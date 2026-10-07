@@ -134,6 +134,7 @@ TYPED_TEST(FuzzTest, NoExpressionBeatsItsBound) {
     other.angle = AngleUnit::Degrees;
     other.conventions.log = Conventions::Log::Natural;
     other.conventions.mod = Conventions::Mod::Floored;
+    other.conventions.percent = Conventions::Percent::OfValue;
     for (const Options& options : {Options(), other}) {
         Generator g(vocabulary(), 2026u + static_cast<unsigned>(options.angle));
         for (int i = 0; i < count; ++i) {

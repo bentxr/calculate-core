@@ -455,3 +455,34 @@ TEST(Session, ChangingAConventionNeverChangesAnEarlierResult) {
     EXPECT_FALSE(evaluate("mod(-7, 3)", floored).value.negative);
     EXPECT_EQ(evaluate("mod(-7, 3)").value.digits, "1");  // the default: truncated, -1
 }
+
+TEST(Api, PercentagesAddedOrSubtractedUnderEachConvention) {
+    Options of;
+    of.conventions.percent = Conventions::Percent::OfValue;
+    const Result up = evaluate("100 + 10%", of);
+    EXPECT_EQ(up.value.digits, "11");
+    EXPECT_EQ(up.value.exponent10, 2);
+    EXPECT_EQ(up.bound, "0");  // 100 × 10 and ÷ 100 are exact
+    EXPECT_EQ(evaluate("100 - 10%", of).value.digits, "9");
+    EXPECT_EQ(evaluate("100 × 10%", of).value.exponent10, 1);  // 10
+    EXPECT_EQ(evaluate("100 ÷ 10%", of).value.exponent10, 3);  // 1000
+    const Result shop = evaluate("19.99 + 21%", of);
+    EXPECT_EQ(shop.value.digits, "241878999999999990677679306827485561370849609375");
+    EXPECT_TRUE(shop.measurementReliable);
+    Options exactOf = of;
+    exactOf.type = NumberType::Exact;
+    const Result exact = evaluate("19.99 + 21%", exactOf);
+    EXPECT_EQ(exact.exact->numerator, "241879");
+    EXPECT_EQ(exact.exact->denominator, "10000");
+    EXPECT_EQ(evaluate("100 + 10% + 5%", exactOf).exact->numerator, "231");  // 231/2, compounded
+    EXPECT_EQ(evaluate("50 - 50%", exactOf).exact->numerator, "25");
+    EXPECT_EQ(evaluate("100 + 10%", as(NumberType::Exact)).exact->numerator, "1001");  // the default: 1001/10
+}
+
+TEST(Session, APercentageKeepsItsMeaningInAns) {
+    Session s;
+    Options of;
+    of.conventions.percent = Conventions::Percent::OfValue;
+    s.evaluate("200 + 10%", of);
+    EXPECT_EQ(s.evaluate("Ans").value.digits, "22");  // 220 under the default too
+}

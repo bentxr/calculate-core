@@ -247,9 +247,18 @@ private:
         int left = prefix();
         while (!error_) {
             const Token& t = peek();
-            if (startsOperand(t.kind))
+            if (startsOperand(t.kind)) {
+                if (position_ > 0 && tokens_[position_ - 1].kind == TokenKind::Percent) {  // 3%2: a remainder was meant
+                    const Span operand = spanOf(ast_.nodes[static_cast<std::size_t>(left)].args[0]);
+                    return fail(ErrorCode::MissingOperator,
+                                "Missing operator after '%' (for a remainder write rem("
+                                    + std::string(source_.substr(operand.begin, operand.end - operand.begin)) + ", "
+                                    + std::string(t.text) + "))",
+                                t.span);
+                }
                 return fail(ErrorCode::MissingOperator,
                             "Missing operator before '" + std::string(t.text) + "' (write 2×π, not 2π)", t.span);
+            }
             const int power = leftPower(t.kind);
             if (power <= minPower) break;
             const Token op = next();
@@ -261,8 +270,28 @@ private:
             case TokenKind::Cubed: left = node(FunctionId::Cube, {left}, postfix); continue;
             default: break;
             }
+            const bool bareRight = peek().kind != TokenKind::LeftParen;
             const int right = expression(op.kind == TokenKind::Caret ? power - 1 : power);  // ^ is right-associative
             if (error_) return -1;
+            // A percentage that is the whole right operand of + or −: under OfValue it is a percentage of the left
+            // operand (x ± x·p/100); under Divide it stays p/100. Either way the stored text says which, so a later
+            // change of the convention changes nothing. Parentheses around it (`(10%)`) block this reading.
+            if ((op.kind == TokenKind::Plus || op.kind == TokenKind::Minus) && bareRight
+                && ast_.nodes[static_cast<std::size_t>(right)].function == FunctionId::Percent) {
+                const int p = ast_.nodes[static_cast<std::size_t>(right)].args[0];
+                const Span percent = spanOf(right);
+                if (options_.conventions.percent == Conventions::Percent::Divide) {
+                    replacements_[percent.begin] = {percent.end, "(" + expandedText(percent) + ")"};
+                } else {
+                    replacements_[percent.begin] = {percent.end, "((" + expandedText(spanOf(left)) + ")×(" + expandedText(spanOf(p)) + "))÷100"};
+                    const Span whole{spanOf(left).begin, percent.end};
+                    ast_.nodes.pop_back();  // the % node is the last one made
+                    const int part = node(FunctionId::Divide,
+                                          {node(FunctionId::Multiply, {left, p}, whole), node(FunctionId::Literal, {}, whole, "100")}, whole);
+                    left = node(op.kind == TokenKind::Plus ? FunctionId::Add : FunctionId::Subtract, {left, part}, whole);
+                    continue;
+                }
+            }
             const FunctionId id = op.kind == TokenKind::Plus    ? FunctionId::Add
                                 : op.kind == TokenKind::Minus   ? FunctionId::Subtract
                                 : op.kind == TokenKind::Star    ? FunctionId::Multiply
