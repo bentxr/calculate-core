@@ -353,3 +353,16 @@ TEST(Parser, ArgumentCountsInTheirMessages) {
     EXPECT_EQ(parseError("root(8)").message, "root takes 2 arguments");
     EXPECT_EQ(parseError("mean()").message, "mean takes at least 1 argument");
 }
+
+TEST(Parser, OtherSpellingsNameTheFunctionItself) {
+    EXPECT_EQ(tree("log10(100)"), "(log 100)");
+    EXPECT_EQ(tree("sen(1)"), "(sin 1)");
+    EXPECT_EQ(tree("mcd(4, 6)"), "(gcd 4 6)");
+    EXPECT_EQ(parseError("log10(8, 2)").message, "log10 takes 1 argument");
+    EXPECT_EQ(tree("log(8, 2)"), "(logb 8 2)");
+    const Parsed p = parse("sen(1) + log10(2)", AngleUnit::Radians);
+    ASSERT_FALSE(p.error);
+    EXPECT_EQ(p.ast.nodes[1].written, "sen");  // 1, sin, 2, log10, +
+    EXPECT_EQ(p.ast.nodes[3].written, "log10");
+    EXPECT_EQ(p.ast.nodes[4].written, "");     // operators have no name
+}

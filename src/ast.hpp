@@ -27,6 +27,7 @@ struct Node {
     std::string text;       // the literal's source text (Literal only)
     std::vector<int> args;  // indices of earlier nodes
     Span span;
+    std::string written;  // the function's name as the user wrote it ("sen", "log10"), for messages; empty for operators and literals
 };
 
 // Post-order arena: every node's arguments come before it; the root is the last node.

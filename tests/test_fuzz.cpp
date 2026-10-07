@@ -41,7 +41,7 @@ Vocabulary vocabulary() {
                {"cosh", 1}, {"tanh", 1}, {"asinh", 1}, {"mean", -1}, {"varp", -1}, {"mod", 2},
                {"sqrt", 1}, {"cbrt", 1}, {"root", 2}, {"ln", 1}, {"log", 1}, {"log", 2}, {"tan", 1},
                {"asin", 1}, {"acos", 1}, {"acosh", 1}, {"atanh", 1}, {"var", -2}, {"stdev", -2}, {"stdevp", -1},
-               {"median", -1}};
+               {"median", -1}, {"log10", 1}, {"sen", 1}, {"arcsen", 1}};
     v.discrete = {{"gcd", 2}, {"lcm", 2}, {"nCr", 2}, {"nPr", 2}};
     return v;
 }

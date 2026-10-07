@@ -123,7 +123,7 @@ Forward<T> forward(const Ast& ast, const std::atomic<bool>* cancel = nullptr) {
         for (const int a : node.args) args.push_back(fw.values[a]);
         const Applied<T> r = applyFunction<T>(node.function, args, cancel);
         if (r.error) {
-            fw.error = impl::nodeError(node, *r.error, errorMessage(*r.error, functionInfo(node.function).name));
+            fw.error = impl::nodeError(node, *r.error, errorMessage(*r.error, nameOf(node)));
             return fw;
         }
         fw.values[i] = r.value;
@@ -352,7 +352,7 @@ Evaluation<T> evaluate(const Ast& ast, const Options& options = {}) {
                     const ErrorCode code = edge >= 0 ? ErrorCode::ArgumentNearEdge : ErrorCode::ArgumentNearJump;
                     const std::string carrier = edge >= 0 ? "argument" : "exponent";
                     ev.error = impl::nodeError(node, code,
-                                               errorMessage(code, symbolOf(node.function)) + "; its " + carrier
+                                               errorMessage(code, nameOf(node)) + "; its " + carrier
                                                    + " carries an error of up to " + formatScientific(b[edge >= 0 ? edge : 1]));
                     return ev;
                 }
@@ -365,7 +365,7 @@ Evaluation<T> evaluate(const Ast& ast, const Options& options = {}) {
                     const std::string what = power ? "exponent" : "order";
                     const std::string negative = power ? "base" : "radicand";
                     ev.error = impl::nodeError(node, ErrorCode::UncertainDiscreteArgument,
-                                               std::string(symbolOf(node.function)) + " needs an exactly known " + what
+                                               nameOf(node) + " needs an exactly known " + what
                                                    + " when its " + negative + " is negative; its " + what
                                                    + " carries an error of up to " + formatScientific(b[1]));
                     return ev;
@@ -375,7 +375,7 @@ Evaluation<T> evaluate(const Ast& ast, const Options& options = {}) {
         }
         const FunctionInfo& info = functionInfo(node.function);
         if (info.continuity == Continuity::Continuous) continue;
-        const std::string name = info.name.empty() ? "!" : std::string(info.name);
+        const std::string name = nameOf(node);
         if (info.continuity == Continuity::Piecewise) {
             const Ruler& bx = bounds[node.args[0]];
             const Ruler& by = bounds[node.args[1]];
