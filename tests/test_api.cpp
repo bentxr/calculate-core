@@ -605,3 +605,50 @@ TEST(Api, SumAndProductAreListed) {
         if ((f.name == "sum" || f.name == "product") && f.minArgs == 3 && f.maxArgs == 4 && f.exact) ++found;
     EXPECT_EQ(found, 2);
 }
+
+TEST(Api, ASumIsExactlyItsExpansion) {
+    std::string harmonic, sines, alternating;
+    for (int k = 1; k <= 10; ++k) {
+        const std::string i = std::to_string(k), plus = k > 1 ? "+" : "";
+        harmonic += plus + "1/" + i;
+        sines += plus + "sin(" + i + ")";
+        alternating += plus + "(-1)^" + i + "/" + i;
+    }
+    const std::vector<std::pair<std::string, std::string>> cases{
+        {"sum(1/x, 1, 10)", harmonic}, {"sum(sin(x), 1, 10)", sines}, {"sum((-1)^x/x, 1, 10)", alternating}};
+    for (const TypeInfo& t : numberTypes()) {
+        for (const auto& [sum, expansion] : cases) {
+            const Result a = evaluate(sum, as(t.type));
+            const Result b = evaluate(expansion, as(t.type));
+            ASSERT_EQ(a.error.has_value(), b.error.has_value()) << t.label << ": " << sum;
+            if (a.error) continue;  // sin in Exact
+            EXPECT_EQ(a.value.digits, b.value.digits) << t.label << ": " << sum;
+            EXPECT_EQ(a.value.exponent10, b.value.exponent10);
+            EXPECT_EQ(a.bound, b.bound) << t.label << ": " << sum;
+            EXPECT_EQ(a.inputError, b.inputError);
+            EXPECT_EQ(a.roundingError, b.roundingError);
+            EXPECT_EQ(a.libraryError, b.libraryError);
+            EXPECT_EQ(a.measured, b.measured);
+            EXPECT_EQ(a.conditionNumber, b.conditionNumber);
+            EXPECT_EQ(a.trustedDigits, b.trustedDigits);
+            EXPECT_EQ(a.roundingOperations, b.roundingOperations);
+            if (a.exact) {
+                EXPECT_EQ(a.exact->numerator + "/" + a.exact->denominator, b.exact->numerator + "/" + b.exact->denominator);
+            }
+        }
+    }
+}
+
+TEST(Api, TheIndexIsExactUnlessTheTypeCannotHoldIt) {
+    const Result factorials = evaluate("sum(x!, 1, 5)");
+    ASSERT_FALSE(factorials.error);  // the index is exactly known, so ! accepts it (R.4)
+    EXPECT_EQ(factorials.value.digits, "153");
+    EXPECT_EQ(evaluate("sum(x, 16777216, 16777218)").inputError, "0");
+    EXPECT_NE(evaluate("sum(x, 16777216, 16777218)", as(NumberType::Float)).inputError, "0");  // 16777217 needs 25 bits
+}
+
+TEST(Api, CancellationInALongSumShowsInKappa) {
+    const double plain = std::stod(evaluate("sum(1/x, 1, 100)").conditionNumber);
+    const double alternating = std::stod(evaluate("sum((-1)^x/x, 1, 100)").conditionNumber);
+    EXPECT_GT(alternating, plain);
+}

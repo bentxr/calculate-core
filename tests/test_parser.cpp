@@ -244,22 +244,22 @@ TEST(Parser, ExactArithmeticRefusesTranscendentals) {
 
 namespace {
 
-// Text to report, the way the facade will do it: parse, check exactness, evaluate.
+// Text to report, the way the facade does it: parse, check exactness, evaluate. (Plan 3 uses it too.)
 template <class T>
-Evaluation<T> evaluateText(std::string_view text, AngleUnit angle = AngleUnit::Radians) {
+Evaluation<T> evaluateText(std::string_view text, const Options& options = {}) {
     Evaluation<T> ev;
-    const Parsed p = parse(text, angle);
+    const Parsed p = parse(text, options);
     if (p.error) { ev.error = p.error; return ev; }
     if constexpr (isExact<T>) {
         if (auto e = checkExact(p.ast)) { ev.error = e; return ev; }
     }
-    return evaluate<T>(p.ast);
+    return detail::evaluate<T>(p.ast, options);
 }
 
 }  // namespace
 
 TEST(EndToEnd, SineOfOneEightyDegreesIsNotZeroAndSaysWhy) {
-    const Evaluation<double> ev = evaluateText<double>("sin(180)", AngleUnit::Degrees);
+    const Evaluation<double> ev = evaluateText<double>("sin(180)", [] { Options o; o.angle = AngleUnit::Degrees; return o; }());
     ASSERT_FALSE(ev.error);
     EXPECT_NE(ev.value, 0.0);
     EXPECT_LT(std::abs(ev.value), 1e-15);
@@ -606,4 +606,25 @@ TEST(Parser, SumAndProductSymbols) {
     EXPECT_EQ(tree("Π(x, 1, 3)"), tree("product(x, 1, 3)"));
     EXPECT_EQ(tree("∏(x, 1, 3)"), tree("product(x, 1, 3)"));
     EXPECT_NE(tree("π"), tree("Π(x, 1, 3)"));  // π is pi, Π is a product
+}
+
+template <class T>
+class SumTest : public ::testing::Test {};
+TYPED_TEST_SUITE(SumTest, test::FloatingTypes, test::TypeNames);
+
+// Against the exact rational sum: the bound covers the true error, and grows with the count.
+TYPED_TEST(SumTest, TheBoundCoversTheTrueErrorAndGrowsWithTheCount) {
+    using T = TypeParam;
+    using std::abs;
+    Ruler previous = 0;
+    for (const char* text : {"sum(1/x, 1, 10)", "sum(1/x, 1, 100)", "sum(1/x, 1, 1000)"}) {
+        const Evaluation<T> ev = evaluateText<T>(text);
+        const Evaluation<Rational> exact = evaluateText<Rational>(text);
+        ASSERT_FALSE(ev.error) << text;
+        ASSERT_FALSE(exact.error) << text;
+        const Ruler error = fromRational<Ruler>(abs(toRational(ev.value) - exact.value));
+        EXPECT_TRUE(test::covers(ev.report.bound, error)) << text;
+        EXPECT_GT(ev.report.bound, previous) << text;
+        previous = ev.report.bound;
+    }
 }
