@@ -592,3 +592,18 @@ TEST(Parser, SumsHaveATermLimit) {
     EXPECT_EQ(e.message, "sum is limited to 10000 terms");
     EXPECT_EQ(parseError("sum(sum(y, 1, 100, y), 1, 101)").code, ErrorCode::TooManyTerms);  // inner terms count too
 }
+
+TEST(Lexer, SumAndProductSymbolsAreNames) {
+    const Lexed l = lex("Σ(x, 1, 2)");
+    ASSERT_FALSE(l.error);
+    EXPECT_EQ(l.tokens[0].kind, TokenKind::Identifier);
+    EXPECT_EQ(l.tokens[0].text, "Σ");
+}
+
+TEST(Parser, SumAndProductSymbols) {
+    EXPECT_EQ(tree("Σ(x, 1, 3)"), tree("sum(x, 1, 3)"));
+    EXPECT_EQ(tree("∑(x, 1, 3)"), tree("sum(x, 1, 3)"));
+    EXPECT_EQ(tree("Π(x, 1, 3)"), tree("product(x, 1, 3)"));
+    EXPECT_EQ(tree("∏(x, 1, 3)"), tree("product(x, 1, 3)"));
+    EXPECT_NE(tree("π"), tree("Π(x, 1, 3)"));  // π is pi, Π is a product
+}

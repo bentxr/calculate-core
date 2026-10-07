@@ -41,6 +41,9 @@ constexpr std::array<Alias, 8> aliases{{
     {"\xC2\xB3", TokenKind::Cubed},           // ³
 }};
 
+// Symbols that are names: Σ ∑ (sum) and Π ∏ (product).
+constexpr std::array<std::string_view, 4> symbolNames{"\xCE\xA3", "\xE2\x88\x91", "\xCE\xA0", "\xE2\x88\x8F"};
+
 Error makeError(ErrorCode code, std::string message, Span span) {
     return Error{code, std::move(message), span.begin, span.end};
 }
@@ -150,6 +153,13 @@ Lexed lex(std::string_view s) {
             ++i;
             continue;
         }
+        const auto symbol = std::find_if(symbolNames.begin(), symbolNames.end(),
+                                         [&](std::string_view bytes) { return s.substr(i, bytes.size()) == bytes; });
+        if (symbol != symbolNames.end()) {
+            push(TokenKind::Identifier, i, i + symbol->size());
+            i += symbol->size();
+            continue;
+        }
         const auto alias = std::find_if(aliases.begin(), aliases.end(),
                                         [&](const Alias& a) { return s.substr(i, a.bytes.size()) == a.bytes; });
         if (alias != aliases.end()) {
@@ -230,8 +240,8 @@ int leftPower(TokenKind k) {
 enum class Range { None, Sum, Product };
 
 Range rangeNamed(std::string_view name) {
-    if (name == "sum") return Range::Sum;
-    if (name == "product") return Range::Product;
+    if (name == "sum" || name == "\xCE\xA3" || name == "\xE2\x88\x91") return Range::Sum;          // Σ ∑
+    if (name == "product" || name == "\xCE\xA0" || name == "\xE2\x88\x8F") return Range::Product;  // Π ∏
     return Range::None;
 }
 

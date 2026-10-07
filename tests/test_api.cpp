@@ -598,3 +598,10 @@ TEST(Api, SumsAndProducts) {
     EXPECT_EQ(evaluate("sum(x^2, -2, 2)").value.digits, "1");    // 10
     EXPECT_EQ(evaluate("sum(sum(y, 1, x, y), 1, 3)").value.digits, "1");  // 1 + 3 + 6 = 10
 }
+
+TEST(Api, SumAndProductAreListed) {
+    int found = 0;
+    for (const FunctionDescription& f : functions())
+        if ((f.name == "sum" || f.name == "product") && f.minArgs == 3 && f.maxArgs == 4 && f.exact) ++found;
+    EXPECT_EQ(found, 2);
+}
