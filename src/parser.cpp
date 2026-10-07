@@ -135,16 +135,19 @@ Statistic statisticNamed(std::string_view name) {
 }
 
 // Spanish names of functions, in lowercase like every other name, and the function each one stands for.
-constexpr std::array<std::pair<std::string_view, std::string_view>, 10> spanishNames{{
-    {"sen", "sin"}, {"arcsen", "asin"}, {"arccos", "acos"}, {"arctan", "atan"},
-    {"senh", "sinh"}, {"arcsenh", "asinh"}, {"arccosh", "acosh"}, {"arctanh", "atanh"},
-    {"mcd", "gcd"}, {"mcm", "lcm"},
+// Other spellings of functions: Spanish calculator names and common variants. They name the function
+// itself, so a convention that changes what `log` means leaves `log10` alone.
+constexpr std::array<std::pair<std::string_view, FunctionId>, 11> functionAliases{{
+    {"sen", FunctionId::Sin}, {"arcsen", FunctionId::Asin}, {"arccos", FunctionId::Acos},
+    {"arctan", FunctionId::Atan}, {"senh", FunctionId::Sinh}, {"arcsenh", FunctionId::Asinh},
+    {"arccosh", FunctionId::Acosh}, {"arctanh", FunctionId::Atanh}, {"mcd", FunctionId::Gcd},
+    {"mcm", FunctionId::Lcm}, {"log10", FunctionId::Log10},
 }};
 
 // The function with this name (pi and e are constants, not functions).
 std::optional<FunctionId> functionNamed(std::string_view name) {
-    for (const auto& [spanish, english] : spanishNames)
-        if (name == spanish) name = english;
+    for (const auto& [alias, id] : functionAliases)
+        if (name == alias) return id;
     for (int i = 0; i < functionCount; ++i) {
         const FunctionInfo& info = functionInfo(static_cast<FunctionId>(i));
         if (!info.name.empty() && info.name == name && info.minArgs > 0) return info.id;
@@ -216,6 +219,11 @@ private:
         n.text = std::move(text);
         ast_.nodes.push_back(std::move(n));
         return static_cast<int>(ast_.nodes.size()) - 1;
+    }
+
+    int named(int n, const std::string& written) {
+        ast_.nodes[static_cast<std::size_t>(n)].written = written;
+        return n;
     }
 
     Span spanOf(int n) const { return ast_.nodes[static_cast<std::size_t>(n)].span; }
@@ -333,29 +341,29 @@ private:
         if (const Statistic s = statisticNamed(name); s != Statistic::None) return statistic(s, name, args, span);
         std::optional<FunctionId> id = functionNamed(name);
         if (!id) return fail(ErrorCode::UnknownName, "Unknown function '" + name + "'", t.span);
-        if (*id == FunctionId::Log10 && count == 2) id = FunctionId::LogBase;
+        if (*id == FunctionId::Log10 && count == 2 && name == "log") id = FunctionId::LogBase;
         const FunctionInfo& info = functionInfo(*id);
         if (count < info.minArgs || (info.maxArgs >= 0 && count > info.maxArgs)) {
             const std::string expected = name == "log" ? "1 or 2 arguments" : argumentCount(info.minArgs, info.maxArgs < 0);
             return fail(ErrorCode::WrongArgumentCount, name + " takes " + expected, span);
         }
-        return withAngles(*id, std::move(args), span);
+        return withAngles(*id, std::move(args), span, name);
     }
 
     // Degrees and gradians become radians on the way in, and back on the way out, as explicit
     // arithmetic through pi: its error stays visible in the report.
-    int withAngles(FunctionId id, std::vector<int> args, Span span) {
+    int withAngles(FunctionId id, std::vector<int> args, Span span, const std::string& written) {
         const bool direct = id == FunctionId::Sin || id == FunctionId::Cos || id == FunctionId::Tan;
         const bool inverse = id == FunctionId::Asin || id == FunctionId::Acos || id == FunctionId::Atan;
-        if (angle_ == AngleUnit::Radians || (!direct && !inverse)) return node(id, std::move(args), span);
+        if (angle_ == AngleUnit::Radians || (!direct && !inverse)) return named(node(id, std::move(args), span), written);
         const std::string full = angle_ == AngleUnit::Degrees ? "180" : "200";
         if (direct) {
             const int pi = node(FunctionId::Pi, {}, span);
             const int factor = node(FunctionId::Divide, {pi, node(FunctionId::Literal, {}, span, full)}, span);
             args[0] = node(FunctionId::Multiply, {args[0], factor}, span);
-            return node(id, std::move(args), span);
+            return named(node(id, std::move(args), span), written);
         }
-        const int radians = node(id, std::move(args), span);
+        const int radians = named(node(id, std::move(args), span), written);
         const int top = node(FunctionId::Literal, {}, span, full);
         const int factor = node(FunctionId::Divide, {top, node(FunctionId::Pi, {}, span)}, span);
         return node(FunctionId::Multiply, {radians, factor}, span);
@@ -413,7 +421,7 @@ std::optional<Error> checkExact(const Ast& ast) {
     for (const Node& n : ast.nodes) {
         const FunctionInfo& info = functionInfo(n.function);
         if (info.exact) continue;
-        const std::string name = n.function == FunctionId::Pi ? "π" : std::string(info.name);
+        const std::string name = n.function == FunctionId::Pi ? "π" : nameOf(n);
         return makeError(ErrorCode::NotAvailableInExact, errorMessage(ErrorCode::NotAvailableInExact, name), n.span);
     }
     return std::nullopt;

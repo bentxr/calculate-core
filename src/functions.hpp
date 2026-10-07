@@ -102,6 +102,9 @@ inline std::string_view symbolOf(FunctionId id) {
     }
 }
 
+// How messages name a node: as the user wrote the function, else as symbolOf says.
+inline std::string nameOf(const Node& n) { return n.written.empty() ? std::string(symbolOf(n.function)) : n.written; }
+
 // English messages; `name` is the function's name and may be empty.
 inline std::string errorMessage(ErrorCode code, std::string_view name) {
     const std::string n(name);

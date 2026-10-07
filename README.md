@@ -126,7 +126,7 @@ transcendental functions are unavailable.
 | Integers | `mod(a, b)  gcd  lcm  nCr  nPr` |
 | Statistics | `mean  median  var  stdev  varp  stdevp` of any number of values |
 
-`^` is right-associative, `-2^2` is −4, `%` divides by 100, `log(x)` is base 10, and `mod` keeps
+`^` is right-associative, `-2^2` is −4, `%` divides by 100, `log(x)` is base 10 (`log10(x)` is always base 10), and `mod` keeps
 the sign of `a`. There is no implicit multiplication: write `2π` as `2×π`.
 Arguments are separated by `,` or `;`.
 The Spanish names work too: `sen  arcsen  arccos  arctan`, `senh  arcsenh  arccosh  arctanh`,

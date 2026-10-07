@@ -114,6 +114,7 @@ public:
     Result preview(std::string_view expression, const Options& options = {}) const;
     bool memoryAdd();       // M = M + Ans; false when there is no Ans
     bool memorySubtract();  // M = M - Ans; false when there is no Ans
+    bool memoryStore();     // M = Ans; false when there is no Ans
     void memoryClear();
     const std::string& answer() const { return answer_; }
     const std::string& memory() const { return memory_; }

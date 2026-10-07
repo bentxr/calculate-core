@@ -389,3 +389,22 @@ TEST(Api, EveryFunctionIsListedOnceByName) {
         }
     }
 }
+
+TEST(Session, MemoryStoreReplacesTheMemoryWithAns) {
+    Session s;
+    EXPECT_FALSE(s.memoryStore());  // nothing to store yet
+    EXPECT_EQ(s.memory(), "");
+    s.evaluate("2");
+    EXPECT_TRUE(s.memoryAdd());
+    s.evaluate("7");
+    EXPECT_TRUE(s.memoryStore());
+    EXPECT_EQ(s.memory(), "7");  // replaced, not added
+    EXPECT_EQ(s.evaluate("M + 1").value.digits, "8");
+}
+
+TEST(Api, MessagesUseTheNameAsWritten) {
+    EXPECT_EQ(evaluate("log10(-1)").error->message, "log10 is not defined for this argument");
+    EXPECT_EQ(evaluate("arcsen(2)").error->message, "arcsen is not defined for this argument");
+    EXPECT_EQ(evaluate("sen(1)", as(NumberType::Exact)).error->message,
+              "sen is not available in exact arithmetic: its result is irrational");
+}
