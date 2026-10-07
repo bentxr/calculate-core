@@ -503,3 +503,30 @@ TEST(Api, ElementaryFunctionsHaveNoErrorAtTheirExactPoints) {
     for (const char* text : {"ln(2)", "log10(0.001)", "sin(1e-300)", "exp(1e-300)", "cos(pi)", "log(1001)"})
         EXPECT_NE(evaluate(text).bound, "0") << text;  // only the exact points
 }
+
+TEST(Api, CommentsAreKeptButNotEvaluated) {
+    const Result r = evaluate("(5×2)/2 # triangle area");
+    ASSERT_FALSE(r.error);
+    EXPECT_EQ(r.value.digits, "5");
+    EXPECT_EQ(r.comment, "triangle area");
+    EXPECT_EQ(r.expression, "(5×2)/2");
+    EXPECT_FALSE(r.commentOnly);
+    const Result note = evaluate("# shopping list");
+    ASSERT_FALSE(note.error);
+    EXPECT_TRUE(note.commentOnly);
+    EXPECT_EQ(note.comment, "shopping list");
+    EXPECT_TRUE(note.value.digits.empty());
+}
+
+TEST(Session, CommentsStayInTheHistoryButNotInAns) {
+    Session s;
+    s.evaluate("1 + 2 # three");
+    EXPECT_EQ(s.answer(), "1 + 2");
+    EXPECT_EQ(s.evaluate("Ans*2").value.digits, "6");
+    EXPECT_FALSE(s.evaluate("# a note").error);
+    EXPECT_EQ(s.answer(), "(1 + 2)*2");  // a note changes nothing but the history
+    ASSERT_EQ(s.history().size(), 3u);
+    EXPECT_EQ(s.history()[0].input, "1 + 2 # three");
+    EXPECT_EQ(s.history()[0].result.comment, "three");
+    EXPECT_TRUE(s.history()[2].result.commentOnly);
+}

@@ -70,6 +70,7 @@ Result build(const Parsed& parsed, const Options& options) {
     r.boundComplete = report.boundComplete;
     r.roundingOperations = report.roundingOperations;
     r.expression = parsed.expanded;
+    r.comment = parsed.comment;
     return r;
 }
 
@@ -79,6 +80,11 @@ Result evaluateWithNames(std::string_view text, const Options& options, const Na
     r.type = options.type;
     if (parsed.error) {
         r.error = parsed.error;
+        return r;
+    }
+    if (parsed.commentOnly) {
+        r.comment = parsed.comment;
+        r.commentOnly = true;
         return r;
     }
     if (options.type == NumberType::Exact) {
@@ -141,7 +147,7 @@ Result evaluate(std::string_view expression, const Options& options) {
 Result Session::evaluate(std::string_view expression, const Options& options) {
     Result r = evaluateWithNames(expression, options, namesOf(answer_, memory_));
     if (!r.error) {
-        answer_ = r.expression;
+        if (!r.commentOnly) answer_ = r.expression;  // a note changes nothing but the history
         history_.push_back({std::string(expression), r});
     }
     return r;

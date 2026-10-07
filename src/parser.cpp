@@ -484,7 +484,16 @@ Parsed parse(std::string_view source, const Options& options, const Names& names
         out.error = lexed.error;
         return out;
     }
-    return Parser(source, std::move(lexed.tokens), options, names).run();
+    const std::string comment = lexed.comment ? std::string(source.substr(lexed.comment->begin, lexed.comment->end - lexed.comment->begin)) : "";
+    if (lexed.comment && lexed.tokens.size() == 1) {  // only End: a note
+        Parsed out;
+        out.comment = comment;
+        out.commentOnly = true;
+        return out;
+    }
+    Parsed out = Parser(source, std::move(lexed.tokens), options, names).run();
+    if (!out.error) out.comment = comment;
+    return out;
 }
 
 std::optional<Error> checkExact(const Ast& ast) {

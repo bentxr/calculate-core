@@ -458,3 +458,17 @@ TEST(Lexer, ACommentEndsTheExpression) {
     ASSERT_FALSE(note.error);
     EXPECT_EQ(kinds(note), (std::vector<TokenKind>{TokenKind::End}));
 }
+
+TEST(Parser, ACommentIsKeptApart) {
+    const Parsed p = parse("Ans*2 # twice", AngleUnit::Radians, {{"Ans", "1+2"}});
+    ASSERT_FALSE(p.error);
+    EXPECT_EQ(p.expanded, "(1+2)*2");  // the expression only, without the space before '#'
+    EXPECT_EQ(p.comment, "twice");
+    EXPECT_FALSE(p.commentOnly);
+    const Parsed note = parse("  # just a note ", AngleUnit::Radians);
+    ASSERT_FALSE(note.error);
+    EXPECT_TRUE(note.commentOnly);
+    EXPECT_EQ(note.comment, "just a note");
+    EXPECT_TRUE(note.ast.nodes.empty());
+    EXPECT_EQ(parseError("1 + # oops").code, ErrorCode::UnexpectedEnd);
+}

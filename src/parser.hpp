@@ -40,7 +40,9 @@ using Names = std::map<std::string, std::string, std::less<>>;
 struct Parsed {
     std::optional<Error> error;
     Ast ast;
-    std::string expanded;  // the source with every name replaced by "(" + its text + ")"
+    std::string expanded;  // the expression only (no comment), every name replaced by "(" + its text + ")"
+    std::string comment;   // the text after '#', trimmed; "" when none
+    bool commentOnly = false;  // the source holds nothing but a comment
 };
 
 Parsed parse(std::string_view source, const Options& options, const Names& names = {});

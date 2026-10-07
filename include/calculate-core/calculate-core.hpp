@@ -109,6 +109,8 @@ struct Result {
     bool boundComplete = true;        // false when uncertain discrete arguments were allowed
     int roundingOperations = 0;       // operations whose result was actually rounded
     std::string expression;           // what was evaluated, with Ans and M expanded
+    std::string comment;              // the text after '#', "" when none
+    bool commentOnly = false;         // the input was only a comment: a note with no value
 };
 
 Result evaluate(std::string_view expression, const Options& options = {});
