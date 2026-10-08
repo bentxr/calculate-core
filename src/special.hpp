@@ -119,6 +119,23 @@ Special<T> lgammaPositive(DoubleWord<T> z) {
     return r;
 }
 
+template <class T>
+std::pair<DoubleWord<T>, DoubleWord<T>> sinCosPi(const T& x);
+
+// ln|Gamma(x)| for any x that is not a pole: the reflection Gamma(x) Gamma(1-x) = pi / sin(pi x) (DLMF 5.5.3) for x < 0.
+template <class T>
+Special<T> lgammaWord(const T& x) {
+    using std::abs;
+    if (x > 0) return lgammaPositive(dw(x));
+    const DoubleWord<T> s = sinCosPi(x).first;
+    const DoubleWord<T> a = logWord(impl::word<T>(ConstantId::Pi)) - logWord(s.hi < 0 ? -s : s);  // ln(pi / |sin(pi x)|)
+    const Special<T> g = lgammaPositive(dw(T(1)) - x);  // 1 - x as a double word: exact
+    Special<T> r;
+    r.value = a - g.value;
+    r.scale = abs(a.hi) + g.scale;
+    return r;
+}
+
 // sin(pi x) and cos(pi x) as double words. x = n + r with r = x - n exact and |r| <= 1/2, so sin(pi x) is accurate
 // relative to itself even next to an integer (what the reflection formulas need).
 template <class T>

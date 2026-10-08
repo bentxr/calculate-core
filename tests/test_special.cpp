@@ -93,3 +93,10 @@ TEST(Special, LogGammaIsAlsoLngamma) {
     EXPECT_EQ(evaluate("lgamma(3)", [] { Options o; o.type = NumberType::Exact; return o; }()).error->code,
               ErrorCode::NotAvailableInExact);
 }
+
+TYPED_TEST(SpecialKernelTest, LogGammaOfNegativeArguments) {
+    using T = TypeParam;
+    test::expectSpecialWithinClaim<T>(FunctionId::Lgamma, [](auto& rng) { return std::vector<T>{uniform<T>(rng, -20, -0.01)}; });
+    for (const T& pole : {T(0), T(-1), T(-7)})
+        EXPECT_EQ(applyFunction<T>(FunctionId::Lgamma, {pole}).error.value_or(ErrorCode::Cancelled), ErrorCode::DomainError);
+}

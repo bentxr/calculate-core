@@ -479,8 +479,7 @@ Applied<T> specialFunction(FunctionId id, const std::vector<T>& a, [[maybe_unuse
     case FunctionId::Lgamma:
         if (x <= 0 && isInteger(x)) return fail<T>(ErrorCode::DomainError);  // a pole
         if (x == 1 || x == 2) return ok<T>(T(0));                            // the exact zeros
-        if (x < 0) return fail<T>(ErrorCode::DomainError);                   // reflection: next step
-        s = lgammaPositive(dw(x));
+        s = lgammaWord(x);
         break;
     default: return fail<T>(ErrorCode::DomainError);
     }
