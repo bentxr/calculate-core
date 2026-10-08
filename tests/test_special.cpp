@@ -1,0 +1,42 @@
+#include "special_oracle.hpp"
+
+using namespace calculate_core;
+using namespace calculate_core::detail;
+using std::ldexp;
+using test::logUniform;
+using test::randomSign;
+using test::uniform;
+
+TEST(SpecialOracle, AgreesWithMpfr) {
+    using O = Ruler;
+    namespace bm = boost::math;
+    // MPFR 4.2.2 at 1600 bits (generator in the plan, cycle 2.22).
+    const std::pair<O, const char*> cases[] = {
+        {bm::tgamma(O(0.5)), "1.77245385090551602729816748334114518279754945612239"},
+        {bm::tgamma(O(-2.5)), "-0.945308720482941881225689324448610764158693043265273"},
+        {bm::lgamma(O(2.5)), "0.284682870472919159632494669682701924320137695559895"},
+        {bm::digamma(O(1)), "-0.577215664901532860606512090082402431042159335939924"},
+        {bm::erf(O(0.5)), "0.520499877813046537682746653891964528736451575757964"},
+        {bm::erfc(O(3)), "2.20904969985854413727761295823203798477070873992497e-5"},
+        {bm::beta(O(1.5), O(2.5)), "0.196349540849362077403915211454968930262323087460944"},
+        {bm::gamma_q(O(1.5), O(2.5)), "0.171797144296733135063606652183051499789098236805969"},
+        {bm::erf_inv(O(0.5)), "0.476936276204469873381418353643130559808969749059471"},
+    };
+    for (const auto& [value, reference] : cases)
+        EXPECT_LE(abs(value - O(reference)), ldexp(abs(O(reference)), -160)) << reference;
+    EXPECT_LE(abs(bm::trigamma(O(1)) - acos(O(-1)) * acos(O(-1)) / 6), ldexp(O(1), -900));  // psi'(1) = pi^2/6
+}
+
+TEST(SpecialOracle, IncompleteBetaSeriesMatchesExactValues) {
+    using O = Ruler;
+    const O tolerance = ldexp(O(1), -900);
+    // Integer a, b: I_x(a, b) = sum_{j=a}^{a+b-1} C(a+b-1, j) x^j (1-x)^(a+b-1-j), a rational (python3 fractions).
+    EXPECT_LE(abs(test::betaincReference(O(10), O(3), O(0.375)) - O(108591111) / O(68719476736)), tolerance);
+    EXPECT_LE(abs(test::betaincReference(O(2), O(3), O(0.5)) - O(11) / O(16)), tolerance);
+    EXPECT_LE(abs(test::betaincReference(O(3), O(10), O(0.625)) - (1 - O(108591111) / O(68719476736))), tolerance);
+    EXPECT_LE(abs(test::betaincReference(O(1.5), O(2.5), O(0.25)) - O(1) / O(3)), tolerance);  // MPFR: 1/3
+    const O x(0.2);  // the arcsine law: I_x(1/2, 1/2) = (2/pi) asin(sqrt(x))
+    EXPECT_LE(abs(test::betaincReference(O(0.5), O(0.5), x) - 2 * asin(sqrt(x)) / acos(O(-1))), tolerance);
+    const O y = test::betaincReference(O(10), O(3), O(0.375));
+    EXPECT_LE(abs(test::betaincinvReference(O(10), O(3), y, O(0.4)) - O(0.375)), tolerance);
+}

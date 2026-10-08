@@ -34,6 +34,23 @@ endif()
 include(GoogleTest)
 gtest_discover_tests(calculate-core-tests DISCOVERY_MODE PRE_TEST)
 
+# Boost.Math is used by these tests only, as an independent oracle for the special functions. Not in the browser
+# build: Boost.Math refuses Emscripten's long double, which its erf_inv reaches through Boost.Multiprecision.
+if(NOT EMSCRIPTEN)
+    FetchContent_Declare(boost_math
+        URL      https://github.com/boostorg/math/archive/refs/tags/boost-1.92.0.tar.gz
+        URL_HASH SHA256=aa84eec67402a51cb98172ece53b82f0500e95a80656de109074a71920cd2c48
+        SOURCE_SUBDIR no-cmake)
+    FetchContent_MakeAvailable(boost_math)
+    add_executable(calculate-core-special-tests test_special.cpp)
+    target_include_directories(calculate-core-special-tests PRIVATE ${PROJECT_SOURCE_DIR}/src)
+    target_include_directories(calculate-core-special-tests SYSTEM PRIVATE ${boost_math_SOURCE_DIR}/include)
+    target_compile_definitions(calculate-core-special-tests PRIVATE BOOST_MATH_STANDALONE)
+    target_link_libraries(calculate-core-special-tests PRIVATE
+        calculate-core calculate-core-boost calculate-core-warnings GTest::gtest_main)
+    gtest_discover_tests(calculate-core-special-tests DISCOVERY_MODE PRE_TEST)
+endif()
+
 # Golden files: calc's exact output, which must be identical on every platform (only long double
 # differs, because it is a different format: 64-bit significand on x86, 113-bit elsewhere).
 if(EMSCRIPTEN OR NOT CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64|i[3-6]86")
