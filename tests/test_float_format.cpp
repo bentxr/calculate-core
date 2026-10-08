@@ -104,3 +104,61 @@ TYPED_TEST(FormatOfTest, AgreesWithTheTypesOwnRounding) {
         EXPECT_EQ(v.negative ? Rational(-v.magnitude) : v.magnitude, toRational(fromRational<T>(q)));
     }
 }
+
+namespace {
+
+using calculate_core::FloatClass;
+
+Integer bits(const std::string& hex) { return Integer("0x" + hex); }  // Boost's string constructor: tests only
+
+FloatValue finite(const Rational& q, const BinaryFormat& f) { return roundToFormat(q < 0, abs(q), f, true); }
+
+FloatValue special(FloatClass kind, bool negative = false) {
+    FloatValue v;
+    v.kind = kind;
+    v.negative = negative;
+    return v;
+}
+
+}  // namespace
+
+TEST(Encode, TheBitsOfATenth) {
+    EXPECT_EQ(encode(binary16, finite(Rational(1, 10), binary16)), bits("2E66"));
+    EXPECT_EQ(encode(bfloat16, finite(Rational(1, 10), bfloat16)), bits("3DCD"));
+    EXPECT_EQ(encode(binary32, finite(Rational(1, 10), binary32)), bits("3DCCCCCD"));
+    EXPECT_EQ(encode(binary64, finite(Rational(1, 10), binary64)), bits("3FB999999999999A"));
+    EXPECT_EQ(encode(x87Extended, finite(Rational(1, 10), x87Extended)), bits("3FFBCCCCCCCCCCCCCCCD"));
+    EXPECT_EQ(encode(binary128, finite(Rational(1, 10), binary128)), bits("3FFB999999999999999999999999999A"));
+}
+
+TEST(Encode, OneInEveryFormat) {
+    EXPECT_EQ(encode(binary16, finite(Rational(1), binary16)), bits("3C00"));
+    EXPECT_EQ(encode(bfloat16, finite(Rational(1), bfloat16)), bits("3F80"));
+    EXPECT_EQ(encode(binary32, finite(Rational(1), binary32)), bits("3F800000"));
+    EXPECT_EQ(encode(x87Extended, finite(Rational(1), x87Extended)), bits("3FFF8000000000000000"));  // the stored leading 1
+    EXPECT_EQ(encode(binary128, finite(Rational(1), binary128)), bits("3FFF0000000000000000000000000000"));
+    EXPECT_EQ(encode(binary256, finite(Rational(1), binary256)), bits("3FFFF" + std::string(59, '0')));
+    EXPECT_EQ(encode(binary512, finite(Rational(1), binary512)), bits("3FFFFF" + std::string(122, '0')));
+}
+
+TEST(Encode, ZerosSubnormalsAndExtremes) {
+    EXPECT_EQ(encode(binary64, special(FloatClass::Zero, true)), bits("8000000000000000"));
+    EXPECT_EQ(encode(binary16, finite(pow2(-24), binary16)), bits("0001"));
+    EXPECT_EQ(encode(binary16, finite(Rational(65504), binary16)), bits("7BFF"));
+    EXPECT_EQ(encode(x87Extended, finite(pow2(-16445), x87Extended)), bits("00000000000000000001"));  // no leading bit below the normal range
+    EXPECT_EQ(encode(x87Extended, finite(pow2(-16382), x87Extended)), bits("00018000000000000000"));
+    EXPECT_EQ(encode(binary128, finite(pow2(-16382), binary128)), bits("00010000000000000000000000000000"));
+}
+
+TEST(Encode, InfinitiesAndNaNs) {
+    EXPECT_EQ(encode(binary32, special(FloatClass::Infinite)), bits("7F800000"));
+    EXPECT_EQ(encode(binary32, special(FloatClass::Infinite, true)), bits("FF800000"));
+    EXPECT_EQ(encode(binary32, special(FloatClass::QuietNaN)), bits("7FC00000"));
+    FloatValue signaling = special(FloatClass::SignalingNaN);
+    signaling.payload = 1;
+    EXPECT_EQ(encode(binary32, signaling), bits("7F800001"));
+    EXPECT_EQ(encode(binary16, special(FloatClass::QuietNaN)), bits("7E00"));
+    EXPECT_EQ(encode(x87Extended, special(FloatClass::Infinite)), bits("7FFF8000000000000000"));
+    EXPECT_EQ(encode(x87Extended, special(FloatClass::QuietNaN)), bits("7FFFC000000000000000"));
+    EXPECT_EQ(encode(binary128, special(FloatClass::QuietNaN)), bits("7FFF8000000000000000000000000000"));
+}

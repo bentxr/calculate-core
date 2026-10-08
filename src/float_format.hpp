@@ -68,4 +68,48 @@ inline FloatValue roundToFormat(bool negative, const Rational& magnitude, const 
     return v;
 }
 
+// The bit pattern of v in f, as an integer. The fields as IEEE 754 §3.4 lays them out (x87: Intel SDM vol. 1 §4.2.2).
+// v is not Noncanonical, and a finite magnitude is exactly representable in f.
+inline Integer encode(const BinaryFormat& f, const FloatValue& v) {
+    using calculate_core::FloatClass;
+    const unsigned w = static_cast<unsigned>(f.exponentBits);
+    const unsigned t = static_cast<unsigned>(f.fractionBits);
+    const int p = f.precision();
+    const long long emin = f.minExponent();
+    const Integer one = 1;
+    const Integer allOnes = (one << w) - 1;
+    Integer exponent = 0, fraction = 0;
+    switch (v.kind) {
+    case FloatClass::Zero: break;
+    case FloatClass::Subnormal:
+    case FloatClass::Normal: {
+        const long long e = impl::floorLog2(v.magnitude);
+        if (e >= emin) {
+            exponent = Integer(e + f.bias());
+            const Integer m = numerator(scaleByPowerOfTwo(v.magnitude, p - 1 - e));
+            fraction = f.explicitLeadingBit ? m : Integer(m - (one << static_cast<unsigned>(p - 1)));
+        } else {  // below the normal range: no leading bit, also for the x87
+            fraction = numerator(scaleByPowerOfTwo(v.magnitude, p - 1 - emin));
+        }
+        break;
+    }
+    case FloatClass::Infinite:
+        exponent = allOnes;
+        if (f.explicitLeadingBit) fraction = one << (t - 1);
+        break;
+    case FloatClass::QuietNaN:
+    case FloatClass::SignalingNaN: {
+        exponent = allOnes;
+        const Integer quiet = f.explicitLeadingBit ? Integer(one << (t - 2)) : Integer(one << (t - 1));
+        fraction = v.payload;
+        if (f.explicitLeadingBit) fraction |= one << (t - 1);
+        if (v.kind == FloatClass::QuietNaN) fraction |= quiet;
+        break;
+    }
+    case FloatClass::Noncanonical: break;  // never encoded: see the precondition
+    }
+    const Integer sign = v.negative ? Integer(1) : Integer(0);
+    return (sign << static_cast<unsigned>(f.storageBits() - 1)) | (exponent << t) | fraction;
+}
+
 }  // namespace calculate_core::detail
