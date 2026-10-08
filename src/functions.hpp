@@ -96,6 +96,7 @@ inline const FunctionInfo& functionInfo(FunctionId id) {
         {F::Floor, "floor", 1, 1, C::Exact, K::Piecewise, true},
         {F::Trunc, "trunc", 1, 1, C::Exact, K::Piecewise, true},
         {F::Round, "round", 1, 1, C::Exact, K::Piecewise, true},
+        {F::Sgn, "sgn", 1, 1, C::Exact, K::Piecewise, true},
         {F::Median, "median", 1, -1, C::Checked, K::Continuous, true},
     }};
     return table[static_cast<std::size_t>(id)];
@@ -526,6 +527,7 @@ Applied<T> applyFunction(FunctionId id, const std::vector<T>& a, const std::atom
             r.value = trunc(a[0]);
         }
         break;
+    case FunctionId::Sgn: r.value = a[0] > 0 ? T(1) : a[0] < 0 ? T(-1) : T(0); break;
     case FunctionId::Round: {  // halves away from zero; x − trunc(x) is exact, so 0.5 − tiny never rounds up
         T n;
         if constexpr (isExact<T>) {

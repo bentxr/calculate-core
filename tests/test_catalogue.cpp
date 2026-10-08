@@ -505,3 +505,16 @@ TEST(Catalogue, FractionalPartCarriesItsArgumentsError) {
     EXPECT_EQ(evaluate("frac(0.1*30)").error->code, ErrorCode::ArgumentNearJump);
     EXPECT_EQ(evaluate("frac(0.1*30)").error->message.rfind("frac jumps", 0), 0u);
 }
+
+TYPED_TEST(RoundingTest, Sign) {
+    using T = TypeParam;
+    EXPECT_EQ(applied<T>(FunctionId::Sgn, {T(-5) / T(2)}), T(-1));
+    EXPECT_EQ(applied<T>(FunctionId::Sgn, {T(0)}), T(0));
+    EXPECT_EQ(applied<T>(FunctionId::Sgn, {T(1) / T(1000)}), T(1));
+}
+
+TEST(Catalogue, SignJumpsOnlyAtZero) {
+    EXPECT_FALSE(evaluate("sgn(0.1 + 0.2)").error);
+    EXPECT_EQ(evaluate("sgn(0.7 + 0.1 - 0.8)").error->code, ErrorCode::ArgumentNearJump);
+    EXPECT_EQ(tree("signo(2)"), "(sgn 2)");
+}

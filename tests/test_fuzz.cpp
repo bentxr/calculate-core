@@ -45,7 +45,7 @@ Vocabulary vocabulary() {
                {"median", -1}, {"log10", 1}, {"sen", 1}, {"arcsen", 1}, {"rem", 2}, {"floormod", 2}, {"arcsin", 1}, {"arsinh", 1}, {"log2", 1}, {"exp2", 1}, {"exp10", 1},
                {"sq", 1}, {"sqrtpi", 1}, {"sec", 1}, {"csc", 1}, {"cot", 1}, {"sech", 1}, {"csch", 1},
                {"coth", 1}, {"asec", 1}, {"acsc", 1}, {"acot", 1}, {"arcsec", 1}, {"asech", 1}, {"acsch", 1},
-               {"acoth", 1}, {"atan2", 2}, {"hypot", 2}, {"sinc", 1}, {"floor", 1}, {"ceil", 1}, {"trunc", 1}, {"int", 1}, {"round", 1}, {"frac", 1}};
+               {"acoth", 1}, {"atan2", 2}, {"hypot", 2}, {"sinc", 1}, {"floor", 1}, {"ceil", 1}, {"trunc", 1}, {"int", 1}, {"round", 1}, {"frac", 1}, {"sgn", 1}, {"signo", 1}};
     v.discrete = {{"gcd", 2}, {"lcm", 2}, {"nCr", 2}, {"nPr", 2}};
     return v;
 }
