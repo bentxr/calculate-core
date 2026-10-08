@@ -74,6 +74,7 @@ Result build(const Parsed& parsed, const Options& options) {
     r.comment = parsed.comment;
     r.warnings = parsed.warnings;
     r.assigned = parsed.assigned;
+    r.reading = parsed.reading;
     if (parsed.target) {
         const Rational value = toRational(ev.value);
         const TargetInput in{parsed, options, value, report};

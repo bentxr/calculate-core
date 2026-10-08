@@ -298,7 +298,11 @@ public:
             out.error = error_;
             return out;
         }
-        if (root != static_cast<int>(ast_.nodes.size()) - 1) ast_.nodes.push_back(ast_.nodes[root]);  // root last
+        if (root != static_cast<int>(ast_.nodes.size()) - 1) {  // root last
+            ast_.nodes.push_back(ast_.nodes[root]);
+            readings_.push_back(readings_[static_cast<std::size_t>(root)]);
+        }
+        out.reading = readings_.back();
         out.ast = std::move(ast_);
         out.expanded = expandedText({start, peek().span.begin});
         out.warnings = warnings_;
@@ -335,8 +339,43 @@ private:
         n.args = std::move(args);
         n.span = span;
         n.text = std::move(text);
+        readings_.push_back(reading(n));
         ast_.nodes.push_back(std::move(n));
         return static_cast<int>(ast_.nodes.size()) - 1;
+    }
+
+    // A node's part of the canonical reading, from its arguments' readings: every operation in parentheses, our
+    // symbols, calls by their canonical names with `; ` between the arguments.
+    std::string reading(const Node& n) const {
+        const auto arg = [&](std::size_t k) { return readings_[static_cast<std::size_t>(n.args[k])]; };
+        const auto infix = [&](const char* op) { return "(" + arg(0) + " " + op + " " + arg(1) + ")"; };
+        switch (n.function) {
+        case FunctionId::Literal: return n.text;
+        case FunctionId::Pi: return "π";
+        case FunctionId::E: return "e";
+        case FunctionId::Add: return infix("+");
+        case FunctionId::Subtract: return infix("−");
+        case FunctionId::Multiply: return infix("×");
+        case FunctionId::Divide: return infix("÷");
+        case FunctionId::Power: return infix("^");
+        case FunctionId::Negate: return "-" + arg(0);
+        case FunctionId::Percent: return "(" + arg(0) + "%)";
+        case FunctionId::Square: return arg(0) + "²";
+        case FunctionId::Cube: return arg(0) + "³";
+        case FunctionId::Factorial: return arg(0) + "!";
+        case FunctionId::Sqrt: return "√(" + arg(0) + ")";
+        case FunctionId::Cbrt: return "∛(" + arg(0) + ")";
+        default: {
+            std::string call = std::string(n.function == FunctionId::Log10 ? "log10" : functionInfo(n.function).name) + "(";
+            for (std::size_t k = 0; k < n.args.size(); ++k) call += (k ? "; " : "") + arg(k);
+            return call + ")";
+        }
+        }
+    }
+
+    int read(int n, std::string reading) {
+        readings_[static_cast<std::size_t>(n)] = std::move(reading);
+        return n;
     }
 
     int named(int n, const std::string& written) {
@@ -405,6 +444,7 @@ private:
                     replacements_[percent.begin] = {percent.end, "((" + expandedText(spanOf(left)) + ")×(" + expandedText(spanOf(p)) + "))÷100"};
                     const Span whole{spanOf(left).begin, percent.end};
                     ast_.nodes.pop_back();  // the % node is the last one made
+                    readings_.pop_back();
                     const int part = node(FunctionId::Divide,
                                           {node(FunctionId::Multiply, {left, p}, whole), node(FunctionId::Literal, {}, whole, "100")}, whole);
                     left = node(op.kind == TokenKind::Plus ? FunctionId::Add : FunctionId::Subtract, {left, part}, whole);
@@ -483,15 +523,17 @@ private:
             for (int& a : n.args) a += offset;
             n.span = t.span;
             ast_.nodes.push_back(std::move(n));
+            readings_.emplace_back();  // only the root is read from outside
         }
         replacements_[t.span.begin] = {t.span.end, "(" + text + ")"};
+        readings_.back() = inner.reading;  // a name reads as what it holds
         return static_cast<int>(ast_.nodes.size()) - 1;
     }
 
     // An index of a sum: an exact integer literal (literals carry no sign; the grammar does).
     int index(const Integer& k, Span span) {
         const int literal = node(FunctionId::Literal, {}, span, Integer(abs(k)).str());
-        return k < 0 ? node(FunctionId::Negate, {literal}, span) : literal;
+        return read(k < 0 ? node(FunctionId::Negate, {literal}, span) : literal, bound_.back().name);
     }
 
     // The arguments of the call whose '(' is at token `open`, split at its own commas. The last
@@ -525,7 +567,7 @@ private:
 
     // A limit of a sum or product: an expression evaluated exactly, which must be a whole number. Its
     // nodes refer only to each other, so they are copied out, evaluated, and dropped.
-    bool limit(const TokenRange& r, const std::string& name, Integer& out) {
+    bool limit(const TokenRange& r, const std::string& name, Integer& out, std::string& reading) {
         const std::size_t first = ast_.nodes.size();
         const int root = argument(r);
         if (root < 0) return false;
@@ -536,7 +578,9 @@ private:
             own.nodes.push_back(std::move(n));
         }
         if (root - static_cast<int>(first) != own.root()) own.nodes.push_back(own.nodes[static_cast<std::size_t>(root) - first]);
+        const std::string read = readings_[static_cast<std::size_t>(root)];
         ast_.nodes.resize(first);
+        readings_.resize(first);
         const Span span{tokens_[r.begin].span.begin, tokens_[r.end - 1].span.end};
         const std::string message = "The limits of " + name + " must be exact whole numbers";
         if (checkExact(own)) {
@@ -553,6 +597,7 @@ private:
             return false;
         }
         out = numerator(fw.values.back());
+        reading = read;
         return true;
     }
 
@@ -582,7 +627,9 @@ private:
             if (b.name == variable)
                 return fail(ErrorCode::UnexpectedToken, "'" + variable + "' is already the variable of an outer sum or product", span);
         Integer from, to;
-        if (!limit(parts[1], name, from) || !limit(parts[2], name, to)) return -1;
+        std::string fromReading, toReading;
+        if (!limit(parts[1], name, from, fromReading) || !limit(parts[2], name, to, toReading)) return -1;
+        std::string body;  // the first term's reading, where the index reads as the variable
         const Integer count = to < from ? Integer(0) : Integer(to - from + 1);
         if (count > maxTerms - terms_)
             return fail(ErrorCode::TooManyTerms, name + " is limited to " + std::to_string(maxTerms) + " terms", span);
@@ -591,10 +638,12 @@ private:
         if (count == 0) {  // nothing to add up, but the body must still be valid
             const std::size_t size = ast_.nodes.size();
             bound_.push_back({variable, from});
-            const int body = argument(parts[0]);
+            const int term = argument(parts[0]);
             bound_.pop_back();
-            if (body < 0) return -1;
+            if (term < 0) return -1;
+            body = readings_[static_cast<std::size_t>(term)];
             ast_.nodes.resize(size);
+            readings_.resize(size);
             total = node(FunctionId::Literal, {}, span, kind == Range::Sum ? "0" : "1");
             warnings_.push_back({WarningCode::EmptyRange,
                                  name + " from " + from.str() + " to " + to.str() + " has no terms, so it is " + (kind == Range::Sum ? "0" : "1"),
@@ -605,10 +654,11 @@ private:
             const int term = argument(parts[0]);
             bound_.pop_back();
             if (term < 0) return -1;
+            if (body.empty()) body = readings_[static_cast<std::size_t>(term)];
             total = total < 0 ? term : node(kind == Range::Sum ? FunctionId::Add : FunctionId::Multiply, {total, term}, span);
         }
         position_ = close + 1;
-        return total;
+        return read(total, std::string(kind == Range::Sum ? "Σ(" : "Π(") + body + "; " + fromReading + "; " + toReading + "; " + variable + ")");
     }
 
     int call(const Token& t) {
@@ -657,17 +707,18 @@ private:
         const bool direct = id == FunctionId::Sin || id == FunctionId::Cos || id == FunctionId::Tan;
         const bool inverse = id == FunctionId::Asin || id == FunctionId::Acos || id == FunctionId::Atan;
         if (options_.angle == AngleUnit::Radians || (!direct && !inverse)) return named(node(id, std::move(args), span), written);
+        const std::string plain = std::string(functionInfo(id).name) + "(" + readings_[static_cast<std::size_t>(args[0])] + ")";  // the conversion stays hidden
         const std::string full = options_.angle == AngleUnit::Degrees ? "180" : "200";
         if (direct) {
             const int pi = node(FunctionId::Pi, {}, span);
             const int factor = node(FunctionId::Divide, {pi, node(FunctionId::Literal, {}, span, full)}, span);
             args[0] = node(FunctionId::Multiply, {args[0], factor}, span);
-            return named(node(id, std::move(args), span), written);
+            return read(named(node(id, std::move(args), span), written), plain);
         }
         const int radians = named(node(id, std::move(args), span), written);
         const int top = node(FunctionId::Literal, {}, span, full);
         const int factor = node(FunctionId::Divide, {top, node(FunctionId::Pi, {}, span)}, span);
-        return node(FunctionId::Multiply, {radians, factor}, span);
+        return read(node(FunctionId::Multiply, {radians, factor}, span), plain);
     }
 
     int sum(const std::vector<int>& terms, Span span) {
@@ -683,16 +734,19 @@ private:
         const bool sample = s == Statistic::Variance || s == Statistic::SampleStdev;
         const int minimum = sample ? 2 : 1;
         if (n < minimum) return fail(ErrorCode::WrongArgumentCount, name + " takes " + argumentCount(minimum, true), span);
+        std::string call = name + "(";  // read as the call, not as the arithmetic it becomes
+        for (int k = 0; k < n; ++k) call += (k ? "; " : "") + readings_[static_cast<std::size_t>(args[static_cast<std::size_t>(k)])];
+        call += ")";
         const int count = node(FunctionId::Literal, {}, span, std::to_string(n));
         const int mean = node(FunctionId::Divide, {sum(args, span), count}, span);
-        if (s == Statistic::Mean) return mean;
+        if (s == Statistic::Mean) return read(mean, call);
         std::vector<int> squares;
         for (const int x : args)
             squares.push_back(node(FunctionId::Square, {node(FunctionId::Subtract, {x, mean}, span)}, span));
         const int divisor = node(FunctionId::Literal, {}, span, std::to_string(sample ? n - 1 : n));
         const int variance = node(FunctionId::Divide, {sum(squares, span), divisor}, span);
-        if (s == Statistic::Variance || s == Statistic::PopulationVariance) return variance;
-        return node(FunctionId::Sqrt, {variance}, span);
+        if (s == Statistic::Variance || s == Statistic::PopulationVariance) return read(variance, call);
+        return read(node(FunctionId::Sqrt, {variance}, span), call);
     }
 
     std::string_view source_;
@@ -709,7 +763,8 @@ private:
     };
     std::vector<Binding> bound_;  // the variables of the sums and products being written out, innermost last
     long long terms_ = 0;         // terms written out so far
-    std::vector<Warning> warnings_;  // a span's begin → (its end, its text)
+    std::vector<Warning> warnings_;
+    std::vector<std::string> readings_;  // each node's part of the canonical reading, parallel to ast_.nodes  // a span's begin → (its end, its text)
 };
 
 }  // namespace

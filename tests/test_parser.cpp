@@ -705,3 +705,22 @@ TEST(Parser, RemaindersBetweenTheirOperands) {
     EXPECT_EQ(parseError("7 mod").code, ErrorCode::UnexpectedEnd);
     EXPECT_EQ(parseError("mod 3").code, ErrorCode::UnexpectedToken);  // a word operator needs a left operand
 }
+
+TEST(Parser, TheCanonicalReading) {
+    const auto reading = [](std::string_view text, const Options& o = Options{}) { return parse(text, o).reading; };
+    EXPECT_EQ(reading("2^3^2"), "(2 ^ (3 ^ 2))");
+    EXPECT_EQ(reading("1+2*3"), "(1 + (2 × 3))");
+    EXPECT_EQ(reading("-2^2"), "-(2 ^ 2)");
+    EXPECT_EQ(reading("200+10%"), "(200 + (10%))");
+    Options of;
+    of.conventions.percent = Conventions::Percent::OfValue;
+    EXPECT_EQ(reading("200+10%", of), "(200 + ((200 × 10) ÷ 100))");
+    EXPECT_EQ(reading("log(100)"), "log10(100)");
+    EXPECT_EQ(reading("mod(7, 3)"), "rem(7; 3)");
+    EXPECT_EQ(reading("sum(1/x; 1; 3)"), "Σ((1 ÷ x); 1; 3; x)");
+    Options degrees;
+    degrees.angle = AngleUnit::Degrees;
+    EXPECT_EQ(reading("sin(90)", degrees), "sin(90)");  // the angle conversion stays hidden
+    EXPECT_EQ(reading("5!+√4"), "(5! + √(4))");
+    EXPECT_EQ(parse("Ans*2", Options{}, {{"Ans", "1+2"}}).reading, "((1 + 2) × 2)");
+}

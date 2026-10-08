@@ -152,6 +152,7 @@ struct Result {
     std::optional<Conversion> conversion;  // set when the input ended in "to <target>"
     std::vector<Warning> warnings;         // notes about a result that is not an error
     std::string assigned;                  // the variable set by "name := …", "" otherwise
+    std::string reading;                   // how the expression was read: every operation in parentheses
 };
 
 Result evaluate(std::string_view expression, const Options& options = {});

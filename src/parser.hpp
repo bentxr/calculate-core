@@ -56,6 +56,7 @@ struct Parsed {
     std::optional<TargetText> target;
     std::vector<Warning> warnings;  // the parser's notes (an empty range)
     std::string assigned;           // the variable's name when the source was "name := expression"
+    std::string reading;            // the canonical reading: every operation in parentheses, "(2 ^ (3 ^ 2))"
 };
 
 Parsed parse(std::string_view source, const Options& options, const Names& names = {});
