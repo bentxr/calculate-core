@@ -35,6 +35,14 @@ inline Ruler times(const Ruler& a, const Ruler& b) {
     return a == 0 || b == 0 ? Ruler(0) : Ruler(a * b);
 }
 
+// The Ruler rounds to nearest, so a bound whose parts are all exact (and so equal to the true error) can come out a
+// few ulps low: a point exactly at the end of the error interval must still count as reached. 2^-900 is far above
+// those ulps and far below anything a bound means (the tests allow the same).
+inline Ruler widened(const Ruler& bound) {
+    using std::ldexp;
+    return bound * (Ruler(1) + ldexp(Ruler(1), -900));
+}
+
 // Whether the arguments' errors could carry x/y across a whole number k where a remainder jumps: every k for a
 // floored one, k != 0 for a truncated one (continuous at 0). To first order the jump at k is |x - k*y| away, and
 // the errors move x - k*y by at most bx + |k|*by. The nearest k and its two neighbours are enough.
@@ -43,7 +51,7 @@ inline bool nearJump(const Rational& x, const Rational& y, const Ruler& bx, cons
     for (const Integer& k : {Integer(n - 1), n, Integer(n + 1)}) {
         if (k == 0 && !jumpsAtZero) continue;
         const Ruler distance = fromRational<Ruler>(abs(x - Rational(k) * y));
-        if (distance <= bx + fromRational<Ruler>(Rational(abs(k))) * by) return true;
+        if (distance <= widened(bx + fromRational<Ruler>(Rational(abs(k))) * by)) return true;
     }
     return false;
 }

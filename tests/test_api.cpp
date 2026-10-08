@@ -652,3 +652,11 @@ TEST(Api, CancellationInALongSumShowsInKappa) {
     const double alternating = std::stod(evaluate("sum((-1)^x/x, 1, 100)").conditionNumber);
     EXPECT_GT(alternating, plain);
 }
+
+// Found by the long fuzz run: the divisor's bound is exactly its true error (both parts are exact), so the jump at
+// k = -2500 sits exactly at the end of the error interval; the comparison must not depend on the Ruler's last bit.
+TEST(Api, AJumpExactlyAtTheEndOfTheErrorIsSeen) {
+    const Result r = evaluate("mod(2.5, (-(0.1%)))", as(NumberType::LongDouble));
+    ASSERT_TRUE(r.error);
+    EXPECT_EQ(r.error->code, ErrorCode::ArgumentNearJump);
+}
