@@ -112,6 +112,8 @@ inline const FunctionInfo& functionInfo(FunctionId id) {
         {F::Erfcinv, "erfcinv", 1, 1, C::Library, K::Continuous, false},
         {F::GammaP, "gammap", 2, 2, C::Library, K::Continuous, false},
         {F::GammaQ, "gammaq", 2, 2, C::Library, K::Continuous, false},
+        {F::Igamma, "igamma", 2, 2, C::Library, K::Continuous, false},
+        {F::GammaInc, "gammainc", 2, 2, C::Library, K::Continuous, false},
         {F::Median, "median", 1, -1, C::Checked, K::Continuous, true},
     }};
     return table[static_cast<std::size_t>(id)];
@@ -522,6 +524,23 @@ Applied<T> specialFunction(FunctionId id, const std::vector<T>& a, [[maybe_unuse
         if (a[1] == 0) return ok<T>(id == FunctionId::GammaP ? T(0) : T(1));
         s = gammaPQ(a[0], a[1], id == FunctionId::GammaP, cancel);
         break;
+    case FunctionId::Igamma:     // Gamma(a, x) = Q Gamma(a)
+    case FunctionId::GammaInc: {  // gamma(a, x) = P Gamma(a): in the log domain, so a tiny ratio times a huge Gamma(a) is fine
+        if (a[0] <= 0 || a[1] < 0) return fail<T>(ErrorCode::DomainError);
+        if (a[1] == 0) return id == FunctionId::GammaInc ? ok<T>(T(0)) : specialFunction<T>(FunctionId::Gamma, {a[0]}, cancel);
+        const Special<T> ratio = gammaPQ(a[0], a[1], id == FunctionId::GammaInc, cancel);
+        if (ratio.error) return fail<T>(*ratio.error);
+        if (ratio.value.hi == 0) return ok<T>(T(0));
+        const Special<T> lg = lgammaPositive(dw(a[0]));
+        const ExpParts<T> e = expParts(logWord(ratio.value) + lg.value);
+        if (e.overflow) return fail<T>(ErrorCode::Overflow);
+        if (e.underflow) return ok<T>(T(0));
+        Applied<T> r = ok<T>(toValue(expValue(e)));
+        using std::abs;
+        r.scale = r.value * (ratio.scale / abs(ratio.value.hi) + lg.scale);
+        if (!isFinite(r.scale)) r.scale = (std::numeric_limits<T>::max)();
+        return r;
+    }
     case FunctionId::Erfinv: {
         using std::abs;
         if (abs(x) >= 1) return fail<T>(ErrorCode::DomainError);

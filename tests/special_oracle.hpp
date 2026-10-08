@@ -67,6 +67,8 @@ O specialOracle(FunctionId id, [[maybe_unused]] const std::vector<O>& a) {
     case FunctionId::Erfcinv: return boost::math::erfc_inv(a[0]);
     case FunctionId::GammaP: return boost::math::gamma_p(a[0], a[1]);
     case FunctionId::GammaQ: return boost::math::gamma_q(a[0], a[1]);
+    case FunctionId::Igamma: return boost::math::tgamma(a[0], a[1]);
+    case FunctionId::GammaInc: return boost::math::tgamma_lower(a[0], a[1]);
     default: return O(0);
     }
 }

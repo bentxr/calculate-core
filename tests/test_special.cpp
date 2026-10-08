@@ -261,3 +261,10 @@ TEST(Special, IncompleteGammaCanBeCancelledAndHasACeiling) {
     EXPECT_EQ(applyFunction<double>(FunctionId::GammaP, {1e15, 1e15}).error.value_or(ErrorCode::Overflow), ErrorCode::ArgumentTooLarge);
     EXPECT_EQ(evaluate("gammap(1e15, 1e15)").error->message, "The arguments of gammap are too large to compute accurately");
 }
+
+TYPED_TEST(SpecialKernelTest, IncompleteGamma) {
+    using T = TypeParam;
+    for (FunctionId id : {FunctionId::Igamma, FunctionId::GammaInc})
+        test::expectSpecialWithinClaim<T>(id, [](auto& rng) { return std::vector<T>{uniform<T>(rng, 0.05, 20), uniform<T>(rng, 0, 30)}; });
+    EXPECT_EQ(applyFunction<T>(FunctionId::Igamma, {T(1), T(0)}).value, T(1));  // Gamma(1, 0) = Gamma(1)
+}
