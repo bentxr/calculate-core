@@ -197,3 +197,8 @@ TEST(Cli, AnApproximateConversionSaysHowFarItIs) {
     EXPECT_NE(invoke({"--json", "2.7 to 1/3"}).out.find("\"text\":\"8/3\",\"note\":\"off by 3.3e-2\"}"), std::string::npos);
     EXPECT_NE(invoke({"--color", "never", "2.5 to 1/2"}).out.find("\n→ 5/2\n"), std::string::npos);  // exact: no note
 }
+
+TEST(Cli, JsonCarriesTheReading) {
+    EXPECT_NE(invoke({"--json", "2^3^2"}).out.find(",\"reading\":\"(2 ^ (3 ^ 2))\""), std::string::npos);
+    EXPECT_EQ(invoke({"--color", "never", "2^3^2"}).out.find("reading"), std::string::npos);  // human output unchanged
+}

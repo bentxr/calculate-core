@@ -128,7 +128,7 @@ void printJson(std::ostream& out, const std::string& input, const Result& r) {
         << ",\"measured\":" << jsonString(r.measured) << ",\"conditionNumber\":" << jsonString(r.conditionNumber)
         << ",\"measuredAvailable\":" << flag(r.measuredAvailable)
         << ",\"measurementReliable\":" << flag(r.measurementReliable) << ",\"boundComplete\":" << flag(r.boundComplete)
-        << ",\"roundingOperations\":" << r.roundingOperations << ",\"expanded\":" << jsonString(r.expression);
+        << ",\"roundingOperations\":" << r.roundingOperations << ",\"expanded\":" << jsonString(r.expression) << ",\"reading\":" << jsonString(r.reading);
     if (r.conversion)
         out << ",\"conversion\":{\"target\":" << jsonString(r.conversion->target) << ",\"text\":" << jsonString(r.conversion->text)
             << (r.conversion->note.empty() ? "" : ",\"note\":" + jsonString(r.conversion->note)) << "}";
