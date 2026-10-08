@@ -323,3 +323,20 @@ TEST(BinaryForm, ExactlyAsSignificandTimesAPowerOfTwo) {
     EXPECT_EQ(binaryForm(Rational(40)).exponent2, 3);
     EXPECT_EQ(binaryForm(Rational(0)).significand, "0");
 }
+
+TEST(BaseLiteral, Prefixes) {
+    const auto hex = parseBaseLiteral("0xFF");
+    ASSERT_TRUE(hex);
+    EXPECT_EQ(hex->significand, 255);
+    EXPECT_EQ(hex->exponent2, 0);
+    EXPECT_EQ(parseBaseLiteral("0b1010")->significand, 10);
+    EXPECT_EQ(parseBaseLiteral("0o17")->significand, 15);
+    EXPECT_EQ(parseBaseLiteral("0X1f")->significand, 31);
+    const auto fractional = parseBaseLiteral("0x1.8p3");  // 1.5 × 2^3 = 12
+    EXPECT_EQ(fractional->significand, 24);
+    EXPECT_EQ(fractional->exponent2, -1);
+    EXPECT_EQ(parseBaseLiteral("0x1p-1074")->exponent2, -1074);
+    EXPECT_EQ(parseBaseLiteral("0b0.1")->exponent2, -1);
+    EXPECT_EQ(parseBaseLiteral("0o0.4")->exponent2, -3);
+    for (const char* bad : {"0x", "0b102", "0xG", "0o8", "0x1.8p", "12"}) EXPECT_FALSE(parseBaseLiteral(bad)) << bad;
+}

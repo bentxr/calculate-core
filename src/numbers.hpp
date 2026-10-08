@@ -255,6 +255,36 @@ To exactCast(const From& x) {
     return fromRational<To>(toRational(x));
 }
 
+namespace impl {
+
+constexpr long long exponentLimit = 1000000000000000LL;  // 10^15
+
+// The rest of a literal from i: nothing (exponent 0), or the marker in either case, an optional sign (+ - −) and
+// decimal digits, saturating at ±10^15. Empty when anything else is left.
+inline std::optional<long long> readExponent(std::string_view text, std::size_t i, char marker) {
+    long long exponent = 0;
+    if (i < text.size() && (text[i] | 0x20) == marker) {
+        ++i;
+        bool negative = false;
+        if (i < text.size() && (text[i] == '+' || text[i] == '-')) {
+            negative = text[i++] == '-';
+        } else if (text.substr(i, 3) == "\xE2\x88\x92") {  // −, the calculator's minus
+            negative = true;
+            i += 3;
+        }
+        const std::size_t start = i;
+        for (; i < text.size() && text[i] >= '0' && text[i] <= '9'; ++i)
+            if (exponent <= exponentLimit) exponent = exponent * 10 + (text[i] - '0');
+        if (i == start) return std::nullopt;
+        exponent = std::min(exponent, exponentLimit);
+        if (negative) exponent = -exponent;
+    }
+    if (i != text.size()) return std::nullopt;
+    return exponent;
+}
+
+}  // namespace impl
+
 // value = significand * 10^exponent10 (non-negative; unary minus belongs to the grammar).
 struct DecimalLiteral {
     Integer significand;
@@ -264,7 +294,6 @@ struct DecimalLiteral {
 // digits [. [digits]] [exponent] | . digits [exponent], exponent = (e|E) [+|-|−] digits.
 // The exponent saturates at ±10^15, so it never overflows.
 inline std::optional<DecimalLiteral> parseDecimal(std::string_view text) {
-    constexpr long long limit = 1000000000000000LL;
     const auto isDigit = [](char c) { return c >= '0' && c <= '9'; };
     DecimalLiteral d;
     std::size_t i = 0;
@@ -276,26 +305,44 @@ inline std::optional<DecimalLiteral> parseDecimal(std::string_view text) {
             d.significand = d.significand * 10 + (text[i] - '0');
     }
     if (digits == 0) return std::nullopt;
-    long long exponent = 0;
-    if (i < text.size() && (text[i] == 'e' || text[i] == 'E')) {
-        ++i;
-        bool negative = false;
-        if (i < text.size() && (text[i] == '+' || text[i] == '-')) {
-            negative = text[i++] == '-';
-        } else if (text.substr(i, 3) == "\xE2\x88\x92") {  // −, the calculator's minus
-            negative = true;
-            i += 3;
-        }
-        const std::size_t start = i;
-        for (; i < text.size() && isDigit(text[i]); ++i)
-            if (exponent <= limit) exponent = exponent * 10 + (text[i] - '0');
-        if (i == start) return std::nullopt;
-        exponent = std::min(exponent, limit);
-        if (negative) exponent = -exponent;
-    }
-    if (i != text.size()) return std::nullopt;
-    d.exponent10 = std::clamp(exponent - fractionDigits, -limit, limit);
+    const std::optional<long long> exponent = impl::readExponent(text, i, 'e');
+    if (!exponent) return std::nullopt;
+    d.exponent10 = std::clamp(*exponent - fractionDigits, -impl::exponentLimit, impl::exponentLimit);
     return d;
+}
+
+// value = significand * 2^exponent2 (non-negative, like a decimal literal).
+struct BaseLiteral {
+    Integer significand;
+    long long exponent2 = 0;
+};
+
+// 0x|0b|0o (either case) digits [. [digits]] [exponent], exponent = (p|P) [+|-|−] decimal digits: a power of two.
+// Each digit after the point lowers exponent2 by the digit's bits (4, 1 or 3); the exponent saturates at ±10^15.
+inline std::optional<BaseLiteral> parseBaseLiteral(std::string_view text) {
+    if (text.size() < 2 || text[0] != '0') return std::nullopt;
+    const char prefix = static_cast<char>(text[1] | 0x20);
+    const int bits = prefix == 'x' ? 4 : prefix == 'b' ? 1 : prefix == 'o' ? 3 : 0;
+    if (bits == 0) return std::nullopt;
+    const auto digitValue = [bits](char c) {
+        int v = c >= '0' && c <= '9' ? c - '0' : (c | 0x20) >= 'a' && (c | 0x20) <= 'f' ? (c | 0x20) - 'a' + 10 : 99;
+        return v < (1 << bits) ? v : -1;
+    };
+    BaseLiteral b;
+    std::size_t i = 2;
+    int digits = 0;
+    long long fractionBits = 0;
+    for (; i < text.size() && digitValue(text[i]) >= 0; ++i, ++digits)
+        b.significand = (b.significand << bits) + digitValue(text[i]);
+    if (i < text.size() && text[i] == '.') {
+        for (++i; i < text.size() && digitValue(text[i]) >= 0; ++i, ++digits, fractionBits += bits)
+            b.significand = (b.significand << bits) + digitValue(text[i]);
+    }
+    if (digits == 0) return std::nullopt;
+    const std::optional<long long> exponent = impl::readExponent(text, i, 'p');
+    if (!exponent) return std::nullopt;
+    b.exponent2 = std::clamp(*exponent - fractionBits, -impl::exponentLimit, impl::exponentLimit);
+    return b;
 }
 
 // Exact. Precondition: |exponent10| <= 10^6 (a larger literal cannot be materialized).
