@@ -118,6 +118,14 @@ inline const FunctionInfo& functionInfo(FunctionId id) {
         {F::Betaincinv, "betaincinv", 3, 3, C::Library, K::Continuous, false},
         {F::Median, "median", 1, -1, C::Checked, K::Continuous, true},
         {F::Uncertain, "uncertainty", 2, 2, C::Exact, K::Continuous, true},  // the value; the uncertainty is information
+           {F::Tau, "tau", 0, 0, C::Input, K::Continuous, false},
+        {F::Sqrt2, "sqrt2", 0, 0, C::Input, K::Continuous, false},
+        {F::Phi, "phi", 0, 0, C::Input, K::Continuous, false},
+        {F::EulerGamma, "egamma", 0, 0, C::Input, K::Continuous, false},
+        {F::Catalan, "catalan", 0, 0, C::Input, K::Continuous, false},
+        {F::Apery, "apery", 0, 0, C::Input, K::Continuous, false},
+        {F::Plastic, "plastic", 0, 0, C::Input, K::Continuous, false},
+        {F::Omega, "omega", 0, 0, C::Input, K::Continuous, false},
     }};
     return table[static_cast<std::size_t>(id)];
 }
@@ -600,16 +608,33 @@ Applied<T> specialFunction(FunctionId id, const std::vector<T>& a, [[maybe_unuse
 
 }  // namespace impl
 
+// The constant of the table that a 0-argument function stands for (pi, e, phi…); nullopt for any other function.
+inline std::optional<ConstantId> tableConstant(FunctionId id) {
+    switch (id) {
+    case FunctionId::Pi: return ConstantId::Pi;
+    case FunctionId::E: return ConstantId::E;
+    case FunctionId::Tau: return ConstantId::Tau;
+    case FunctionId::Sqrt2: return ConstantId::Sqrt2;
+    case FunctionId::Phi: return ConstantId::Phi;
+    case FunctionId::EulerGamma: return ConstantId::EulerGamma;
+    case FunctionId::Catalan: return ConstantId::Catalan;
+    case FunctionId::Apery: return ConstantId::Apery;
+    case FunctionId::Plastic: return ConstantId::Plastic;
+    case FunctionId::Omega: return ConstantId::Omega;
+    default: return std::nullopt;
+    }
+}
+
 // One node computed in T. Errors are values: never NaN or infinity.
 template <class T>
 Applied<T> applyFunction(FunctionId id, const std::vector<T>& a, const std::atomic<bool>* cancel = nullptr) {
     Applied<T> r;
-    switch (id) {
-    case FunctionId::Pi:
-    case FunctionId::E:
+    if (const auto c = tableConstant(id)) {
         if constexpr (isExact<T>) r.error = ErrorCode::NotAvailableInExact;
-        else r.value = constantValue<T>(id == FunctionId::Pi ? ConstantId::Pi : ConstantId::E);
+        else r.value = constantValue<T>(*c);
         return r;
+    }
+    switch (id) {
     case FunctionId::Add: r.value = a[0] + a[1]; break;
     case FunctionId::Subtract: r.value = a[0] - a[1]; break;
     case FunctionId::Multiply: r.value = a[0] * a[1]; break;

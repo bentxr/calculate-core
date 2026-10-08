@@ -48,6 +48,23 @@ constexpr std::array<Alias, 11> aliases{{
 // Symbols that are names: Σ ∑ (sum) and Π ∏ (product).
 constexpr std::array<std::string_view, 4> symbolNames{"\xCE\xA3", "\xE2\x88\x91", "\xCE\xA0", "\xE2\x88\x8F"};
 
+// Letters that are names on their own: φ τ γ.
+constexpr std::array<std::string_view, 3> unicodeNames{"\xCF\x86", "\xCF\x84", "\xCE\xB3"};
+
+// What they spell.
+constexpr std::array<std::pair<std::string_view, std::string_view>, 3> nameSpellings{{
+    {"\xCF\x86", "phi"}, {"\xCF\x84", "tau"}, {"\xCE\xB3", "egamma"},
+}};
+
+// The 0-argument function (a constant of the table: pi, e, phi…) with this name.
+std::optional<FunctionId> constantNamed(std::string_view name) {
+    for (int i = 0; i < functionCount; ++i) {
+        const FunctionInfo& info = functionInfo(static_cast<FunctionId>(i));
+        if (!info.name.empty() && info.name == name && info.minArgs == 0 && info.maxArgs == 0) return info.id;
+    }
+    return std::nullopt;
+}
+
 Error makeError(ErrorCode code, std::string message, Span span) {
     return Error{code, std::move(message), span.begin, span.end};
 }
@@ -170,6 +187,13 @@ Lexed lex(std::string_view s) {
             if (kind == TokenKind::RightParen && depth > 0) --depth;
             push(kind, i, i + 1);
             ++i;
+            continue;
+        }
+        const auto letter = std::find_if(unicodeNames.begin(), unicodeNames.end(),
+                                         [&](std::string_view bytes) { return s.substr(i, bytes.size()) == bytes; });
+        if (letter != unicodeNames.end()) {
+            push(TokenKind::Identifier, i, i + letter->size());
+            i += letter->size();
             continue;
         }
         const auto symbol = std::find_if(symbolNames.begin(), symbolNames.end(),
@@ -309,7 +333,7 @@ Range rangeNamed(std::string_view name) {
 
 // Names a variable (of a sum, or one assigned) cannot take.
 bool reserved(const std::string& n) {
-    return n == "pi" || n == "e" || n == "Ans" || n == "M" || functionNamed(n) || statisticNamed(n) != Statistic::None
+    return constantNamed(n) || n == "Ans" || n == "M" || functionNamed(n) || statisticNamed(n) != Statistic::None
         || rangeNamed(n) != Range::None;
 }
 
@@ -403,6 +427,9 @@ private:
         case FunctionId::Literal: return n.text;
         case FunctionId::Pi: return "π";
         case FunctionId::E: return "e";
+        case FunctionId::Tau: return "τ";
+        case FunctionId::Phi: return "φ";
+        case FunctionId::EulerGamma: return "γ";
         case FunctionId::Add: return infix("+");
         case FunctionId::Subtract: return infix("−");
         case FunctionId::Multiply: return infix("×");
@@ -416,6 +443,7 @@ private:
         case FunctionId::Sqrt: return "√(" + arg(0) + ")";
         case FunctionId::Cbrt: return "∛(" + arg(0) + ")";
         default: {
+            if (tableConstant(n.function)) return std::string(functionInfo(n.function).name);  // catalan, not catalan()
             std::string call = std::string(n.function == FunctionId::Log10 ? "log10" : functionInfo(n.function).name) + "(";
             for (std::size_t k = 0; k < n.args.size(); ++k) call += (k ? "; " : "") + arg(k);
             return call + ")";
@@ -581,15 +609,16 @@ private:
     }
 
     int identifier(const Token& t) {
-        const std::string name(t.text);
+        std::string name(t.text);
+        for (const auto& [letter, spelled] : nameSpellings)
+            if (name == letter) name = std::string(spelled);
         for (auto b = bound_.rbegin(); b != bound_.rend(); ++b)
             if (b->name == name && peek().kind != TokenKind::LeftParen) return index(b->value, t.span);
         if (peek().kind == TokenKind::LeftParen) return call(t);
         if (peek().kind == TokenKind::Assign)  // before asking whether the name exists: the := is what is out of place
             return fail(ErrorCode::UnexpectedToken, "':=' can only follow a name at the start", peek().span);
         if (const auto found = names_.find(name); found != names_.end()) return expand(t, found->second);
-        if (name == "pi") return node(FunctionId::Pi, {}, t.span);
-        if (name == "e") return node(FunctionId::E, {}, t.span);
+        if (const auto c = constantNamed(name)) return node(*c, {}, t.span);
         if (name == "Ans") return fail(ErrorCode::UnknownName, "There is no previous result yet", t.span);
         if (name == "M") return fail(ErrorCode::UnknownName, "The memory is empty", t.span);
         if (functionNamed(name) || name == "mod" || statisticNamed(name) != Statistic::None || rangeNamed(name) != Range::None

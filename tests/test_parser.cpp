@@ -817,3 +817,26 @@ TEST(Parser, ReadPrecision) {
 TEST(Parser, ReadPrecisionYieldsToTheUncertaintyFunction) {
     EXPECT_EQ(readTree("uncertainty(1.1, 0.2)", ReadPrecision::Decimals), "(uncertainty 1.1 0.2)");
 }
+
+TEST(Parser, MathematicalConstants) {
+    EXPECT_EQ(tree("phi"), "phi");
+    EXPECT_EQ(tree("φ"), "phi");
+    EXPECT_EQ(tree("2*τ"), "(* 2 tau)");
+    EXPECT_EQ(tree("γ+egamma"), "(+ egamma egamma)");
+    EXPECT_EQ(tree("catalan*apery*plastic*omega*sqrt2"), "(* (* (* (* catalan apery) plastic) omega) sqrt2)");
+    EXPECT_EQ(parseError("phi(2)").code, ErrorCode::UnknownName);
+}
+
+TEST(EndToEnd, MathematicalConstantsAreRoundedOnceAndCarryTheirInputError) {
+    EXPECT_EQ(evaluateText<double>("phi").value, 0x1.9e3779b97f4a8p+0);
+    EXPECT_EQ(evaluateText<double>("tau").value, 0x1.921fb54442d18p+2);  // 2 * pi, exactly twice the double pi
+    EXPECT_EQ(evaluateText<float>("egamma").value, 0x1.2788dp-1f);
+    const Evaluation<double> g = evaluateText<double>("egamma");
+    EXPECT_EQ(g.report.input, fromRational<Ruler>(abs(constantRational(ConstantId::EulerGamma) - toRational(g.value))));
+    EXPECT_EQ(evaluateText<Rational>("catalan").error->code, ErrorCode::NotAvailableInExact);
+}
+
+TEST(Parser, MathematicalConstantsReadAsTheirNames) {
+    EXPECT_EQ(parse("2*catalan", AngleUnit::Radians).reading, "(2 × catalan)");
+    EXPECT_EQ(parse("phi+tau", AngleUnit::Radians).reading, "(φ + τ)");
+}

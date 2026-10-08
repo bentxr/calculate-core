@@ -206,9 +206,8 @@ std::vector<Ruler> localErrors(const Ast& ast, const Forward<T>& fw) {
         const Node& node = ast.nodes[i];
         if (node.function == FunctionId::Literal) {
             locals[i] = fromRational<Ruler>(abs(toRational(*parseDecimal(node.text)) - toRational(fw.values[i])));
-        } else if (node.function == FunctionId::Pi || node.function == FunctionId::E) {
-            const ConstantId c = node.function == FunctionId::Pi ? ConstantId::Pi : ConstantId::E;
-            locals[i] = fromRational<Ruler>(abs(constantRational(c) - toRational(fw.values[i])));
+        } else if (const auto c = tableConstant(node.function)) {
+            locals[i] = fromRational<Ruler>(abs(constantRational(*c) - toRational(fw.values[i])));
         } else {
             std::vector<T> args;
             for (const int a : node.args) args.push_back(fw.values[a]);
