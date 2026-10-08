@@ -194,6 +194,9 @@ struct Result {
     bool firstOrderChecked = false;        // the corners were evaluated
     bool firstOrderReliable = true;        // false: the first-order figure misjudges this uncertainty
     std::string firstOrderObserved;        // the largest change at the corners, "inf" if one failed; "" if unchecked
+    Digits uncertaintyShown;  // bound + the leading uncertainty, two significant digits: {false, "20", -1} is 0.20
+    std::string concise;      // "5.00(20)"; "" when there is neither error nor uncertainty
+    std::string plusMinus;    // "5.00 ± 0.20"
 };
 
 Result evaluate(std::string_view expression, const Options& options = {});

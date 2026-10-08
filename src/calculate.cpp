@@ -97,6 +97,11 @@ Result build(const Parsed& parsed, const Options& options, std::string_view text
     r.assigned = parsed.assigned;
     r.reading = parsed.reading;
     const Uncertainty& u = report.uncertainty;
+    const Ruler lead = options.uncertaintyRule == UncertaintyRule::Linear ? u.linear : u.quadrature;
+    const UncertainForms forms = uncertainForms(toRational(ev.value), report.bound + lead);
+    r.uncertaintyShown = Digits{forms.shown.negative, forms.shown.digits, forms.shown.exponent10};
+    r.concise = forms.concise;
+    r.plusMinus = forms.plusMinus;
     if (!u.sources.empty()) {
         for (const UncertainSource& source : u.sources)
             r.uncertainInputs.push_back({sourceName(text, parsed.ast.nodes[static_cast<std::size_t>(source.node)].span),

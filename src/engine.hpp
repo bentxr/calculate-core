@@ -325,23 +325,14 @@ inline std::string formatScientific(const Ruler& x, int significant = 2) {
     using std::frexp;
     if (x == 0) return "0";
     if (!isFinite(x)) return x < 0 ? "-inf" : "inf";
-    const auto power10 = [](long long n) {
-        Ruler result = 1;
-        Ruler base = 10;
-        for (unsigned long long k = static_cast<unsigned long long>(n < 0 ? -n : n); k; k >>= 1) {
-            if (k & 1) result *= base;
-            base *= base;
-        }
-        return result;
-    };
     const Ruler a = abs(x);
     int e2;
     frexp(a, &e2);
     long long e10 = (static_cast<long long>(e2) - 1) * 30103 / 100000;
-    Ruler scaled = e10 >= 0 ? Ruler(a / power10(e10)) : Ruler(a * power10(-e10));
+    Ruler scaled = e10 >= 0 ? Ruler(a / powerOfTen(e10)) : Ruler(a * powerOfTen(-e10));
     for (; scaled >= 10; ++e10) scaled /= 10;
     for (; scaled < 1; --e10) scaled *= 10;
-    Integer m(floor(scaled * power10(significant - 1) + Ruler(0.5)).convert_to<long long>());
+    Integer m(floor(scaled * powerOfTen(significant - 1) + Ruler(0.5)).convert_to<long long>());
     if (m == pow(Integer(10), static_cast<unsigned>(significant))) {
         m /= 10;
         ++e10;

@@ -900,3 +900,22 @@ TEST(Session, AnsMinusAnsIsCertain) {
     EXPECT_EQ(r.uncertainInputs[0].name, "Ans");
     EXPECT_EQ(r.uncertaintyLinear, "0");
 }
+
+TEST(Uncertainty, DisplayForms) {
+    const Result r = evaluate("5±0.2");
+    EXPECT_EQ(r.concise, "5.00(20)");
+    EXPECT_EQ(r.plusMinus, "5.00 ± 0.20");
+    EXPECT_EQ(r.uncertaintyShown.digits, "20");
+    EXPECT_EQ(r.uncertaintyShown.exponent10, -1);
+    EXPECT_EQ(evaluate("5±20%").concise, "5.0(10)");
+    EXPECT_EQ(evaluate("(3±0.4)*(4±0.3)").plusMinus, "12.0 ± 2.5");
+    EXPECT_EQ(evaluate("0.1 + 0.2").concise, "0.300000000000000044(44)");  // the bound alone
+    Options statistical;
+    statistical.uncertaintyRule = UncertaintyRule::Quadrature;
+    EXPECT_EQ(evaluate("(3±0.4)*(4±0.3)", statistical).concise, "12.0(18)");
+    Options exact;
+    exact.type = NumberType::Exact;
+    EXPECT_EQ(evaluate("1/3±0.1", exact).concise, "0.333(11)");  // 1/(3±0.1): ± binds tighter than ÷
+    EXPECT_EQ(evaluate("1/3", exact).concise, "");  // no error, no uncertainty
+    EXPECT_EQ(evaluate("2+2").plusMinus, "");
+}

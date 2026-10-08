@@ -276,6 +276,17 @@ T decimalTo(const DecimalLiteral& d) {
 }
 
 // value = (negative ? -1 : 1) * d1.d2d3... * 10^exponent10; no trailing zeros; zero is {"0", 0}.
+// 10^n in the ruler, by binary powering.
+inline Ruler powerOfTen(long long n) {
+    Ruler result = 1;
+    Ruler base = 10;
+    for (unsigned long long k = static_cast<unsigned long long>(n < 0 ? -n : n); k; k >>= 1) {
+        if (k & 1) result *= base;
+        base *= base;
+    }
+    return n < 0 ? Ruler(1 / result) : result;
+}
+
 struct DecimalDigits {
     bool negative = false;
     std::string digits;
