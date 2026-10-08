@@ -594,7 +594,7 @@ std::vector<R> partials(FunctionId id, const std::vector<R>& a, const R& v) {
     case FunctionId::Asinh: return {R(1) / sqrt(x * x + 1)};
     case FunctionId::Acosh: return {x == 1 ? inf : R(R(1) / sqrt(x * x - 1))};
     case FunctionId::Atanh: return {R(1) / (R(1) - x * x)};
-    case FunctionId::Csch: return {-v * f(FunctionId::Cosh, x) / f(FunctionId::Sinh, x)};
+    case FunctionId::Csch: return {-v / f(FunctionId::Tanh, x)};  // −csch·coth: cosh/sinh would overflow for a huge x
     case FunctionId::Acot: return {R(-1) / (R(1) + x * x)};
     case FunctionId::Sinc: {  // (cos x − sinc x)/x cancels near 0: there the first Taylor term, −x/3
         using std::abs;
@@ -788,10 +788,8 @@ inline Ruler functionSlope(FunctionId id, const Ruler& x, const Ruler& b) {
         if (near > 0) s = std::min(s, Ruler(1 / near + 1 / (near * near)));
         return s;
     }
-    case FunctionId::Csch: {  // cosh/sinh^2 falls as |x| grows: largest at the smallest |x|, unbounded at 0
-        const Ruler s = f(FunctionId::Sinh, near);
-        return near > 0 ? Ruler(f(FunctionId::Cosh, near) / (s * s)) : inf;
-    }
+    case FunctionId::Csch:  // |csch|·coth falls as |x| grows: largest at the smallest |x|, unbounded at 0
+        return near > 0 ? Ruler(f(FunctionId::Csch, near) / f(FunctionId::Tanh, near)) : inf;
     default: return inf;  // not a one-argument function
     }
 }

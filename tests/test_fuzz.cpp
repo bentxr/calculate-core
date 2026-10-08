@@ -214,3 +214,9 @@ TEST(Fuzz, CommentsAndConversionsLeaveTheResultAlone) {
         }
     }
 }
+
+// Found by the long run: csch's derivative was written cosh/sinh, which overflows (inf/inf) for a huge argument.
+TEST(Fuzz, TheHyperbolicCosecantOfAHugeArgument) {
+    for (const char* text : {"csch(1e16)", "csch(nPr(20, 20))", "csch(-1e300)"})
+        EXPECT_EQ(violation<double>(text, Options()), "") << text;
+}
