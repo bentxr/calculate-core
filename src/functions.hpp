@@ -143,6 +143,7 @@ struct Applied {
     T value{};
     std::optional<ErrorCode> error;
     int roundings = 0;  // Counted functions only
+    T scale = 0;  // kernels whose result is a difference of larger terms: their size (claim floor u * scale)
 };
 
 // Every Library function claims |computed - exact| <= claim * u * max(|v|, min()) (in units of u).
@@ -1038,9 +1039,12 @@ Ruler localError(FunctionId id, const std::vector<T>& args, const Applied<T>& ap
         }
         case ErrorClass::Rounded: return u * v;
         case ErrorClass::Counted: return Ruler(applied.roundings) * u * v;
-        case ErrorClass::Library: {
+        case ErrorClass::Library: {  // relative, with an absolute floor near a zero of a cancelling kernel (u * scale)
             const Ruler floor = exactCast<Ruler>((std::numeric_limits<T>::min)());
-            return Ruler(claimedFactor(id)) * u * (v > floor ? v : floor);
+            Ruler m = v > floor ? v : floor;
+            const Ruler cancelled = u * exactCast<Ruler>(applied.scale);
+            if (cancelled > m) m = cancelled;
+            return Ruler(claimedFactor(id)) * u * m;
         }
         default: return Ruler(0);  // Input errors belong to the engine
         }

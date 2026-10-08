@@ -743,3 +743,15 @@ TEST(Slopes, CardinalSineDominatesItsDerivative) {
                                SlopeCase{FunctionId::Sinc, {2.08}, {0}}, SlopeCase{FunctionId::Sinc, {0}, {0.5}}})
         expectSlopesDominate(c.id, c.point, c.radius);
 }
+
+TEST(LocalError, KernelsThatSubtractClaimAnAbsoluteFloor) {
+    const Ruler u = exactCast<Ruler>(unitRoundoff<double>());
+    const Ruler claim(claimedFactor(FunctionId::Exp));
+    Applied<double> r;
+    r.value = 1e-20;
+    r.scale = 1000;  // the result came from cancelling terms of total size 1000
+    // 0.5, not 0: exp(0) = 1 is an exact point, checked before the claim.
+    EXPECT_EQ(localError<double>(FunctionId::Exp, {0.5}, r), claim * u * (u * Ruler(1000)));
+    r.scale = 0;
+    EXPECT_EQ(localError<double>(FunctionId::Exp, {0.5}, r), claim * u * exactCast<Ruler>(1e-20));
+}

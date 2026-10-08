@@ -458,3 +458,11 @@ TEST(Format, PartsInEveryNotation) {
     EXPECT_EQ(formatParts(DecimalDigits{false, "5", 0}, 1, Notation::Engineering).trusted, "5");  // no point when nothing follows
     EXPECT_EQ(formatParts(DecimalDigits{false, "12345", 4}, 5, Notation::Engineering).trusted, "12.345");
 }
+
+TEST(Forward, KeepsEachNodesScale) {
+    AstBuilder b;
+    b.apply(FunctionId::Exp, {b.literal("1")});
+    const Forward<double> fw = forward<double>(b.ast());
+    ASSERT_EQ(fw.scales.size(), fw.values.size());
+    EXPECT_EQ(fw.scales.back(), 0.0);
+}

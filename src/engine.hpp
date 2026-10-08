@@ -22,6 +22,7 @@ struct Forward {
     std::optional<Error> error;
     std::vector<T> values;
     std::vector<int> roundings;  // per node, for Counted functions
+    std::vector<T> scales;       // per node, for kernels that subtract large terms (Applied::scale)
 };
 
 namespace impl {
@@ -134,6 +135,7 @@ Forward<T> forward(const Ast& ast, const std::atomic<bool>* cancel = nullptr) {
     Forward<T> fw;
     fw.values.resize(ast.nodes.size());
     fw.roundings.assign(ast.nodes.size(), 0);
+    fw.scales.assign(ast.nodes.size(), T(0));
     for (std::size_t i = 0; i < ast.nodes.size(); ++i) {
         const Node& node = ast.nodes[i];
         if (cancel && cancel->load(std::memory_order_relaxed)) {
@@ -164,6 +166,7 @@ Forward<T> forward(const Ast& ast, const std::atomic<bool>* cancel = nullptr) {
         }
         fw.values[i] = r.value;
         fw.roundings[i] = r.roundings;
+        fw.scales[i] = r.scale;
     }
     return fw;
 }
@@ -186,6 +189,7 @@ std::vector<Ruler> localErrors(const Ast& ast, const Forward<T>& fw) {
             Applied<T> applied;
             applied.value = fw.values[i];
             applied.roundings = fw.roundings[i];
+            applied.scale = fw.scales[i];
             locals[i] = localError<T>(node.function, args, applied);
         }
     }

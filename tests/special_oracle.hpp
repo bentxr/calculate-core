@@ -60,4 +60,32 @@ O specialOracle(FunctionId id, [[maybe_unused]] const std::vector<O>& a) {
     }
 }
 
+// |computed - exact| in units of u * max(|exact|, min(), u * scale): the library claim with its floor.
+template <class T, class O>
+double errorInUScaled(const T& computed, const O& exact, const T& scale) {
+    using std::abs;
+    const O u = exactCast<O>(unitRoundoff<T>());
+    O floor = exactCast<O>((std::numeric_limits<T>::min)());
+    if (abs(exact) > floor) floor = abs(exact);
+    const O cancelled = u * exactCast<O>(scale);
+    if (cancelled > floor) floor = cancelled;
+    return O(abs(exactCast<O>(computed) - exact) / (u * floor)).template convert_to<double>();
+}
+
+// Every sample must compute without error and within the claim (its floor included).
+template <class T>
+void expectSpecialWithinClaim(FunctionId id, const std::function<std::vector<T>(std::mt19937_64&)>& sample) {
+    using O = SpecialOracleFor<T>;
+    std::mt19937_64 rng(static_cast<unsigned>(id) + 300);
+    for (int i = 0; i < samplesFor<T>(); ++i) {
+        const std::vector<T> args = sample(rng);
+        const Applied<T> r = applyFunction<T>(id, args);
+        ASSERT_FALSE(r.error) << "sample " << i;
+        std::vector<O> exactArgs;
+        for (const T& a : args) exactArgs.push_back(exactCast<O>(a));
+        const double error = errorInUScaled(r.value, specialOracle<O>(id, exactArgs), r.scale);
+        EXPECT_LE(error, claimedFactor(id)) << "sample " << i << ": " << error << " u";
+    }
+}
+
 }  // namespace test

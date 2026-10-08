@@ -49,6 +49,9 @@ The value is the exact number stored, digit for digit. The `|` marks where the t
 | **κ** | The condition number: how much the problem itself magnifies small changes in its inputs |
 | **trusted digits** | How many digits the bound guarantees |
 
+Near a zero of a function computed as a difference (such as lgamma near 1), the library error is absolute rather
+than relative.
+
 ## Build and test
 
 Requires CMake ≥ 3.25, Ninja and a C++17 compiler. Boost.Multiprecision and GoogleTest are
