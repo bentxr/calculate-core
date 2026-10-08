@@ -976,3 +976,34 @@ TEST(Units, MismatchedUnitsGiveNoUnitAndANote) {
     exact.type = NumberType::Exact;
     EXPECT_EQ(evaluate("(c^3)^(1/3)", exact).unit, "m·s⁻¹");  // exact there
 }
+
+TEST(Api, ConstantsForKeypadsAndLists) {
+    const std::vector<ConstantDescription> list = constants();
+    const auto find = [&](const std::string& name) {
+        for (const ConstantDescription& c : list)
+            if (c.name == name) return c;
+        return ConstantDescription{};
+    };
+    EXPECT_EQ(find("G").category, "physical");
+    EXPECT_EQ(find("G").title, "Newtonian constant of gravitation");
+    EXPECT_EQ(find("G").value, "6.67430e-11");
+    EXPECT_EQ(find("G").uncertainty, "0.00015e-11");  // NIST's standard uncertainty
+    EXPECT_EQ(find("G").limit, "4.5e-15");            // the ± the calculator uses: three of them
+    EXPECT_EQ(find("G").unit, "m³·kg⁻¹·s⁻²");
+    EXPECT_EQ(find("m_e_MeV").unit, "MeV");           // not SI: NIST's text
+    EXPECT_TRUE(find("G").exact);  // usable in the Exact type
+    EXPECT_EQ(find("hbar").value, "1.054571817...e-34");
+    EXPECT_EQ(find("hbar").uncertainty, "");
+    EXPECT_FALSE(find("hbar").exact);  // through pi
+    EXPECT_EQ(find("phi").category, "mathematical");
+    EXPECT_EQ(find("phi").title, "golden ratio");
+    EXPECT_FALSE(find("phi").exact);
+    EXPECT_EQ(find("pi").category, "mathematical");
+    EXPECT_EQ(find("dozen").category, "number name");
+    EXPECT_EQ(find("dozen").value, "12");
+    EXPECT_EQ(find("dozen").title, "one dozen (12)");
+    EXPECT_TRUE(find("dozen").exact);
+    EXPECT_EQ(find("billion").value, "1e12");
+    EXPECT_EQ(find("billón").category, "number name");
+    EXPECT_EQ(list.size(), 10u + 34u + 89u);
+}

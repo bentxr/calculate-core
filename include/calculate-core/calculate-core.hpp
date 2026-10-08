@@ -98,6 +98,20 @@ struct FunctionDescription {
 };
 
 std::vector<FunctionDescription> functions();
+
+// A named value of the language, for keypads and lists.
+struct ConstantDescription {
+    std::string name;         // as typed: "G", "phi", "dozen"
+    std::string title;        // English: "Newtonian constant of gravitation", "golden ratio", "one dozen (12)"
+    std::string category;     // "mathematical", "number name" or "physical"
+    std::string value;        // as published: "6.67430e-11", "1.054571817...e-34", "12"; "" for irrational ones
+    std::string uncertainty;  // CODATA's standard uncertainty: "0.00015e-11"; "" when exact
+    std::string limit;        // the ± the calculator uses, three standard uncertainties: "4.5e-15"; "" when exact
+    std::string unit;         // the SI unit ("m³·kg⁻¹·s⁻²"), NIST's text when not SI ("MeV"); "" for pure numbers
+    bool exact = false;       // usable in the Exact type
+};
+
+std::vector<ConstantDescription> constants();
 std::vector<std::string> functionCategories();  // in display order
 
 enum class WarningCode { EmptyRange, FirstOrderUnreliable, UnitsDiffer };  // grows with each producer

@@ -231,6 +231,35 @@ std::vector<FunctionDescription> functions() {
 
 std::vector<std::string> functionCategories() { return categories(); }
 
+std::vector<ConstantDescription> constants() {
+    std::vector<ConstantDescription> list;
+    for (const auto& [name, title] : {std::pair<const char*, const char*>{"pi", "pi"}, {"e", "Euler's number"}, {"tau", "tau, 2π"},
+                                      {"sqrt2", "square root of 2"}, {"phi", "golden ratio"}, {"egamma", "Euler–Mascheroni constant"},
+                                      {"catalan", "Catalan's constant"}, {"apery", "Apéry's constant, ζ(3)"},
+                                      {"plastic", "plastic ratio"}, {"omega", "omega constant, W(1)"}})
+        list.push_back({name, title, "mathematical", "", "", "", "", false});
+    for (const NumberName& n : numberNames)
+        list.push_back({std::string(n.name), std::string(n.title), "number name", std::string(n.literal), "", "", "", true});
+    for (const PhysicalConstant& c : physicalConstants) {
+        ConstantDescription d{std::string(c.name), std::string(c.quantity), "physical", std::string(c.nistValue), "", "", "", false};
+        if (const std::size_t pm = c.definition.find("+/-"); pm != std::string_view::npos) {
+            d.uncertainty = std::string(c.definition.substr(pm + 3));
+            d.limit = formatScientific(fromRational<Ruler>(Rational(3) * toRational(*parseDecimal(d.uncertainty))));
+        }
+        if (c.coherent) {
+            Dimension dimension;
+            for (std::size_t i = 0; i < dimension.exponents.size(); ++i) dimension.exponents[i] = c.dimension[i];
+            d.unit = unitName(dimension);
+        } else {
+            d.unit = std::string(c.unit);
+        }
+        const Parsed p = parse(c.name, Options{});
+        d.exact = !p.error && !checkExact(p.ast);
+        list.push_back(std::move(d));
+    }
+    return list;
+}
+
 Result evaluate(std::string_view expression, const Options& options) {
     return evaluateWithNames(expression, options, {});
 }
