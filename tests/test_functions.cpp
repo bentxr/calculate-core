@@ -3,6 +3,7 @@
 #include "test_support.hpp"
 
 #include <set>
+#include <tuple>
 
 using namespace calculate_core;
 using namespace calculate_core::detail;
@@ -790,4 +791,25 @@ TEST(Slopes, IncompleteGammaDominatesItsDerivativeInX) {
                                SlopeCase{FunctionId::Igamma, {3, 2}, {0, 1.5}}, SlopeCase{FunctionId::GammaInc, {2.5, 1.75}, {0, 0}}})
         expectSlopesDominate(c.id, c.point, c.radius);
     EXPECT_FALSE(isFinite(slopes(FunctionId::GammaP, {Ruler(2.5), Ruler(1)}, {Ruler(0.1), Ruler(0)})[0]));  // an uncertain a
+}
+
+TEST(Slopes, IncompleteBetaDominatesItsDerivativeInX) {
+    // Its partials hold central differences in a and b, too slow for the box walk: the slope in x is checked against
+    // the density at the interval's ends, its centre and (for a, b < 1) its U-shaped middle.
+    const auto densityAt = [](Ruler p, Ruler q, Ruler x) {
+        return abs(partials<Ruler>(FunctionId::Betainc, {p, q, x}, impl::rulerValue(FunctionId::Betainc, {p, q, x}))[2]);
+    };
+    for (const auto& [p, q, x, r] : {std::tuple<double, double, double, double>{2.5, 4.25, 0.375, 0.1}, {0.5, 0.7, 0.5, 0.2},
+                                     {3, 3, 0.45, 0.1}}) {
+        const Ruler slope = slopes(FunctionId::Betainc, {Ruler(p), Ruler(q), Ruler(x)}, {Ruler(0), Ruler(0), Ruler(r)})[2];
+        for (const double t : {x - r, x, x + r}) EXPECT_GE(slope, densityAt(Ruler(p), Ruler(q), Ruler(t))) << p << " " << q << " " << t;
+    }
+    EXPECT_GE(slopes(FunctionId::Betainc, {Ruler(3), Ruler(3), Ruler(0.45)}, {Ruler(0), Ruler(0), Ruler(0.1)})[2],
+              densityAt(Ruler(3), Ruler(3), Ruler(0.5)));  // the mode, inside the interval
+    const Ruler exact = slopes(FunctionId::Betainc, {Ruler(2.5), Ruler(4.25), Ruler(0.375)}, {Ruler(0), Ruler(0), Ruler(0)})[2];
+    EXPECT_LE(abs(exact - densityAt(Ruler(2.5), Ruler(4.25), Ruler(0.375))), ldexp(exact, -900));  // exact arguments: sharp
+    EXPECT_FALSE(isFinite(slopes(FunctionId::Betainc, {Ruler(2), Ruler(3), Ruler(0.5)}, {Ruler(0.1), Ruler(0), Ruler(0)})[0]));
+    const std::vector<Ruler> point{Ruler(2.5), Ruler(4.25), Ruler(0.4)};
+    const std::vector<Ruler> centre = partials<Ruler>(FunctionId::Betaincinv, point, impl::rulerValue(FunctionId::Betaincinv, point));
+    EXPECT_GE(slopes(FunctionId::Betaincinv, point, {Ruler(0), Ruler(0), Ruler(0.1)})[2], abs(centre[2]));
 }

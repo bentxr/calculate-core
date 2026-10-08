@@ -132,6 +132,7 @@ transcendental functions are unavailable.
 | Hyperbolic | `sinh  cosh  tanh  asinh  acosh  atanh  sech  csch  coth  asech  acsch  acoth` |
 | Integers | `mod(a, b)  rem(a, b)  floormod(a, b)  gcd  lcm  nCr  nPr` |
 | Rounding and parts | `floor  ceil  round  trunc (int)  frac  sgn  clip(x, lo, hi)  numerator  denominator` |
+| Special functions | `gamma  lgamma  digamma  beta(a, b)  erf  erfc  erfinv  erfcinv  gammap(a, x)  gammaq(a, x)  igamma(a, x)  gammainc(a, x)  betainc(a, b, x)  betaincinv(a, b, y)` |
 | Statistics | `mean  median  var  stdev  varp  stdevp` of any number of values |
 | Sums and products | `sum(f; from; to)`, `sum(f; from; to; k)`, `product(…)`, also `Σ  ∑  Π  ∏`: the variable is `x` unless named, the limits exact whole numbers |
 | Conversions | `… to fraction` (also `->` and `→`): the same result in another form; `to fraction` alone converts Ans |

@@ -320,3 +320,34 @@ TYPED_TEST(SpecialKernelTest, InverseIncompleteBeta) {
     EXPECT_EQ(applyFunction<T>(FunctionId::Betaincinv, {T(1), T(1), T(0.25)}).value, T(0.25));
     EXPECT_EQ(applyFunction<T>(FunctionId::Betaincinv, {T(1), T(1), T(2)}).error.value_or(ErrorCode::Cancelled), ErrorCode::DomainError);
 }
+
+TEST(SpecialPartials, IncompleteBeta) {
+    using O = RulerCheck;
+    const O h = ldexp(O(1), -400);
+    const std::vector<Ruler> args{Ruler(2.5), Ruler(4.25), Ruler(0.375)};
+    const std::vector<Ruler> d = partials<Ruler>(FunctionId::Betainc, args, applyFunction<Ruler>(FunctionId::Betainc, args).value);
+    const O base[] = {O(2.5), O(4.25), O(0.375)};
+    for (std::size_t k = 0; k < 3; ++k) {
+        std::vector<O> up(base, base + 3), down(base, base + 3);
+        up[k] += h;
+        down[k] -= h;
+        const O expected = (test::specialOracle<O>(FunctionId::Betainc, up) - test::specialOracle<O>(FunctionId::Betainc, down)) / (2 * h);
+        EXPECT_LE(abs(exactCast<O>(d[k]) - expected), ldexp(O(1), -200) * (abs(expected) + 1)) << k;
+    }
+    // the inverse's slope in y is the reciprocal of the forward slope in x
+    const Ruler x = applyFunction<Ruler>(FunctionId::Betaincinv, {Ruler(2.5), Ruler(4.25), Ruler(0.4)}).value;
+    const std::vector<Ruler> forward = partials<Ruler>(FunctionId::Betainc, {Ruler(2.5), Ruler(4.25), x}, Ruler(0.4));
+    const std::vector<Ruler> inverse = partials<Ruler>(FunctionId::Betaincinv, {Ruler(2.5), Ruler(4.25), Ruler(0.4)}, x);
+    EXPECT_LE(abs(inverse[2] * forward[2] - 1), ldexp(Ruler(1), -300));  // the slopes in x and y are reciprocal
+    EXPECT_LE(abs(inverse[0] + forward[0] / forward[2]), ldexp(Ruler(1), -200) * (abs(inverse[0]) + 1));
+}
+
+TEST(Special, EndToEnd) {
+    for (const char* text : {"gamma(0.5)^2", "lgamma(10) - ln(9!)", "erf(1) + erfc(1)", "gammap(2, 3) + gammaq(2, 3)",
+                             "betainc(2, 5, 0.3) + betainc(5, 2, 0.7)", "erfinv(erf(0.5))", "beta(2, 3)*12"}) {
+        const Result r = evaluate(text);
+        ASSERT_FALSE(r.error) << text;
+        EXPECT_TRUE(r.measurementReliable) << text;
+        EXPECT_TRUE(r.boundComplete) << text;
+    }
+}

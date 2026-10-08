@@ -794,6 +794,24 @@ std::vector<R> partials(FunctionId id, const std::vector<R>& a, const R& v) {
         const R da = (applyFunction<R>(id, {R(s + h), t}).value - applyFunction<R>(id, {R(s - h), t}).value) / (2 * h);
         return {da, lower ? dx : R(-dx)};
     }
+    case FunctionId::Betainc:      // (a, b, x)
+    case FunctionId::Betaincinv: {  // (a, b, y); its value v is the x with I_v(a, b) = y
+        using std::ldexp;
+        const R p = a[0], q = a[1];
+        const R point = id == FunctionId::Betainc ? a[2] : v;
+        const R lnB = f(FunctionId::Lgamma, p) + f(FunctionId::Lgamma, q) - f(FunctionId::Lgamma, R(p + q));
+        const R slope = f(FunctionId::Exp, R((p - 1) * f(FunctionId::Ln, point) + (q - 1) * f(FunctionId::Ln, R(1 - point)) - lnB));  // I'(x)
+        // d/da, d/db have no short closed form: central differences of the kernel, h near the optimum 2^(-p/3)
+        const auto difference = [&](std::size_t k) {
+            std::vector<R> up{p, q, point}, down{p, q, point};
+            const R h = abs(up[k]) * ldexp(R(1), -precisionBits<R>() / 3);
+            up[k] += h;
+            down[k] -= h;
+            return R((applyFunction<R>(FunctionId::Betainc, up).value - applyFunction<R>(FunctionId::Betainc, down).value) / (2 * h));
+        };
+        if (id == FunctionId::Betainc) return {difference(0), difference(1), slope};
+        return {R(-difference(0) / slope), R(-difference(1) / slope), R(1 / slope)};  // the implicit function theorem
+    }
     case FunctionId::Beta: {
         const R both = f(FunctionId::Digamma, R(a[0] + a[1]));
         return {v * (f(FunctionId::Digamma, a[0]) - both), v * (f(FunctionId::Digamma, a[1]) - both)};
@@ -1036,6 +1054,37 @@ inline std::vector<Ruler> slopes(FunctionId id, const std::vector<Ruler>& a, con
     case FunctionId::Square: return {2 * (abs(a[0]) + b[0])};
     case FunctionId::Cube: return {3 * (abs(a[0]) + b[0]) * (abs(a[0]) + b[0])};
     case FunctionId::Power: return impl::powerSlopes(a, b);
+    case FunctionId::Betainc:
+    case FunctionId::Betaincinv: {
+        // The density t^(a-1) (1-t)^(b-1) / B(a, b) has one interior critical point, the mode (a-1)/(a+b-2), so its
+        // largest and smallest values over an interval are at an end or there. Uncertain a or b: no bound here.
+        if (b[0] > 0 || b[1] > 0) return {inf, inf, inf};
+        const Ruler p = a[0], q = a[1];
+        const Ruler lnB = impl::rulerValue(FunctionId::Lgamma, {p}) + impl::rulerValue(FunctionId::Lgamma, {q})
+                          - impl::rulerValue(FunctionId::Lgamma, {Ruler(p + q)});
+        const auto density = [&](const Ruler& t) -> Ruler {
+            if (t <= 0) return p > 1 ? Ruler(0) : p < 1 ? inf : impl::rulerValue(FunctionId::Exp, {Ruler(-lnB)});
+            if (t >= 1) return q > 1 ? Ruler(0) : q < 1 ? inf : impl::rulerValue(FunctionId::Exp, {Ruler(-lnB)});
+            return impl::rulerValue(FunctionId::Exp, {Ruler((p - 1) * impl::rulerValue(FunctionId::Ln, {t})
+                                                            + (q - 1) * impl::rulerValue(FunctionId::Ln, {Ruler(1 - t)}) - lnB)});
+        };
+        Ruler lo, hi;  // the x interval
+        if (id == FunctionId::Betainc) {
+            lo = std::max(Ruler(0), Ruler(a[2] - b[2]));
+            hi = std::min(Ruler(1), Ruler(a[2] + b[2]));
+        } else {
+            lo = impl::rulerValue(FunctionId::Betaincinv, {p, q, std::max(Ruler(0), Ruler(a[2] - b[2]))});
+            hi = impl::rulerValue(FunctionId::Betaincinv, {p, q, std::min(Ruler(1), Ruler(a[2] + b[2]))});
+        }
+        std::vector<Ruler> values{density(lo), density(hi)};
+        const Ruler mode = (p - 1) / (p + q - 2);
+        if (p + q != 2 && mode > lo && mode < hi) values.push_back(density(mode));
+        const std::vector<Ruler> centre = partials<Ruler>(id, a, impl::rulerValue(id, a));
+        if (id == FunctionId::Betainc)
+            return {abs(centre[0]), abs(centre[1]), *std::max_element(values.begin(), values.end())};
+        const Ruler least = *std::min_element(values.begin(), values.end());  // dx/dy = 1 / density
+        return {abs(centre[0]), abs(centre[1]), least > 0 ? Ruler(1 / least) : inf};
+    }
     case FunctionId::GammaP:
     case FunctionId::GammaQ:
     case FunctionId::Igamma:
