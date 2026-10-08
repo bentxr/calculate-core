@@ -761,3 +761,8 @@ TEST(Api, MixedNumbersKeepParenthesesForBothParts) {
     EXPECT_FALSE(evaluate("1 to 1/1000000000").error);
     EXPECT_EQ(evaluate("1 to 1/1000000001").error->code, ErrorCode::UnexpectedToken);
 }
+
+// nCr(n, r) takes the shorter product: over 37 factors its partial products pass 2^53, over 19 they never do.
+TEST(Api, ACombinationTakesTheShorterProduct) {
+    EXPECT_EQ(evaluate("nCr(56, 37)").bound, "0");
+}
