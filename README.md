@@ -131,6 +131,7 @@ transcendental functions are unavailable.
 | Sums and products | `sum(f; from; to)`, `sum(f; from; to; k)`, `product(…)`, also `Σ  ∑  Π  ∏`: the variable is `x` unless named, the limits exact whole numbers |
 | Conversions | `… to fraction` (also `->` and `→`): the same result in another form; `to fraction` alone converts Ans |
 | Comments | `# …` after an expression, or alone as a note: kept in the history, never evaluated |
+| Variables | `name := expression` stores the expression (as text, with names expanded) under any name that is not a constant, function or reserved word; it is recomputed in each number type |
 
 `^` is right-associative and `-2^2` is −4. There is no implicit multiplication: write `2π` as `2×π`.
 Arguments are separated by `,` or `;`.
