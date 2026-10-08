@@ -12,10 +12,10 @@ enum class FunctionId {
     Add, Subtract, Multiply, Divide, Negate, Power, Percent, Square, Cube, Factorial,
     Sqrt, Cbrt, Root, Exp, Ln, Log10, LogBase,
     Sin, Cos, Tan, Asin, Acos, Atan, Sinh, Cosh, Tanh, Asinh, Acosh, Atanh,
-    Abs, Rem, FloorMod, Gcd, Lcm, Ncr, Npr, Csch, Acot, Atan2, Hypot, Sinc, Floor, Trunc, Round, Sgn, Clip, Numerator, Denominator, Lgamma, Gamma, Digamma, Trigamma, Beta, Erf, Erfc, Erfinv, Erfcinv, GammaP, GammaQ, Igamma, GammaInc, Betainc, Betaincinv, Median
+    Abs, Rem, FloorMod, Gcd, Lcm, Ncr, Npr, Csch, Acot, Atan2, Hypot, Sinc, Floor, Trunc, Round, Sgn, Clip, Numerator, Denominator, Lgamma, Gamma, Digamma, Trigamma, Beta, Erf, Erfc, Erfinv, Erfcinv, GammaP, GammaQ, Igamma, GammaInc, Betainc, Betaincinv, Median, Uncertain
 };
 
-inline constexpr int functionCount = static_cast<int>(FunctionId::Median) + 1;
+inline constexpr int functionCount = static_cast<int>(FunctionId::Uncertain) + 1;
 
 struct Span {
     std::size_t begin = 0;
@@ -24,7 +24,7 @@ struct Span {
 
 struct Node {
     FunctionId function = FunctionId::Literal;
-    std::string text;       // the literal's source text (Literal only)
+    std::string text;       // the literal's source text (Literal); the quantity's key (Uncertain, may be empty)
     std::vector<int> args;  // indices of earlier nodes
     Span span;
     bool lowered = false;  // made by a lowering of the function named in written

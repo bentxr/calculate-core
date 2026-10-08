@@ -117,6 +117,7 @@ inline const FunctionInfo& functionInfo(FunctionId id) {
         {F::Betainc, "betainc", 3, 3, C::Library, K::Continuous, false},
         {F::Betaincinv, "betaincinv", 3, 3, C::Library, K::Continuous, false},
         {F::Median, "median", 1, -1, C::Checked, K::Continuous, true},
+        {F::Uncertain, "uncertainty", 2, 2, C::Exact, K::Continuous, true},  // the value; the uncertainty is information
     }};
     return table[static_cast<std::size_t>(id)];
 }
@@ -684,6 +685,10 @@ Applied<T> applyFunction(FunctionId id, const std::vector<T>& a, const std::atom
         r.value = n % 2 ? sorted[n / 2] : T((sorted[n / 2 - 1] + sorted[n / 2]) / 2);
         break;
     }
+    case FunctionId::Uncertain:
+        if (a[1] < 0) return impl::fail<T>(ErrorCode::DomainError);
+        r.value = a[0];
+        break;
     case FunctionId::Factorial:
     case FunctionId::Ncr:
     case FunctionId::Npr:
@@ -837,6 +842,7 @@ std::vector<R> partials(FunctionId id, const std::vector<R>& a, const R& v) {
         else d[order[n / 2 - 1]] = d[order[n / 2]] = R(0.5);
         return d;
     }
+    case FunctionId::Uncertain: return {R(1), R(0)};  // the uncertainty's own errors never reach the value
     default: return std::vector<R>(a.size(), R(0));  // discrete functions and constants
     }
 }
@@ -1178,6 +1184,7 @@ inline std::vector<Ruler> slopes(FunctionId id, const std::vector<Ruler>& a, con
     case FunctionId::Erfc:
     case FunctionId::Erfinv:
     case FunctionId::Erfcinv: return {impl::functionSlope(id, a[0], b[0])};
+    case FunctionId::Uncertain: return {Ruler(1), Ruler(0)};
     default: return std::vector<Ruler>(a.size(), Ruler(0));  // discrete functions: uncertain arguments are refused
     }
 }

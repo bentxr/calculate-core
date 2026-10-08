@@ -466,3 +466,48 @@ TEST(Forward, KeepsEachNodesScale) {
     ASSERT_EQ(fw.scales.size(), fw.values.size());
     EXPECT_EQ(fw.scales.back(), 0.0);
 }
+
+TEST(Uncertain, TheValuePassesThroughAndTheUncertaintyIsNotAnError) {
+    AstBuilder b;
+    const auto five = b.literal("5");
+    const auto spread = b.literal("0.2");
+    b.uncertain(five, spread);
+    const Evaluation<double> ev = evaluate<double>(b.ast());
+    ASSERT_FALSE(ev.error);
+    EXPECT_EQ(ev.value, 5.0);
+    EXPECT_EQ(ev.report.bound, 0);  // 0.2 has no exact binary form, but it is not part of the value
+    EXPECT_EQ(ev.report.input, 0);
+}
+
+TEST(Uncertain, ANegativeUncertaintyIsADomainError) {
+    AstBuilder b;
+    const auto five = b.literal("5");
+    const auto spread = -b.literal("0.2");
+    b.uncertain(five, spread);
+    const Evaluation<double> ev = evaluate<double>(b.ast());
+    ASSERT_TRUE(ev.error);
+    EXPECT_EQ(ev.error->code, ErrorCode::DomainError);
+}
+
+TEST(Uncertain, DiscreteFunctionsRefuseAnUncertainArgument) {
+    AstBuilder b;
+    const auto five = b.literal("5");
+    const auto spread = b.literal("0.2");
+    const auto x = b.uncertain(five, spread);
+    b.apply(FunctionId::Factorial, {x});
+    const Evaluation<double> ev = evaluate<double>(b.ast());
+    ASSERT_TRUE(ev.error);
+    EXPECT_EQ(ev.error->code, ErrorCode::UncertainDiscreteArgument);
+    EXPECT_NE(ev.error->message.find("error of up to 2e-1"), std::string::npos);
+}
+
+TEST(Uncertain, ExactArithmeticKeepsTheValueExact) {
+    AstBuilder b;
+    const auto third = b.literal("1") / b.literal("3");
+    const auto spread = b.literal("0.1");
+    b.uncertain(third, spread);
+    const Evaluation<Rational> ev = evaluate<Rational>(b.ast());
+    ASSERT_FALSE(ev.error);
+    EXPECT_EQ(ev.value, Rational(1, 3));
+    EXPECT_EQ(ev.report.bound, 0);
+}

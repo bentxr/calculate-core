@@ -33,6 +33,15 @@ public:
     }
 
     Handle constant(FunctionId id) { return apply(id, {}); }
+    // value ± uncertainty. `key` names one quantity used at several places (a constant, Ans); empty for a
+    // value typed once.
+    Handle uncertain(Handle value, Handle uncertainty, std::string key = {}) {
+        Node node;
+        node.function = FunctionId::Uncertain;
+        node.args = {value.index, uncertainty.index};
+        node.text = std::move(key);
+        return push(std::move(node));
+    }
 
     const Ast& ast() const { return ast_; }
 

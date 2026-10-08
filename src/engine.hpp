@@ -3,6 +3,7 @@
 #include "ast.hpp"
 #include "functions.hpp"
 #include "numbers.hpp"
+#include "uncertainty.hpp"
 
 #include <calculate-core/calculate-core.hpp>
 
@@ -266,12 +267,13 @@ inline Adjoints adjoints(const Ast& ast, const std::vector<std::vector<Ruler>>& 
 }
 
 // First-order error bound of every node's value, computed forwards (Higham's running error bound).
+// The user's uncertainties (when given) add to their nodes' bounds.
 inline std::vector<Ruler> forwardBounds(const Ast& ast, const std::vector<std::vector<Ruler>>& partials,
-                                        const std::vector<Ruler>& locals) {
+                                        const std::vector<Ruler>& locals, const std::vector<Ruler>& uncertainties = {}) {
     using std::abs;
     std::vector<Ruler> bounds(ast.nodes.size(), Ruler(0));
     for (std::size_t i = 0; i < ast.nodes.size(); ++i) {
-        bounds[i] = locals[i];
+        bounds[i] = locals[i] + (uncertainties.empty() ? Ruler(0) : uncertainties[i]);
         for (std::size_t k = 0; k < ast.nodes[i].args.size(); ++k)
             bounds[i] += impl::times(abs(partials[i][k]), bounds[ast.nodes[i].args[k]]);
     }
@@ -286,9 +288,11 @@ struct Propagation {
 };
 
 template <class T>
-Propagation propagate(const Ast& ast, const Forward<T>& fw, const std::vector<Ruler>& locals) {
+Propagation propagate(const Ast& ast, const Forward<T>& fw, const std::vector<Ruler>& locals,
+                      const std::vector<Ruler>& uncertainties = {}) {
     Propagation p;
     p.bounds = locals;
+    for (std::size_t i = 0; i < uncertainties.size(); ++i) p.bounds[i] += uncertainties[i];
     p.slopes.resize(ast.nodes.size());
     for (std::size_t i = 0; i < ast.nodes.size(); ++i) {
         const Node& node = ast.nodes[i];
@@ -432,7 +436,7 @@ Evaluation<T> evaluate(const Ast& ast, const Options& options = {}) {
 
     // Discrete functions jump, so derivatives cannot carry their arguments' uncertainty:
     // refuse arguments that are not exactly known, unless the caller accepts an incomplete bound.
-    const Propagation propagation = propagate<T>(ast, fw, locals);
+    const Propagation propagation = propagate<T>(ast, fw, locals, userUncertainties(ast, fw.values));
     const std::vector<Ruler>& bounds = propagation.bounds;
     for (const Node& node : ast.nodes) {
         if (!node.args.empty()) {
