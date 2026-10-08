@@ -575,7 +575,7 @@ TEST(Session, ATargetAloneConvertsAns) {
     EXPECT_EQ(s.history().back().input, "Ans + 0 to fraction");
 }
 
-// Mutation survivors of Checkpoint A (Plan 1).
+// Mutation survivors.
 TEST(Api, ARemainderNearZeroSeesTheJumpOnItsNegativeSide) {
     // -0.297 ± 0.83 reaches -1, where rem(x, 1) jumps, but not +1: the nearest whole quotient is 0, so the jump checked
     // must be its lower neighbour.
@@ -756,7 +756,7 @@ TEST(Api, AFixedDenominatorSaysHowFarItIs) {
     EXPECT_TRUE(listed);
 }
 
-// Mutation survivors (Plan 1, final checkpoint): the sign of a mixed number, and the largest denominator of 1/n.
+// Mutation survivors: the sign of a mixed number, and the largest denominator of 1/n.
 TEST(Api, MixedNumbersKeepParenthesesForBothParts) {
     EXPECT_EQ(evaluate("-6 to mixed", as(NumberType::Exact)).conversion->text, "-6");
     EXPECT_EQ(evaluate("-1/3 to mixed", as(NumberType::Exact)).conversion->text, "-1/3");
@@ -780,6 +780,17 @@ TEST(Api, EveryFunctionIsDescribed) {
         EXPECT_EQ(f.example.rfind(f.name, 0), 0u) << f.name << ": " << f.example;  // the example uses the function
         const Result r = evaluate(f.example);
         EXPECT_FALSE(r.error) << f.name << ": " << f.example;
+    }
+}
+
+// The listing's exact flag says what the Exact type does with the function's example.
+TEST(Api, TheExactFlagIsWhatExactArithmeticDoes) {
+    Options o;
+    o.type = NumberType::Exact;
+    for (const FunctionDescription& f : functions()) {
+        const Result r = evaluate(f.example, o);
+        const bool refused = r.error && r.error->code == ErrorCode::NotAvailableInExact;
+        EXPECT_EQ(refused, !f.exact) << f.name << ": " << f.example;
     }
 }
 
@@ -1036,4 +1047,126 @@ TEST(Api, PhysicalConstantsComeInGroups) {
             EXPECT_EQ(c.group, "Universal");
         }
     }
+}
+
+TEST(Api, AValueTooLongToWriteOutIsShownInBinary) {
+    Options o;
+    o.type = NumberType::Binary512;
+    const auto start = std::chrono::steady_clock::now();
+    const Result r = evaluate("1e-1000000", o);
+    EXPECT_LT(std::chrono::steady_clock::now() - start, std::chrono::seconds(3));
+    ASSERT_FALSE(r.error);
+    EXPECT_TRUE(r.value.digits.empty());
+    ASSERT_TRUE(r.binaryValue);
+    EXPECT_FALSE(r.binaryValue->negative);
+    EXPECT_EQ(r.binaryValue->significand.back() % 2, 1);  // odd
+    EXPECT_LT(r.binaryValue->exponent2, -3000000);
+    EXPECT_EQ(r.trustedDigits, 0);
+    EXPECT_FALSE(evaluate("0.1").binaryValue);  // short values stay decimal
+}
+
+// Mutation survivors.
+TEST(Units, ACubeCubesTheUnit) {
+    EXPECT_EQ(evaluate("c³").unit, "m³·s⁻³");
+}
+
+TEST(Api, AWholePowerOfAnArgumentNearZeroIsAllowed) {
+    EXPECT_FALSE(evaluate("(0.1+0.2-0.3)^2").error);  // smooth at 0: only fractional exponents meet an edge there
+}
+
+TEST(Api, TheInspectionFunctionsAreListed) {
+    const std::vector<FunctionDescription> list = functions();
+    for (const char* name : {"floatBits", "floatParts", "floatValue", "floatError", "fromBits"}) {
+        const auto found = std::find_if(list.begin(), list.end(), [&](const FunctionDescription& f) { return f.name == name; });
+        ASSERT_NE(found, list.end()) << name;
+        EXPECT_EQ(found->minArgs, 1) << name;
+        EXPECT_EQ(found->maxArgs, 2) << name;
+        EXPECT_TRUE(found->exact) << name;
+    }
+}
+
+TEST(Api, BaseLiteralsInEveryType) {
+    EXPECT_EQ(evaluate("0xFF + 0b1").value.digits, "256");
+    EXPECT_EQ(evaluate("0o17 * 0b10").value.digits, "3");
+    EXPECT_EQ(evaluate("0o17 * 0b10").value.exponent10, 1);
+    EXPECT_EQ(evaluate("0x1p-1074").stored->stored.hex, "0000000000000001");
+    EXPECT_EQ(evaluate("0x20000000000001").inputError, "1e+0");  // 2^53 + 1 is not a double
+    Options exact;
+    exact.type = NumberType::Exact;
+    EXPECT_EQ(evaluate("0x1.8p3", exact).exact->numerator, "12");
+    EXPECT_EQ(evaluate("0x1p99999").error->code, ErrorCode::LiteralOutOfRange);
+}
+
+// A number in a base is exact, as its bits are: read precision leaves it alone, and a format conversion rounds its
+// exact value once (through a double, 1 + 2^-11 + 2^-54 would land on a tie and round down).
+TEST(Api, BaseLiteralsAreExact) {
+    Options o;
+    o.readPrecision = ReadPrecision::Decimals;
+    const Result r = evaluate("0x1.8 * 1.5", o);
+    ASSERT_EQ(r.uncertainInputs.size(), 1u);
+    EXPECT_EQ(r.uncertainInputs[0].name, "1.5");
+    EXPECT_EQ(evaluate("0x1.00200000000001p0 to fp16").conversion->fields[0].value, "0x3C01");
+    EXPECT_EQ(evaluate("0x1p−3").value.digits, "125");  // the calculator's minus
+}
+
+TEST(Bitwise, OperatorsOnIntegers) {
+    EXPECT_EQ(evaluate("12 & 10").value.digits, "8");
+    EXPECT_EQ(evaluate("12 | 3").value.digits, "15");
+    EXPECT_EQ(evaluate("12 xor 10").value.digits, "6");
+    EXPECT_EQ(evaluate("12 ⊻ 10").value.digits, "6");
+    const Result notFive = evaluate("~5");
+    EXPECT_TRUE(notFive.value.negative);
+    EXPECT_EQ(notFive.value.digits, "6");
+    EXPECT_EQ(evaluate("-1 & 255").value.digits, "255");
+    EXPECT_EQ(evaluate("-6 & 3").value.digits, "2");
+}
+
+TEST(Bitwise, PrecedenceFollowsC) {
+    EXPECT_EQ(evaluate("6 | 1 & 2").value.digits, "6");   // & before |
+    EXPECT_EQ(evaluate("5 xor 3 & 1").value.digits, "4"); // & before xor
+    EXPECT_EQ(evaluate("1 | 2 + 5").value.digits, "7");   // + before |
+    EXPECT_EQ(evaluate("~5 & 3").value.digits, "2");      // ~ binds like unary minus
+}
+
+TEST(Bitwise, ReadingAndMessagesUseTheOperators) {
+    EXPECT_EQ(evaluate("~5 & 3 | 1 ⊻ 2").reading, "((~5 & 3) | (1 xor 2))");
+    EXPECT_EQ(evaluate("2.5 & 1").error->message, "& needs a whole-number argument");
+    EXPECT_EQ(evaluate("1 | 2.5").error->message, "| needs a whole-number argument");
+    EXPECT_EQ(evaluate("1 xor 2.5").error->message, "xor needs a whole-number argument");
+    EXPECT_EQ(evaluate("~2.5").error->message, "~ needs a whole-number argument");
+}
+
+TEST(Bitwise, OnlyExactWholeNumbers) {
+    EXPECT_EQ(evaluate("2.5 & 1").error->code, ErrorCode::NotAnInteger);
+    EXPECT_EQ(evaluate("0.1 * 10 & 1").error->code, ErrorCode::UncertainDiscreteArgument);  // 1 in double, not exactly known
+    Options anyway;
+    anyway.allowUncertainDiscreteArguments = true;
+    const Result r = evaluate("0.1 * 10 & 1", anyway);
+    EXPECT_FALSE(r.error);
+    EXPECT_FALSE(r.boundComplete);
+    Options exact;
+    exact.type = NumberType::Exact;
+    EXPECT_EQ(evaluate("2^70 | 1", exact).exact->numerator, "1180591620717411303425");
+    EXPECT_EQ(evaluate("2^60 | 1").roundingError, "1e+0");  // 2^60 + 1 rounds back to 2^60 in double
+}
+
+TEST(Bitwise, Shifts) {
+    EXPECT_EQ(evaluate("1 << 10").value.digits, "1024");
+    const Result r = evaluate("-5 >> 1");
+    EXPECT_TRUE(r.value.negative);
+    EXPECT_EQ(r.value.digits, "3");
+    EXPECT_EQ(evaluate("3 << 2 + 1").value.digits, "24");  // + first: 3 << 3
+    EXPECT_EQ(evaluate("1 << -1").error->code, ErrorCode::DomainError);
+    EXPECT_EQ(evaluate("3.5 << 1").error->code, ErrorCode::NotAnInteger);
+    EXPECT_EQ(evaluate("1 << 2000").error->code, ErrorCode::Overflow);
+}
+
+TEST(Bitwise, ShiftLimitsReadingAndMessages) {
+    EXPECT_EQ(evaluate("1 << 1048577").error->code, ErrorCode::ArgumentTooLarge);  // at most 2^20 places
+    Options exact;
+    exact.type = NumberType::Exact;
+    EXPECT_FALSE(evaluate("1 << 1048576 >> 1048576", exact).error);
+    EXPECT_EQ(evaluate("1 << 2 >> 1").reading, "((1 << 2) >> 1)");
+    EXPECT_EQ(evaluate("1 << 0.5").error->message, "<< needs a whole-number argument");
+    EXPECT_EQ(evaluate("1 >> 0.5").error->message, ">> needs a whole-number argument");
 }

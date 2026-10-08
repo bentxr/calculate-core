@@ -182,6 +182,20 @@ const std::vector<FunctionText>& table() {
          "betaincinv(2, 5, 0.5)", "Probability", {{"a", ArgumentKind::Number}, {"b", ArgumentKind::Number}, {"y", ArgumentKind::Number}}},
         {"uncertainty", "Value with uncertainty", "x, whose true value lies within u of it.",
          "uncertainty(5, 0.2)", "Uncertainty", {{"x", ArgumentKind::Number}, {"u", ArgumentKind::Number}}},
+        {"signed", "Signed", "x wrapped into that many bits, read as two's complement (the top bit counts as negative).",
+         "signed(255, 8)", "Integers", {{"x", ArgumentKind::Number}, {"bits", ArgumentKind::Number}}},
+        {"unsigned", "Unsigned", "x wrapped into that many bits, read without a sign.",
+         "unsigned(-1, 8)", "Integers", {{"x", ArgumentKind::Number}, {"bits", ArgumentKind::Number}}},
+        {"floatBits", "Stored bits", "The sign, exponent and fraction fields of x as stored in a format.",
+         "floatBits(0.1, fp32)", "Floating point", {{"x", ArgumentKind::Number}, {"format", ArgumentKind::Format}}},
+        {"floatParts", "Stored parts", "x as stored: sign, power of two and significand.",
+         "floatParts(0.1, fp32)", "Floating point", {{"x", ArgumentKind::Number}, {"format", ArgumentKind::Format}}},
+        {"floatValue", "Stored value", "The value a format actually stores for x, exactly.",
+         "floatValue(0.1, fp16)", "Floating point", {{"x", ArgumentKind::Number}, {"format", ArgumentKind::Format}}},
+        {"floatError", "Conversion error", "Stored value minus x, exactly.",
+         "floatError(52.345, fp32)", "Floating point", {{"x", ArgumentKind::Number}, {"format", ArgumentKind::Format}}},
+        {"fromBits", "Number from bits", "The number a bit pattern stands for in a format.",
+         "fromBits(0x3DCCCCCD, fp32)", "Floating point", {{"bits", ArgumentKind::Number}, {"format", ArgumentKind::Format}}},
         {"errorPart", "Error part", "The worst-case uncertainty x carries from its uncertain inputs, as a number.",
          "errorPart(5±0.2)", "Uncertainty", {{"x", ArgumentKind::Number}}},
     };
@@ -198,7 +212,7 @@ const FunctionText* functionText(std::string_view name) {
 
 std::vector<std::string> categories() {
     return {"Constants", "Powers and roots", "Logarithms", "Trigonometry", "Hyperbolic", "Rounding and parts",
-            "Integers", "Statistics", "Sums and products", "Special functions", "Probability", "Uncertainty"};
+            "Integers", "Statistics", "Sums and products", "Special functions", "Probability", "Uncertainty", "Floating point"};
 }
 
 }  // namespace calculate_core::detail

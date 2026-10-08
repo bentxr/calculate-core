@@ -154,6 +154,13 @@ inline bool zeroPowerNearJump(const std::vector<Rational>& x, const std::vector<
 
 }  // namespace impl
 
+// The exact value of a fromBits node: the decimal the facade wrote (a sign, then a literal).
+inline Rational fromBitsValue(const Node& node) {
+    const bool negative = !node.text.empty() && node.text[0] == '-';
+    const Rational q = toRational(*parseDecimal(std::string_view(node.text).substr(negative ? 1 : 0)));
+    return negative ? Rational(-q) : q;
+}
+
 // Each node's own error: input error for literals and constants, rounding or library error otherwise.
 template <class T>
 std::vector<Ruler> localErrors(const Ast& ast, const Forward<T>& fw) {
@@ -161,8 +168,10 @@ std::vector<Ruler> localErrors(const Ast& ast, const Forward<T>& fw) {
     std::vector<Ruler> locals(ast.nodes.size(), Ruler(0));
     for (std::size_t i = 0; i < ast.nodes.size(); ++i) {
         const Node& node = ast.nodes[i];
-        if (node.function == FunctionId::Literal) {
-            locals[i] = fromRational<Ruler>(abs(toRational(*parseDecimal(node.text)) - toRational(fw.values[i])));
+        if (node.function == FunctionId::FloatFromBits) {
+            locals[i] = rulerDistance(fromBitsValue(node), toRational(fw.values[i]));
+        } else if (node.function == FunctionId::Literal) {
+            locals[i] = rulerDistance(literalRational(node.text), toRational(fw.values[i]));
         } else if (const auto c = tableConstant(node.function)) {
             locals[i] = fromRational<Ruler>(abs(constantRational(*c) - toRational(fw.values[i])));
         } else {
@@ -238,13 +247,15 @@ Forward<T> forward(const Ast& ast, const std::atomic<bool>* cancel = nullptr, co
             fw.error = impl::nodeError(node, ErrorCode::Cancelled, errorMessage(ErrorCode::Cancelled, ""));
             return fw;
         }
+        if (node.function == FunctionId::FloatFromBits) {  // a bit pattern: its exact value, as the facade wrote it
+            fw.values[i] = fromRational<T>(fromBitsValue(node));
+            continue;
+        }
         if (node.function == FunctionId::Literal) {
-            // An exact literal beyond 10^±1000000 cannot be materialized in reasonable time or memory.
-            const auto literal = parseDecimal(node.text);
-            const bool outOfRange = !literal || (isExact<T> && (literal->exponent10 > exactDigitsLimit
-                                                                || literal->exponent10 < -exactDigitsLimit));
-            if (!outOfRange) fw.values[i] = decimalTo<T>(*literal);
-            if (outOfRange || !isFinite(fw.values[i])) {
+            // An exact literal beyond 10^±1000000 (2^±1000000) cannot be materialized in reasonable time or memory.
+            const std::optional<T> literal = literalTo<T>(node.text);
+            if (literal) fw.values[i] = *literal;
+            if (!literal || !isFinite(fw.values[i])) {
                 fw.error = impl::nodeError(node, ErrorCode::LiteralOutOfRange,
                                            errorMessage(ErrorCode::LiteralOutOfRange, ""));
                 return fw;
@@ -394,13 +405,13 @@ inline NumberParts formatParts(const DecimalDigits& d, int trusted, Notation not
     return p;
 }
 
-// Leading significant digits guaranteed by `error`: floor(-log10(error / |value|)), capped.
-inline int trustedDigits(const Ruler& absValue, const Ruler& error, int digitCount) {
+// Leading significant digits in `base` guaranteed by `error`: floor(-log_base(error / |value|)), capped.
+inline int trustedDigits(const Ruler& absValue, const Ruler& error, int digitCount, int base = 10) {
     if (error == 0) return digitCount;
     if (absValue == 0 || !isFinite(error)) return 0;
     Ruler q = error / absValue;
     int t = 0;
-    for (; t < digitCount && q * 10 <= 1; ++t) q *= 10;
+    for (; t < digitCount && q * base <= 1; ++t) q *= base;
     return t;
 }
 

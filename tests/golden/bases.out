@@ -1,0 +1,26 @@
+0.1 to hex
+= 0.1000000000000000|055511151231257827021181583404541015625
+→ 0x0.1999999999999A
+  base 16
+  trusted 14
+  ± 5.6e-18  input 5.6e-18 · rounding 0 · library 0
+  measured 5.6e-18 · κ 1e+0 · 16 trusted digits
+-1 to bin 16
+= -1
+→ 0b1111111111111111
+  base 2
+  width 16
+  ± 0  input 0 · rounding 0 · library 0
+  measured 0 · κ 1e+0 · all digits trusted
+12 & 10
+= 8
+  ± 0  input 0 · rounding 0 · library 0
+  measured 0 · κ 0 · all digits trusted
+1 << 10
+= 1024
+  ± 0  input 0 · rounding 0 · library 0
+  measured 0 · κ 0 · all digits trusted
+0x1.8p3
+= 12
+  ± 0  input 0 · rounding 0 · library 0
+  measured 0 · κ 1e+0 · all digits trusted

@@ -203,7 +203,7 @@ TEST(Cli, JsonCarriesTheReading) {
     EXPECT_EQ(invoke({"--color", "never", "2^3^2"}).out.find("reading"), std::string::npos);  // human output unchanged
 }
 
-// Mutation survivor (Plan 1, final checkpoint): a value meant for another convention is still refused.
+// Mutation survivor: a value meant for another convention is still refused.
 TEST(Cli, AConventionRefusesAnotherConventionsValue) {
     EXPECT_EQ(invoke({"--log", "divide", "1"}).code, 2);
     EXPECT_EQ(invoke({"--mod", "e", "1"}).code, 2);
@@ -293,4 +293,55 @@ TEST(Cli, ListsTheConstants) {
     EXPECT_NE(r.out.find("phi  (golden ratio)\n"), std::string::npos);
     EXPECT_NE(r.out.find("dozen = 12  (one dozen (12))\n"), std::string::npos);
     EXPECT_NE(r.out.find("billion = 1e12  (one billion (10^12))\n"), std::string::npos);
+}
+
+TEST(Cli, AHugeExpansionIsWrittenInBinary) {
+    const Outcome r = invoke({"--color", "never", "--type", "binary512", "1e-1000000"});
+    EXPECT_EQ(r.code, 0);
+    EXPECT_NE(r.out.find(" × 2^-"), std::string::npos);
+    EXPECT_NE(r.out.find("too long to write out in decimal"), std::string::npos);
+}
+
+TEST(Cli, BitsShowTheStoredValue) {
+    const Outcome r = invoke({"--bits", "0.1 + 0.2"});
+    EXPECT_EQ(r.code, 0);
+    EXPECT_EQ(r.out,
+              "0.1 + 0.2\n"
+              "= 0.300000000000000|0444089209850062616169452667236328125\n"
+              "  ± 4.4e-17  input 1.7e-17 · rounding 2.8e-17 · library 0\n"
+              "  measured 4.4e-17 · κ 1e+0 · 15 trusted digits\n"
+              "  stored binary64 0 01111111101 0011001100110011001100110011001100110011001100110100"
+              " · 0x3FD3333333333334 · normal\n"
+              "  ulp 2^-54 · below 0.299999999999999988897769753748434595763683319091796875"
+              " · above 0.300000000000000099920072216264088638126850128173828125\n");
+    const Outcome zero = invoke({"--bits", "--type", "binary512", "1 - 1"});
+    EXPECT_NE(zero.out.find("  ulp 2^-4194302 · below -2^-4194302 · above 2^-4194302\n"), std::string::npos);
+    EXPECT_EQ(invoke({"--bits", "--type", "exact", "1/3"}).out, invoke({"--type", "exact", "1/3"}).out);
+    EXPECT_EQ(invoke({"0.1 + 0.2"}).out.find("stored"), std::string::npos);  // only when asked
+}
+
+TEST(Cli, BitsInJson) {
+    const Outcome r = invoke({"--json", "--bits", "0.1 + 0.2"});
+    EXPECT_NE(r.out.find(",\"stored\":{\"format\":\"binary64\",\"class\":\"normal\",\"sign\":\"0\","
+                         "\"exponent\":\"01111111101\",\"fraction\":\"0011001100110011001100110011001100110011001100110100\","
+                         "\"hex\":\"3FD3333333333334\",\"ulpExponent\":-54,\"below\":\"3FD3333333333333\","
+                         "\"above\":\"3FD3333333333335\"}}\n"),
+              std::string::npos);
+    EXPECT_EQ(invoke({"--json", "0.1 + 0.2"}).out.find("stored"), std::string::npos);
+}
+
+TEST(Cli, ListsTheInspectorFormats) {
+    const Outcome r = invoke({"--list-formats"});
+    EXPECT_EQ(r.code, 0);
+    EXPECT_NE(r.out.find("binary16      display only  16-bit: 1 + 5 + 10 bits, bias 15\n"), std::string::npos);
+    EXPECT_NE(r.out.find("binary64      double        64-bit: 1 + 11 + 52 bits, bias 1023\n"), std::string::npos);
+    EXPECT_NE(r.out.find("binary128     binary128     128-bit: 1 + 15 + 112 bits, bias 16383, no subnormals\n"), std::string::npos);
+}
+
+TEST(Cli, FloatTargetsPrintTheirFields) {
+    const Outcome r = invoke({"0.1 to fp32"});
+    EXPECT_EQ(r.code, 0);
+    EXPECT_NE(r.out.find("\n  hex 0x3DCCCCCD\n"), std::string::npos);
+    EXPECT_NE(r.out.find("\n  stored 0.100000001490116119384765625\n"), std::string::npos);
+    EXPECT_NE(invoke({"--json", "0.1 to fp32"}).out.find("{\"label\":\"hex\",\"value\":\"0x3DCCCCCD\"}"), std::string::npos);
 }

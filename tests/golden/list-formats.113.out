@@ -1,0 +1,9 @@
+binary16      display only  16-bit: 1 + 5 + 10 bits, bias 15
+bfloat16      display only  16-bit: 1 + 8 + 7 bits, bias 127
+binary32      float         32-bit: 1 + 8 + 23 bits, bias 127
+binary64      double        64-bit: 1 + 11 + 52 bits, bias 1023
+binary128     long double   128-bit: 1 + 15 + 112 bits, bias 16383
+x87 extended  display only  80-bit: 1 + 15 + 64 bits, bias 16383, leading bit stored
+binary128     binary128     128-bit: 1 + 15 + 112 bits, bias 16383, no subnormals
+binary256     binary256     256-bit: 1 + 19 + 236 bits, bias 262143, no subnormals
+binary512     binary512     512-bit: 1 + 23 + 488 bits, bias 4194303, no subnormals

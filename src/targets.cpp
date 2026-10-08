@@ -1,5 +1,10 @@
 #include "targets.hpp"
 
+#include "float_format.hpp"
+#include "inspect.hpp"
+
+#include <climits>
+
 namespace calculate_core::detail {
 
 namespace {
@@ -33,6 +38,198 @@ std::optional<Error> uncertain(const TargetInput& in, Result& result, bool conci
 
 std::optional<Error> concise(const TargetInput& in, Result& result) { return uncertain(in, result, true); }
 std::optional<Error> plusMinus(const TargetInput& in, Result& result) { return uncertain(in, result, false); }
+
+// The value a format conversion starts from: a typed number (or its negation) straight from its decimal, anything
+// computed as the stored value; and the exact number it stands for.
+struct Source {
+    bool negative = false;
+    std::optional<DecimalLiteral> literal;
+    Rational value;
+};
+
+Source sourceOf(const TargetInput& in, const Result& result) {
+    Source s;
+    const std::vector<Node>& nodes = in.parsed.ast.nodes;
+    const bool literal = nodes.size() == 1 && nodes[0].function == FunctionId::Literal;
+    const bool negated = nodes.size() == 2 && nodes[0].function == FunctionId::Literal && nodes[1].function == FunctionId::Negate;
+    if (literal || negated) {
+        s.literal = parseDecimal(nodes[0].text);  // a base literal is exact: rounded from its value
+        s.negative = negated;
+        const Rational q = literalRational(nodes[0].text);
+        s.value = negated ? Rational(-q) : q;
+        return s;
+    }
+    s.value = in.value;
+    s.negative = in.value < 0 || (in.value == 0 && result.stored && result.stored->stored.negative);
+    return s;
+}
+
+// The datum the value becomes in that format: a typed number from its decimal, anything else from the stored value.
+FloatValue datumIn(const TargetInput& in, const Result& result, const FloatFormatInfo& info) {
+    const Source s = sourceOf(in, result);
+    const BinaryFormat& f = binaryFormat(info.format);
+    return s.literal ? decimalToFormat(s.negative, *s.literal, f, info.subnormals) : roundToFormat(s.negative, abs(s.value), f, info.subnormals);
+}
+
+std::optional<Error> convertTo(const TargetInput& in, Result& result, const FloatFormatInfo& info) {
+    const TargetText& target = *in.parsed.target;
+    if (!target.argument.empty())
+        return Error{ErrorCode::UnexpectedToken, target.name + " takes nothing after it", target.span.begin, target.span.end};
+    const Source s = sourceOf(in, result);
+    const BinaryFormat& f = binaryFormat(info.format);
+    const FloatValue v = s.literal ? decimalToFormat(s.negative, *s.literal, f, info.subnormals)
+                                   : roundToFormat(s.negative, abs(s.value), f, info.subnormals);
+    result.conversion = conversionOf(info, v, s.value);
+    return std::nullopt;
+}
+
+std::optional<Error> toFormat(const TargetInput& in, Result& result) {
+    return convertTo(in, result, *formatNamed(in.parsed.target->name));
+}
+
+// to bits: in the result's own type.
+std::optional<Error> toBits(const TargetInput& in, Result& result) {
+    const TargetText& target = *in.parsed.target;
+    if (in.options.type == NumberType::Exact)
+        return Error{ErrorCode::NotAvailableInExact, "Exact has no binary format: name one, e.g. to fp64", target.span.begin,
+                     target.span.end};
+    std::optional<Error> e = convertTo(in, result, formatInfo(in.options.type));
+    if (!e) result.conversion->target = "bits";
+    return e;
+}
+
+// The stored value written out in a base, exactly: sign, prefix, digits with "(period)", and "|" after the
+// trusted significant digits when fewer than all are trusted. Fields: the base, the trusted digits, and a note when
+// the period is too long to write (only the integer part is shown then).
+std::optional<Error> inBase(const TargetInput& in, Result& result, int base, const std::string& prefix) {
+    const BaseDigits b = baseExpansion(in.value, base);
+    std::string digits = b.integerPart;
+    if (!b.fractionDigits.empty() || !b.repeatingDigits.empty()) digits += "." + b.fractionDigits;
+    const std::size_t first = digits.find_first_not_of("0.");  // the first significant digit
+    long long significant = 0;
+    for (std::size_t i = first; i < digits.size(); ++i) significant += digits[i] != '.';
+    // The digits are the stored value's own, so a typed number's input error does not count against them; what
+    // the computation added does (0.1 to duo: 28 exact digits; sin(1): its library error).
+    const int trusted = trustedDigits(fromRational<Ruler>(abs(in.value)), in.report.rounding + in.report.library,
+                                      static_cast<int>(std::min<long long>(significant, INT_MAX)), base);
+    if (trusted < significant) {  // the bar right after the last trusted digit
+        std::size_t at = first;
+        for (int k = 0; k < trusted; ++at) k += digits[at] != '.';
+        digits.insert(at, "|");
+    }
+    if (!b.repeatingDigits.empty()) digits += "(" + b.repeatingDigits + ")";
+    Conversion c{in.parsed.target->name, (b.negative ? "-" : "") + prefix + digits, std::nullopt, ""};
+    c.fields.push_back({"base", std::to_string(base)});
+    c.fields.push_back({"trusted", std::to_string(trusted)});
+    if (!b.complete) c.fields.push_back({"note", "period too long"});
+    result.conversion = c;
+    return std::nullopt;
+}
+
+// A whole number as the two's complement pattern of `width` bits, every digit: -1 to bin 8 = 0b11111111.
+std::optional<Error> inWidth(const TargetInput& in, Result& result, int base, const std::string& prefix) {
+    const TargetText& target = *in.parsed.target;
+    const std::string& w = target.argument;
+    const bool whole = w.size() <= 4 && w.find_first_not_of("0123456789") == std::string::npos;
+    if (!whole || std::stoi(w) < 1 || std::stoi(w) > impl::maxWidth)
+        return Error{ErrorCode::DomainError, "The width must be a whole number of bits from 1 to 4096", target.span.begin,
+                     target.span.end};
+    if (denominator(in.value) != 1)
+        return Error{ErrorCode::NotAnInteger, "Only a whole number has a width of bits", target.span.begin, target.span.end};
+    const unsigned width = static_cast<unsigned>(std::stoi(w));
+    const Integer x = numerator(in.value);
+    const Integer modulus = Integer(1) << width;
+    if (x < -(modulus >> 1) || x >= modulus)
+        return Error{ErrorCode::ArgumentTooLarge, x.str() + " needs more than " + w + " bits", target.span.begin, target.span.end};
+    const unsigned bitsPerDigit = base == 2 ? 1 : base == 8 ? 3 : 4;
+    std::string digits = baseExpansion(Rational(x < 0 ? Integer(x + modulus) : x), base).integerPart;
+    const std::size_t count = (width + bitsPerDigit - 1) / bitsPerDigit;
+    digits.insert(0, count - std::min(count, digits.size()), '0');
+    Conversion c{target.name, prefix + digits, std::nullopt, ""};
+    c.fields.push_back({"base", std::to_string(base)});
+    c.fields.push_back({"width", w});
+    result.conversion = c;
+    return std::nullopt;
+}
+
+std::optional<Error> fixedBase(const TargetInput& in, Result& result, int base, const std::string& prefix) {
+    const TargetText& target = *in.parsed.target;
+    if (!target.argument.empty()) {
+        if (base == 12)
+            return Error{ErrorCode::UnexpectedToken, target.name + " takes nothing after it", target.span.begin, target.span.end};
+        return inWidth(in, result, base, prefix);
+    }
+    return inBase(in, result, base, prefix);
+}
+
+std::optional<Error> toBin(const TargetInput& in, Result& result) { return fixedBase(in, result, 2, "0b"); }
+std::optional<Error> toOct(const TargetInput& in, Result& result) { return fixedBase(in, result, 8, "0o"); }
+std::optional<Error> toHex(const TargetInput& in, Result& result) { return fixedBase(in, result, 16, "0x"); }
+std::optional<Error> toDuo(const TargetInput& in, Result& result) { return fixedBase(in, result, 12, ""); }
+
+// to base N: N a whole number from 2 to 36.
+std::optional<Error> toBase(const TargetInput& in, Result& result) {
+    const TargetText& target = *in.parsed.target;
+    const std::string& n = target.argument;
+    const bool whole = !n.empty() && n.size() <= 2 && n.find_first_not_of("0123456789") == std::string::npos;
+    if (!whole || std::stoi(n) < 2 || std::stoi(n) > 36)
+        return Error{ErrorCode::DomainError, "The base must be a whole number from 2 to 36", target.span.begin, target.span.end};
+    return inBase(in, result, std::stoi(n), "");
+}
+
+// floatBits, floatParts, floatValue, floatError: spellings of the format targets that show one part. The argument
+// names the format (fp32…); none: the result's own type.
+enum class Part { Bits, Parts, Value, Error };
+
+std::optional<Error> inspection(const TargetInput& in, Result& result, Part part) {
+    const TargetText& target = *in.parsed.target;
+    std::optional<FloatFormatInfo> info;
+    if (target.argument.empty()) {
+        if (in.options.type == NumberType::Exact)
+            return Error{ErrorCode::NotAvailableInExact, "Exact has no binary format: name one, e.g. " + target.name + "(x, fp64)",
+                         target.span.begin, target.span.end};
+        info = formatInfo(in.options.type);
+    } else {
+        info = formatNamed(target.argument);
+        if (!info)
+            return Error{ErrorCode::UnknownName, "Unknown format '" + target.argument + "' (see calc --list-formats)", target.span.begin,
+                         target.span.end};
+    }
+    const Source s = sourceOf(in, result);
+    const FloatValue v = datumIn(in, result, *info);
+    Conversion c = conversionOf(*info, v, s.value);
+    const auto field = [&](const std::string& label) {
+        for (const ConversionField& f : c.fields)
+            if (f.label == label) return f.value;
+        return std::string();
+    };
+    switch (part) {
+    case Part::Bits: break;
+    case Part::Parts: {
+        const FloatBits b = inspectValue(*info, v).stored;
+        const std::string sign = b.negative ? "-" : "+";
+        if (b.valueClass == FloatClass::Zero) c.text = sign + " 0";
+        else if (b.valueClass == FloatClass::Normal || b.valueClass == FloatClass::Subnormal)
+            c.text = sign + " 2^" + std::to_string(b.exponent2) + " \xC3\x97 " + exactText(b.significand);
+        else c.text = field("class");
+        break;
+    }
+    case Part::Value: c.text = field("stored"); break;
+    case Part::Error: {
+        const std::string e = field("error");
+        c.text = e == "+0" || e == "-0" ? "0" : e;
+        break;
+    }
+    }
+    c.target = target.name;
+    result.conversion = c;
+    return std::nullopt;
+}
+
+std::optional<Error> floatBits(const TargetInput& in, Result& result) { return inspection(in, result, Part::Bits); }
+std::optional<Error> floatParts(const TargetInput& in, Result& result) { return inspection(in, result, Part::Parts); }
+std::optional<Error> floatValue(const TargetInput& in, Result& result) { return inspection(in, result, Part::Value); }
+std::optional<Error> floatError(const TargetInput& in, Result& result) { return inspection(in, result, Part::Error); }
 
 // More digits than this are not written out (an exact value's period, or a huge or tiny one's digits).
 constexpr std::size_t maxDigits = 20000;
@@ -184,6 +381,32 @@ const std::vector<Target>& targets() {
         {"mixed", "the stored value as a whole number and a fraction", mixed},
         {"percent", "the value × 100, every digit, with %", percent},
         {"1/n", "the nearest fraction with denominator n, and how far it is", fixedDenominator, fixedDenominatorName},
+        {"fp16", "how the value is stored in binary16", toFormat},
+        {"binary16", "how the value is stored in binary16", toFormat},
+        {"bf16", "how the value is stored in bfloat16", toFormat},
+        {"bfloat16", "how the value is stored in bfloat16", toFormat},
+        {"fp32", "how the value is stored in binary32", toFormat},
+        {"binary32", "how the value is stored in binary32", toFormat},
+        {"fp64", "how the value is stored in binary64", toFormat},
+        {"binary64", "how the value is stored in binary64", toFormat},
+        {"fp80", "how the value is stored in x87 extended", toFormat},
+        {"x87", "how the value is stored in x87 extended", toFormat},
+        {"fp128", "how the value is stored in binary128", toFormat},
+        {"binary128", "how the value is stored in binary128", toFormat},
+        {"fp256", "how the value is stored in binary256", toFormat},
+        {"binary256", "how the value is stored in binary256", toFormat},
+        {"fp512", "how the value is stored in binary512", toFormat},
+        {"binary512", "how the value is stored in binary512", toFormat},
+        {"bits", "how the value is stored in its own type", toBits},
+        {"bin", "the stored value in binary, every digit", toBin},
+        {"oct", "the stored value in octal, every digit", toOct},
+        {"hex", "the stored value in hexadecimal, every digit", toHex},
+        {"duo", "the stored value in base 12, every digit", toDuo},
+        {"base", "the stored value in base N (2 to 36): to base 7", toBase},
+        {"floatBits", "the bits a format stores the value as", floatBits},
+        {"floatParts", "the sign, power of two and significand the value is stored as", floatParts},
+        {"floatValue", "the value a format stores, exactly", floatValue},
+        {"floatError", "the stored value minus the value, exactly", floatError},
         {"concise", "the value and its error or uncertainty as 1.23(4)", concise},
         {"\xC2\xB1", "the value \xC2\xB1 its error or uncertainty", plusMinus},
         {"pm", "the same as \xC2\xB1", plusMinus},

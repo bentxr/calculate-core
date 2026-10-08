@@ -4,6 +4,7 @@
 #include <calculate-core/calculate-core.hpp>
 
 #include <atomic>
+#include <chrono>
 
 using namespace calculate_core;
 using namespace calculate_core::detail;
@@ -15,7 +16,7 @@ using test::uniform;
 TEST(SpecialOracle, AgreesWithMpfr) {
     using O = Ruler;
     namespace bm = boost::math;
-    // MPFR 4.2.2 at 1600 bits (generator in the plan, cycle 2.22).
+    // MPFR 4.2.2 at 1600 bits.
     const std::pair<O, const char*> cases[] = {
         {bm::tgamma(O(0.5)), "1.77245385090551602729816748334114518279754945612239"},
         {bm::tgamma(O(-2.5)), "-0.945308720482941881225689324448610764158693043265273"},
@@ -199,6 +200,7 @@ TYPED_TEST(SpecialKernelTest, ErrorFunctions) {
     EXPECT_EQ(applyFunction<T>(FunctionId::Erfc, {T(0)}).value, T(1));
     EXPECT_EQ(applyFunction<T>(FunctionId::Erf, {T(-1000)}).value, T(-1));
     EXPECT_EQ(applyFunction<T>(FunctionId::Erfc, {ldexp(T(1), maxExponent<T>() / 2)}).value, T(0));
+    EXPECT_EQ(applyFunction<T>(FunctionId::Erfc, {-ldexp(T(1), maxExponent<T>() / 2)}).value, T(2));
 }
 
 TEST(SpecialPartials, ErrorFunctions) {
@@ -298,7 +300,7 @@ TYPED_TEST(SpecialKernelTest, RegularizedIncompleteBeta) {
 }
 
 TEST(Special, IncompleteBetaOfWholeParametersIsRational) {
-    // I_{3/8}(10, 3) = 108591111/68719476736 (python3 fractions, see 2.22)
+    // I_{3/8}(10, 3) = 108591111/68719476736 (python3 fractions)
     const Applied<Ruler> r = applyFunction<Ruler>(FunctionId::Betainc, {Ruler(10), Ruler(3), Ruler(0.375)});
     ASSERT_FALSE(r.error);
     EXPECT_LE(abs(r.value - Ruler(108591111) / Ruler(68719476736)), ldexp(Ruler(108591111) / Ruler(68719476736), -990));
@@ -377,3 +379,22 @@ TEST(Special, AnArgumentWhoseErrorReachesTheEndOfTheDomainIsRefused) {
     EXPECT_FALSE(evaluate("betainc(2, 3, 1)").error);
 }
 
+
+// The root can lie closer to an end of [0, 1] than the type resolves (here about 1e-3000 from it): the result is that
+// end, and the bound is not zero, so it covers the distance. Found by the fuzz (the evaluation never finished). The
+// shadows do find such roots, in a few dozen steps (plain bisection and Newton took minutes), also 1e-300 from 1.
+TEST(Special, AnInverseIncompleteBetaBeyondTheTypesReachIsAnEnd) {
+    for (const auto& [args, end] : {std::pair{std::vector<double>{0.001, 3, 0.001}, 0.0}, {{3, 0.001, 0.999}, 1.0}}) {
+        const Applied<double> r = applyFunction<double>(FunctionId::Betaincinv, args);
+        ASSERT_FALSE(r.error) << end;
+        EXPECT_EQ(r.value, end);
+    }
+    for (const char* text : {"betaincinv(0.001, 3, 0.001)", "betaincinv(3, 0.001, 0.999)", "betaincinv(3, 0.01, 0.999)",
+                             "betaincinv(1e-17, 0.3, 0.3)"}) {
+        const auto start = std::chrono::steady_clock::now();
+        const Result r = evaluate(text);
+        EXPECT_LT(std::chrono::steady_clock::now() - start, std::chrono::seconds(20)) << text;
+        ASSERT_FALSE(r.error) << text;
+        EXPECT_NE(r.bound, "0") << text;
+    }
+}

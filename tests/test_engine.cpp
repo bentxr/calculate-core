@@ -680,3 +680,32 @@ TEST(Forms, ConciseAndPlusMinus) {
     EXPECT_EQ(g.shown.digits, "10");  // the two digits of the uncertainty, a trailing 0 kept
     EXPECT_EQ(g.shown.exponent10, -1);
 }
+
+// Mutation survivors.
+TEST(UncertaintySources, EqualContributionsKeepTreeOrder) {
+    AstBuilder b;
+    const auto five = b.literal("5");
+    const auto u5 = b.literal("0.2");
+    const auto x = b.uncertain(five, u5);
+    const auto three = b.literal("3");
+    const auto u3 = b.literal("0.2");
+    const auto y = b.uncertain(three, u3);
+    x + y;
+    const Uncertainty& u = evaluate<double>(b.ast()).report.uncertainty;
+    ASSERT_EQ(u.sources.size(), 2u);
+    EXPECT_EQ(u.sources[0].node, x.index);
+    EXPECT_EQ(u.sources[1].node, y.index);
+}
+
+TEST(Forms, ANegativeValueOfOneUnitKeepsItsSign) {
+    const UncertainForms f = uncertainForms(Rational(-1, 1000), fromRational<Ruler>(Rational(2, 100)));
+    EXPECT_EQ(f.concise, "-0.001(20)");
+    EXPECT_FALSE(f.shown.negative);  // U itself has no sign
+}
+
+TEST(TrustedDigits, InOtherBases) {
+    using std::ldexp;
+    EXPECT_EQ(trustedDigits(Ruler(1), ldexp(Ruler(1), -10), 20, 2), 10);
+    EXPECT_EQ(trustedDigits(Ruler(1), ldexp(Ruler(1), -10), 20, 16), 2);
+    EXPECT_EQ(trustedDigits(Ruler(1), ldexp(Ruler(1), -10), 20), 3);
+}

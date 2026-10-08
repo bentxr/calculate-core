@@ -2,10 +2,12 @@
 
 #include "engine.hpp"
 #include "functions.hpp"
+#include "inspect.hpp"
 #include "numbers.hpp"
 #include "physical_constants.hpp"
 
 #include <algorithm>
+#include <cctype>
 #include <array>
 #include <set>
 #include <string>
@@ -17,6 +19,37 @@ namespace {
 
 // Own ASCII classification: <cctype> depends on the locale and misbehaves on negative char.
 bool isDigit(char c) { return c >= '0' && c <= '9'; }
+
+// Where a number in a base that starts at i ends: 0x, 0b or 0o, digits of that base with an optional point, then an
+// optional power of two (p, a sign, decimal digits). i itself when no digit of the base follows the prefix.
+std::size_t baseLiteralEnd(std::string_view s, std::size_t i) {
+    if (i + 1 >= s.size() || s[i] != '0') return i;
+    const char prefix = static_cast<char>(s[i + 1] | 0x20);
+    const int base = prefix == 'x' ? 16 : prefix == 'b' ? 2 : prefix == 'o' ? 8 : 0;
+    const auto digit = [base](std::size_t k, std::string_view t) {
+        if (k >= t.size()) return false;
+        const char c = static_cast<char>(t[k] | 0x20);
+        return base == 16 ? std::isxdigit(static_cast<unsigned char>(t[k])) != 0 : t[k] >= '0' && c < '0' + base;
+    };
+    std::size_t j = i + 2;
+    const std::size_t first = j;
+    while (digit(j, s)) ++j;
+    std::size_t digits = j - first;
+    if (j < s.size() && s[j] == '.') {
+        const std::size_t point = ++j;
+        while (digit(j, s)) ++j;
+        digits += j - point;
+    }
+    if (base == 0 || digits == 0) return i;
+    if (j < s.size() && (s[j] == 'p' || s[j] == 'P')) {  // a power of two only if digits follow
+        std::size_t k = j + 1;
+        if (k < s.size() && (s[k] == '+' || s[k] == '-')) ++k;
+        else if (s.substr(k, 3) == "\xE2\x88\x92") k += 3;  // −, the calculator's minus
+        if (k < s.size() && isDigit(s[k]))
+            for (j = k; j < s.size() && isDigit(s[j]);) ++j;
+    }
+    return j;
+}
 bool isLetter(char c) { return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_'; }
 
 // A part of a whole, written with a postfix sign: %, ‰, ‱.
@@ -48,7 +81,7 @@ struct Alias {
     TokenKind kind;
 };
 
-constexpr std::array<Alias, 13> aliases{{
+constexpr std::array<Alias, 14> aliases{{
     {"\xC3\x97", TokenKind::Star},            // ×
     {"\xC3\xB7", TokenKind::Slash},           // ÷
     {"\xE2\x88\x92", TokenKind::Minus},       // −
@@ -62,6 +95,7 @@ constexpr std::array<Alias, 13> aliases{{
     {"\xC2\xB1", TokenKind::PlusMinus},       // ±
     {"\xE2\x80\xB0", TokenKind::PerMille},   // ‰
     {"\xE2\x80\xB1", TokenKind::PerMyriad},  // ‱
+    {"\xE2\x8A\xBB", TokenKind::Xor},        // ⊻
 }};
 
 // Symbols that are names: Σ ∑ (sum) and Π ∏ (product).
@@ -110,6 +144,9 @@ TokenKind singleCharacter(char c) {
     case ';': return TokenKind::Comma;
     case '!': return TokenKind::Bang;
     case '%': return TokenKind::Percent;
+    case '&': return TokenKind::Ampersand;
+    case '|': return TokenKind::Pipe;
+    case '~': return TokenKind::Tilde;
     default: return TokenKind::End;  // not a single-character token
     }
 }
@@ -160,6 +197,11 @@ Lexed lex(std::string_view s) {
             stop = i;
             break;
         }
+        if (const std::size_t end = baseLiteralEnd(s, i); end != i) {  // 0x…, 0b…, 0o…: one number token
+            push(TokenKind::Number, i, end);
+            i = end;
+            continue;
+        }
         if (isDigit(c) || (c == '.' && i + 1 < s.size() && isDigit(s[i + 1]))) {
             const std::size_t begin = i;
             while (i < s.size() && isDigit(s[i])) ++i;
@@ -194,6 +236,11 @@ Lexed lex(std::string_view s) {
             keyword(i, i + (c == '-' ? 2 : 3));
             if (out.error) return out;
             break;
+        }
+        if (s.substr(i, 2) == "<<" || s.substr(i, 2) == ">>") {
+            push(c == '<' ? TokenKind::ShiftLeft : TokenKind::ShiftRight, i, i + 2);
+            i += 2;
+            continue;
         }
         if (s.substr(i, 2) == "**") {  // another spelling of ^
             push(TokenKind::Caret, i, i + 2);
@@ -297,6 +344,11 @@ bool startsOperand(TokenKind k) {
 // Binding power of a token in the infix position; 0 ends an expression.
 int leftPower(TokenKind k) {
     switch (k) {
+    case TokenKind::Pipe: return 4;  // the bitwise operators bind as in C: | below xor below & below + −
+    case TokenKind::Xor: return 5;
+    case TokenKind::Ampersand: return 6;
+    case TokenKind::ShiftLeft:
+    case TokenKind::ShiftRight: return 8;
     case TokenKind::Plus:
     case TokenKind::Minus: return 10;
     case TokenKind::Star:
@@ -410,6 +462,7 @@ public:
         out.ast = std::move(ast_);
         out.expanded = expandedText({start, peek().span.begin});
         out.warnings = warnings_;
+        out.target = inspection_;  // floatBits(x) and the like: x with a target, as `x to floatBits`
         return out;
     }
 
@@ -457,6 +510,7 @@ private:
         case FunctionId::Literal: return n.text;
         case FunctionId::Pi: return "π";
         case FunctionId::E: return "e";
+        case FunctionId::FloatFromBits: return std::string(source_.substr(n.span.begin, n.span.end - n.span.begin));
         case FunctionId::Tau: return "τ";
         case FunctionId::Phi: return "φ";
         case FunctionId::EulerGamma: return "γ";
@@ -474,6 +528,12 @@ private:
         case FunctionId::Factorial: return arg(0) + "!";
         case FunctionId::Sqrt: return "√(" + arg(0) + ")";
         case FunctionId::Cbrt: return "∛(" + arg(0) + ")";
+        case FunctionId::BitAnd: return infix("&");
+        case FunctionId::BitOr: return infix("|");
+        case FunctionId::BitXor: return infix("xor");
+        case FunctionId::BitNot: return "~" + arg(0);
+        case FunctionId::ShiftLeft: return infix("<<");
+        case FunctionId::ShiftRight: return infix(">>");
         default: {
             if (tableConstant(n.function)) return std::string(functionInfo(n.function).name);  // catalan, not catalan()
             std::string call = std::string(n.function == FunctionId::Log10 ? "log10" : functionInfo(n.function).name) + "(";
@@ -498,7 +558,8 @@ private:
     // Read precision: a typed number (with a point, or any under All) carries half a unit of its last digit, 1.1 → 1.1 ± 0.05.
     int readWithPrecision(int literal, const Token& t) {
         const ReadPrecision mode = options_.readPrecision;
-        if (mode == ReadPrecision::Off || (mode == ReadPrecision::Decimals && t.text.find('.') == std::string_view::npos))
+        if (mode == ReadPrecision::Off || (mode == ReadPrecision::Decimals && t.text.find('.') == std::string_view::npos)
+            || parseBaseLiteral(t.text))  // a number in a base is exact, as its bits are
             return literal;
         const long long e = parseDecimal(t.text)->exponent10;
         const int half = node(FunctionId::Literal, {}, t.span, "5e" + std::to_string(e - 1));
@@ -541,6 +602,14 @@ private:
                     replacements_[word.span.begin] = {word.span.end, floored ? "floormod" : "rem"};
                 }
                 left = named(node(id, {left, right}, {spanOf(left).begin, spanOf(right).end}), std::string(word.text));
+                continue;
+            }
+            if (t.kind == TokenKind::Identifier && t.text == "xor") {  // the word, as ⊻
+                if (leftPower(TokenKind::Xor) <= minPower) break;
+                next();
+                const int right = expression(leftPower(TokenKind::Xor));
+                if (error_) return -1;
+                left = node(FunctionId::BitXor, {left, right}, {spanOf(left).begin, spanOf(right).end});
                 continue;
             }
             if (startsOperand(t.kind)) {
@@ -602,6 +671,11 @@ private:
                                 : op.kind == TokenKind::Minus   ? FunctionId::Subtract
                                 : op.kind == TokenKind::Star    ? FunctionId::Multiply
                                 : op.kind == TokenKind::Slash   ? FunctionId::Divide
+                                : op.kind == TokenKind::Ampersand ? FunctionId::BitAnd
+                                : op.kind == TokenKind::Pipe    ? FunctionId::BitOr
+                                : op.kind == TokenKind::Xor     ? FunctionId::BitXor
+                                : op.kind == TokenKind::ShiftLeft ? FunctionId::ShiftLeft
+                                : op.kind == TokenKind::ShiftRight ? FunctionId::ShiftRight
                                                                 : FunctionId::Power;
             left = node(id, {left, right}, {spanOf(left).begin, spanOf(right).end});
         }
@@ -612,9 +686,14 @@ private:
         const Token t = next();
         switch (t.kind) {
         case TokenKind::Number:
-            if (!parseDecimal(t.text)) return fail(ErrorCode::InvalidNumber, "Invalid number '" + std::string(t.text) + "'", t.span);
+            if (!parseDecimal(t.text) && !parseBaseLiteral(t.text)) return fail(ErrorCode::InvalidNumber, "Invalid number '" + std::string(t.text) + "'", t.span);
             return readWithPrecision(node(FunctionId::Literal, {}, t.span, std::string(t.text)), t);
         case TokenKind::Pi: return node(FunctionId::Pi, {}, t.span);
+        case TokenKind::Tilde: {  // binds like unary minus
+            const int operand = expression(30);
+            if (error_) return -1;
+            return node(FunctionId::BitNot, {operand}, {t.span.begin, spanOf(operand).end});
+        }
         case TokenKind::Minus:
         case TokenKind::Plus: {
             const int operand = expression(30);
@@ -843,8 +922,63 @@ private:
         return read(total, std::string(kind == Range::Sum ? "Σ(" : "Π(") + body + "; " + fromReading + "; " + toReading + "; " + variable + ")");
     }
 
+    // floatBits(x[, format]) and its siblings: a target written as a call, so only around the whole expression. The
+    // expression is x; the target and its format are recorded as `x to floatBits fp32` records them.
+    int inspection(const Token& t) {
+        const std::string name(t.text);
+        const std::size_t open = position_;
+        const std::vector<TokenRange> parts = arguments(open);
+        if (parts.empty()) return fail(ErrorCode::MissingClosingParenthesis, "Missing ')'", {t.span.begin, tokens_.back().span.begin});
+        const std::size_t close = parts.back().end;  // the ')'
+        const Span span{t.span.begin, tokens_[close].span.end};
+        if (open != 1 || tokens_[close + 1].kind != TokenKind::End)
+            return fail(ErrorCode::UnexpectedToken, name + " shows how a value is stored: write it around the whole expression", span);
+        if (parts.size() > 2) return fail(ErrorCode::WrongArgumentCount, name + " takes a value and a format", span);
+        std::string format;
+        if (parts.size() == 2) {
+            const TokenRange& f = parts[1];
+            if (f.end != f.begin + 1 || tokens_[f.begin].kind != TokenKind::Identifier)
+                return fail(ErrorCode::UnexpectedToken, "the format is a name such as fp32", tokens_[f.begin].span);
+            format = std::string(tokens_[f.begin].text);
+        }
+        const int value = argument(parts[0]);
+        if (error_) return -1;
+        position_ = close + 1;
+        inspection_ = TargetText{name, format, span};
+        return value;
+    }
+
+    // fromBits(0x…[, format]): a number written as its bit pattern, a leaf like a literal.
+    int fromBits(const Token& t) {
+        next();  // (
+        const Token pattern = next();
+        const bool bits = pattern.kind == TokenKind::Number && pattern.text.size() > 2 && pattern.text[0] == '0'
+                          && std::string_view("xXbB").find(pattern.text[1]) != std::string_view::npos;
+        if (!bits) return fail(ErrorCode::InvalidNumber, "fromBits takes a bit pattern such as 0x3DCCCCCD", pattern.span);
+        std::string format;
+        if (peek().kind == TokenKind::Comma) {
+            next();
+            const Token f = next();
+            if (f.kind != TokenKind::Identifier) return fail(ErrorCode::UnexpectedToken, "the format is a name such as fp32", f.span);
+            format = std::string(f.text);
+        }
+        if (peek().kind != TokenKind::RightParen)
+            return fail(ErrorCode::MissingClosingParenthesis, "Missing ')'", {t.span.begin, peek().span.begin});
+        const Span span{t.span.begin, next().span.end};
+        // Read once, in the named format or the type's own; the node keeps the exact value's decimal, so the engine
+        // reads it like a literal (the AST stays type-independent: a bit pattern is a literal).
+        Error error;
+        const std::optional<Rational> value = bitsLiteral(format, std::string(pattern.text), options_.type, error);
+        if (!value) return fail(error.code, error.message, span);
+        const DecimalDigits d = terminatingDigits(*value, std::numeric_limits<long long>::max());  // at most 512 bits
+        const std::string exact = (d.negative ? "-" : "") + d.digits + "e" + std::to_string(d.exponent10 - static_cast<long long>(d.digits.size()) + 1);
+        return named(node(FunctionId::FloatFromBits, {}, span, exact), "fromBits");
+    }
+
     int call(const Token& t) {
         if (const Range r = rangeNamed(std::string(t.text)); r != Range::None) return range(t, r);
+        if (t.text == "floatBits" || t.text == "floatParts" || t.text == "floatValue" || t.text == "floatError") return inspection(t);
+        if (t.text == "fromBits") return fromBits(t);
         next();  // (
         std::vector<int> args;
         if (peek().kind != TokenKind::RightParen) {
@@ -999,6 +1133,7 @@ private:
     std::vector<Token> tokens_;
     const Options& options_;
     std::set<int> readNodes_;  // the numbers wrapped by read precision
+    std::optional<TargetText> inspection_;  // set by floatBits(…) and its siblings
     const Names& names_;
     Ast ast_;
     std::size_t position_ = 0;
@@ -1070,7 +1205,7 @@ Parsed parse(std::string_view source, const Options& options, const Names& names
                                                            : Parser(source, std::move(lexed.tokens), options, names).run();
     if (!out.error) {
         out.comment = comment;
-        out.target = target;
+        if (target) out.target = target;  // else what a floatBits(…) call recorded, if any
     }
     return out;
 }

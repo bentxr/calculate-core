@@ -33,10 +33,11 @@ Vocabulary vocabulary() {
                   "0.2", "0.3",  "0.7",   "1.1",   "2.5",    "1e-17",  "1e16",          "1e300",     "1e-300",
                   "(0.1+0.2-0.3)", "(1.1-0.1)", "(0.1*3)", "(0.7+0.1)", "-1", "(pi/2)",
                   "3.00000000000000001", "(-2)", "sum(1/x; 1; 5)", "product((1+x/10); 1; 4)", "sum(x^2; 3; 1)",
-                  "sum(sum(y; 1; x; y); 1; 3)", "phi", "tau", "egamma", "catalan", "dozen", "billion", "ppm", "G", "c", "m_e", "h"};
+                  "sum(sum(y; 1; x; y); 1; 3)", "phi", "tau", "egamma", "catalan", "dozen", "billion", "ppm", "G", "c", "m_e", "h", "fromBits(0x3DCCCCCD, fp32)",
+                  "0xFF", "0x1.8p3", "0b101"};
     v.small = {"0", "1", "3", "5", "12", "20", "(0.1*30)", "2.5"};
-    v.prefix = {"-", "√", "∛"};
-    v.infix = {"+", "-", "*", "/", "^", "**", "·", " mod ", " rem ", " floormod ", "±"};
+    v.prefix = {"-", "√", "∛", "~"};
+    v.infix = {"+", "-", "*", "/", "^", "**", "·", " mod ", " rem ", " floormod ", "±", "&", "|", " xor ", "<<", ">>"};
     v.postfix = {"%", "²", "³", "‰", "‱"};
     v.calls = {{"abs", 1},  {"exp", 1},  {"sin", 1},   {"cos", 1},  {"atan", 1}, {"sinh", 1},
                {"cosh", 1}, {"tanh", 1}, {"asinh", 1}, {"mean", -1}, {"varp", -1}, {"mod", 2},
@@ -210,7 +211,8 @@ TEST(Fuzz, CommentsAndConversionsLeaveTheResultAlone) {
     for (int i = 0; i < 40; ++i) {
         const std::string text = g.expression(3);
         const Result plain = evaluate(text);
-        for (const char* suffix : {" # note", " to fraction", " to sci", " to mixed", " to percent", " to 1/3"}) {
+        for (const char* suffix : {" # note", " to fraction", " to sci", " to mixed", " to percent", " to 1/3", " to fp32", " to bits",
+                                   " to hex", " to base 7"}) {
             const Result r = evaluate(text + suffix);
             EXPECT_EQ(plain.error.has_value(), r.error.has_value()) << text << suffix;
             EXPECT_EQ(plain.value.digits, r.value.digits) << text << suffix;

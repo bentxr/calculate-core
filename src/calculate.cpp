@@ -2,6 +2,8 @@
 
 #include "catalogue.hpp"
 #include "engine.hpp"
+#include "float_format.hpp"
+#include "inspect.hpp"
 #include "parser.hpp"
 #include "targets.hpp"
 
@@ -71,7 +73,16 @@ Result build(const Parsed& parsed, const Options& options, std::string_view text
         r.exact = Fraction{f.negative, f.numerator, f.denominator, f.hasDecimal, f.integerPart, f.fractionDigits,
                            f.repeatingDigits};
     } else {
-        const DecimalDigits d = exactDigits(ev.value);
+        r.stored = detail::inspectValue(detail::formatInfo(options.type), valueOf(ev.value));
+        const Rational q = toRational(ev.value);
+        DecimalDigits d;
+        if (impl::decimalLengthEstimate(q) > shownDigitsLimit) {  // millions of digits: exactly, in binary instead
+            const BinaryForm b = binaryForm(q);
+            r.binaryValue = BinaryValue{b.negative, b.significand, b.exponent2};
+            d.negative = q < 0;
+        } else {
+            d = exactDigits(ev.value);
+        }
         r.value = Digits{d.negative, d.digits, d.exponent10};
         const Ruler magnitude = abs(exactCast<Ruler>(ev.value));
         const int count = static_cast<int>(d.digits.size());
@@ -212,6 +223,7 @@ std::vector<FunctionDescription> functions() {
     for (const char* name : {"var", "stdev"}) list.push_back({name, 2, -1, true});
     list.push_back({"mod", 2, 2, true});  // the word exists under every convention
     for (const char* name : {"sum", "product"}) list.push_back({name, 3, 4, true});
+    for (const char* name : {"floatBits", "floatParts", "floatValue", "floatError"}) list.push_back({name, 1, 2, true});  // display forms
     for (const auto& [name, exact] : {std::pair<const char*, bool>{"log2", false}, {"exp2", true}, {"exp10", true}, {"sq", true}, {"sqrtpi", false},
                                      {"sec", false}, {"csc", false}, {"cot", false}, {"sech", false}, {"coth", false},
                                      {"asec", false}, {"acsc", false}, {"asech", false}, {"acsch", false}, {"acoth", false}, {"ceil", true}, {"frac", true}})

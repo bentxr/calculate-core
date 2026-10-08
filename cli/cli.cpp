@@ -52,6 +52,8 @@ std::string usage() {
            "  --list-functions   list the functions of the language\n"
            "  --info <name>      describe a function\n"
            "  --list-constants   list the named constants\n"
+           "  --bits             show how each result is stored: its bits, ulp and neighbours\n"
+           "  --list-formats     describe the formats of the IEEE 754 inspector\n"
            "  --help, --version\n"
            "\n"
            "Lines M+, M- and MC add Ans to, subtract it from, or clear the memory M.\n"
@@ -63,6 +65,7 @@ struct Settings {
     Options options;
     bool json = false;
     bool color = false;
+    bool bits = false;  // show how each result is stored
 };
 
 const char* optionName(NumberType type) {
@@ -109,7 +112,21 @@ const char* warningName(WarningCode code) {
     return "";
 }
 
-void printJson(std::ostream& out, const std::string& input, const Result& r) {
+const char* className(FloatClass c) {
+    switch (c) {
+    case FloatClass::Zero: return "zero";
+    case FloatClass::Subnormal: return "subnormal";
+    case FloatClass::Normal: return "normal";
+    case FloatClass::Infinite: return "infinite";
+    case FloatClass::QuietNaN: return "quiet NaN";
+    case FloatClass::SignalingNaN: return "signaling NaN";
+    case FloatClass::Noncanonical: return "noncanonical";
+    }
+    return "";
+}
+
+// `bits`: also how the result is stored.
+void printJson(std::ostream& out, const std::string& input, const Result& r, bool bits = false) {
     const auto flag = [](bool b) { return b ? "true" : "false"; };
     out << "{\"expression\":" << jsonString(input) << ",\"type\":" << jsonString(optionName(r.type));
     if (r.error) {
@@ -130,6 +147,9 @@ void printJson(std::ostream& out, const std::string& input, const Result& r) {
     } else {
         out << ",\"value\":{\"negative\":" << flag(r.value.negative) << ",\"digits\":" << jsonString(r.value.digits)
             << ",\"exponent10\":" << r.value.exponent10 << "}";
+        if (r.binaryValue)
+            out << ",\"binaryValue\":{\"negative\":" << flag(r.binaryValue->negative) << ",\"significand\":"
+                << jsonString(r.binaryValue->significand) << ",\"exponent2\":" << r.binaryValue->exponent2 << "}";
     }
     if (!r.unit.empty()) out << ",\"unit\":" << jsonString(r.unit);
     out << ",\"trustedDigits\":" << r.trustedDigits << ",\"trustedDigitsMeasured\":" << r.trustedDigitsMeasured
@@ -153,9 +173,18 @@ void printJson(std::ostream& out, const std::string& input, const Result& r) {
         out << "]}";
     }
     out << ",\"expanded\":" << jsonString(r.expression) << ",\"reading\":" << jsonString(r.reading);
-    if (r.conversion)
+    if (r.conversion) {
         out << ",\"conversion\":{\"target\":" << jsonString(r.conversion->target) << ",\"text\":" << jsonString(r.conversion->text)
-            << (r.conversion->note.empty() ? "" : ",\"note\":" + jsonString(r.conversion->note)) << "}";
+            << (r.conversion->note.empty() ? "" : ",\"note\":" + jsonString(r.conversion->note));
+        if (!r.conversion->fields.empty()) {
+            out << ",\"fields\":[";
+            for (std::size_t i = 0; i < r.conversion->fields.size(); ++i)
+                out << (i ? "," : "") << "{\"label\":" << jsonString(r.conversion->fields[i].label) << ",\"value\":"
+                    << jsonString(r.conversion->fields[i].value) << "}";
+            out << "]";
+        }
+        out << "}";
+    }
     if (!r.warnings.empty()) {
         out << ",\"warnings\":[";
         for (std::size_t i = 0; i < r.warnings.size(); ++i) {
@@ -167,6 +196,19 @@ void printJson(std::ostream& out, const std::string& input, const Result& r) {
     }
     if (!r.comment.empty()) out << ",\"comment\":" << jsonString(r.comment);
     if (!r.assigned.empty()) out << ",\"assigned\":" << jsonString(r.assigned);
+    if (bits && r.stored) {
+        const FloatInspection& i = *r.stored;
+        std::string name;
+        for (const FloatFormatInfo& f : floatFormats())
+            if (f.format == i.format) name = f.name;
+        out << ",\"stored\":{\"format\":" << jsonString(name) << ",\"class\":" << jsonString(className(i.stored.valueClass))
+            << ",\"sign\":" << jsonString(i.stored.sign) << ",\"exponent\":" << jsonString(i.stored.exponent)
+            << ",\"fraction\":" << jsonString(i.stored.fraction) << ",\"hex\":" << jsonString(i.stored.hex);
+        if (i.hasNeighbours)
+            out << ",\"ulpExponent\":" << i.ulpExponent << ",\"below\":" << jsonString(i.below.hex) << ",\"above\":"
+                << jsonString(i.above.hex);
+        out << "}";
+    }
     out << "}\n";
 }
 
@@ -179,6 +221,23 @@ void listConstants(std::ostream& out) {
         if (!c.limit.empty()) out << " ± " << c.limit;
         if (!c.unit.empty()) out << " " << c.unit;
         out << "  (" << c.title << ")\n";
+    }
+}
+
+// The inspector's formats: name, the type stored this way (or display only), the layout.
+void listFormats(std::ostream& out) {
+    const auto pad = [](std::string text, std::size_t width) {
+        if (text.size() < width) text.append(width - text.size(), ' ');
+        return text;
+    };
+    for (const FloatFormatInfo& f : floatFormats()) {
+        std::string type = "display only";
+        if (f.type)
+            for (const TypeInfo& t : numberTypes())
+                if (t.type == *f.type) type = t.cppName;
+        out << pad(f.name, 14) << pad(type, 14) << f.storageBits << "-bit: 1 + " << f.exponentBits << " + " << f.fractionBits
+            << " bits, bias " << f.bias << (f.explicitLeadingBit ? ", leading bit stored" : "") << (f.subnormals ? "" : ", no subnormals")
+            << "\n";
     }
 }
 
@@ -273,6 +332,13 @@ void printUncertainty(std::ostream& out, const Result& r) {
     out << "\n";
 }
 
+// A conversion's line, then one line per labelled field.
+void printConversion(std::ostream& out, const Result& r) {
+    if (!r.conversion) return;
+    out << "→ " << r.conversion->text << (r.conversion->note.empty() ? "" : " (" + r.conversion->note + ")") << "\n";
+    for (const ConversionField& f : r.conversion->fields) out << "  " << f.label << " " << f.value << "\n";
+}
+
 // After the report lines: what is worth knowing about the result.
 void printNotes(std::ostream& out, const Result& r) {
     for (const Warning& w : r.warnings) out << "  note: " << w.message << "\n";
@@ -283,14 +349,20 @@ void printHuman(std::ostream& out, const std::string& input, const Result& r, bo
     if (r.commentOnly) return;  // a note: the line alone
     if (r.exact) {
         out << "= " << formatFraction(*r.exact) << (r.unit.empty() ? "" : " " + r.unit) << "\n";
-        if (r.conversion) out << "→ " << r.conversion->text << (r.conversion->note.empty() ? "" : " (" + r.conversion->note + ")") << "\n";
+        printConversion(out, r);
         out << "  exact, no rounding error · κ " << r.conditionNumber << "\n";
         printUncertainty(out, r);
         printNotes(out, r);
         return;
     }
-    out << "= " << formatValue(r.value, r.trustedDigitsWithUncertainty, color) << (r.unit.empty() ? "" : " " + r.unit) << "\n";
-    if (r.conversion) out << "→ " << r.conversion->text << (r.conversion->note.empty() ? "" : " (" + r.conversion->note + ")") << "\n";
+    if (r.binaryValue) {  // exactly, as significand × 2^e
+        const BinaryValue& b = *r.binaryValue;
+        out << "= " << (b.negative ? "-" : "") << (b.significand == "1" ? "" : b.significand + " \xC3\x97 ") << "2^" << b.exponent2
+            << (r.unit.empty() ? "" : " " + r.unit) << "\n  (too long to write out in decimal: shown exactly in binary)\n";
+    } else {
+        out << "= " << formatValue(r.value, r.trustedDigitsWithUncertainty, color) << (r.unit.empty() ? "" : " " + r.unit) << "\n";
+    }
+    printConversion(out, r);
     out << "  ± " << r.bound << "  input " << r.inputError << " · rounding " << r.roundingError << " · library "
         << r.libraryError;
     if (!r.boundComplete) out << "  (incomplete: an uncertain argument was accepted)";
@@ -303,6 +375,20 @@ void printHuman(std::ostream& out, const std::string& input, const Result& r, bo
     out << "\n";
     printUncertainty(out, r);
     printNotes(out, r);
+}
+
+
+// --bits: the stored pattern field by field, then the ulp and the neighbours.
+void printBits(std::ostream& out, const Result& r) {
+    if (!r.stored) return;
+    const FloatInspection& i = *r.stored;
+    std::string name;
+    for (const FloatFormatInfo& f : floatFormats())
+        if (f.format == i.format) name = f.name;
+    out << "  stored " << name << " " << i.stored.sign << " " << i.stored.exponent << " " << i.stored.fraction << " \xC2\xB7 0x"
+        << i.stored.hex << " \xC2\xB7 " << className(i.stored.valueClass) << "\n";
+    if (i.hasNeighbours)
+        out << "  ulp 2^" << i.ulpExponent << " \xC2\xB7 below " << exactText(i.below) << " \xC2\xB7 above " << exactText(i.above) << "\n";
 }
 
 // One expression or memory command. Returns false when it failed.
@@ -320,9 +406,12 @@ bool handle(const std::string& line, Session& session, const Settings& s, std::o
         return true;
     }
     const Result r = session.evaluate(line, s.options);
-    if (s.json) printJson(out, line, r);
+    if (s.json) printJson(out, line, r, s.bits);
     else if (r.error) printError(err, line, *r.error);
-    else printHuman(out, line, r, s.color);
+    else {
+        printHuman(out, line, r, s.color);
+        if (s.bits) printBits(out, r);
+    }
     return !r.error;
 }
 
@@ -420,6 +509,10 @@ int run(const std::vector<std::string>& args, std::istream& in, std::ostream& ou
             listTypes(out);
             return 0;
         }
+        if (a == "--list-formats") {
+            listFormats(out);
+            return 0;
+        }
         if (a == "--list-constants") {
             listConstants(out);
             return 0;
@@ -434,6 +527,10 @@ int run(const std::vector<std::string>& args, std::istream& in, std::ostream& ou
             if (describeFunction(*v, out)) return 0;
             err << "calc: unknown function '" << *v << "' (see --list-functions)\n";
             return 2;
+        }
+        if (a == "--bits") {
+            s.bits = true;
+            continue;
         }
         if (a == "--json") {
             s.json = true;

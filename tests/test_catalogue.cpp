@@ -537,6 +537,7 @@ TEST(Catalogue, ClipCountsBothSidesOfAReachableCorner) {
     const Ruler lo = Ruler(std::stod(evaluate("0.8").bound));
     EXPECT_GE(Ruler(std::stod(corner.bound)), (x + lo) * Ruler(0.95));  // two significant digits lose up to 5 %
     EXPECT_EQ(evaluate("clip(5, 0, 2)").bound, "0");
+    EXPECT_EQ(evaluate("clip(0.3, 0.1 + 0.2 - 0.2, 1)").bound, evaluate("0.3").bound);  // far from lo: only x's error
 }
 
 TEST(Catalogue, NumeratorAndDenominatorOfTheStoredValue) {

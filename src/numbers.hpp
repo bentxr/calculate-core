@@ -152,6 +152,67 @@ T integerToFloat(const Integer& n) {
 
 }  // namespace impl
 
+namespace impl {
+
+// q > 0: the e with 2^e <= q < 2^(e+1).
+inline long long floorLog2(const Rational& q) {
+    const Integer n = numerator(q);
+    const Integer d = denominator(q);
+    long long e = static_cast<long long>(msb(n)) - static_cast<long long>(msb(d));
+    const bool below = e >= 0 ? n < (d << static_cast<unsigned>(e)) : (n << static_cast<unsigned>(-e)) < d;
+    return below ? e - 1 : e;
+}
+
+// A magnitude rounded to p significant bits: significand × 2^exponent (significand 0 is zero).
+struct Rounded {
+    bool overflow = false;
+    Integer significand;
+    long long exponent = 0;
+};
+
+// magnitude >= 0 rounded to nearest, ties to even, into p bits with exponents emin..emax: below the normal range
+// subnormals when the format has them, else a flush to zero.
+inline Rounded roundBinary(const Rational& magnitude, int p, long long emin, long long emax, bool subnormals) {
+    Rounded r;
+    if (magnitude == 0) return r;
+    const long long e = floorLog2(magnitude);
+    if (e > emax) {
+        r.overflow = true;
+        return r;
+    }
+    const long long quantumExp = (subnormals ? std::max(e, emin) : e) - (p - 1);
+    Integer num = numerator(magnitude);
+    Integer den = denominator(magnitude);
+    if (quantumExp < 0) num <<= static_cast<unsigned>(-quantumExp);
+    else den <<= static_cast<unsigned>(quantumExp);
+    Integer rounded = num / den;
+    const Integer rest = num - rounded * den;
+    if (2 * rest > den || (2 * rest == den && (rounded & 1) != 0)) ++rounded;
+    if (rounded == 0) return r;
+    const long long top = quantumExp + static_cast<long long>(msb(rounded));
+    if (top > emax) {
+        r.overflow = true;
+        return r;
+    }
+    if (!subnormals && top < emin) return r;
+    r.significand = rounded;
+    r.exponent = quantumExp;
+    return r;
+}
+
+}  // namespace impl
+
+namespace impl {
+
+// x·y, with a power of two done as a shift: 10^k against 2^j costs no long multiplication.
+inline Integer product(const Integer& x, const Integer& y) {
+    if (x > 0 && lsb(x) == msb(x)) return y << static_cast<unsigned>(lsb(x));
+    if (y > 0 && lsb(y) == msb(y)) return x << static_cast<unsigned>(lsb(y));
+    return x * y;
+}
+
+}  // namespace impl
+
 // q rounded to the nearest T, ties to even. Overflow gives ±infinity. Below the normal range,
 // subnormals for types that have them, and a flush to zero (like cpp_bin_float) otherwise.
 template <class T>
@@ -162,37 +223,67 @@ T fromRational(const Rational& q) {
         using std::ldexp;
         if (q == 0) return T(0);
         const bool negative = q < 0;
-        const T infinity = std::numeric_limits<T>::infinity();
-        const Integer n = abs(numerator(q));
-        const Integer d = denominator(q);
-        long long e = static_cast<long long>(msb(n)) - static_cast<long long>(msb(d));
-        const bool below = e >= 0 ? n < (d << static_cast<unsigned>(e)) : (n << static_cast<unsigned>(-e)) < d;
-        if (below) --e;  // now 2^e <= |q| < 2^(e+1)
-        const int p = precisionBits<T>();
-        const long long emin = minExponent<T>();
-        const long long emax = maxExponent<T>();
-        if (e > emax) return negative ? T(-infinity) : infinity;
-        const long long quantumExp = (hasSubnormals<T>() ? std::max(e, emin) : e) - (p - 1);
-        Integer num = n;
-        Integer den = d;
-        if (quantumExp < 0) num <<= static_cast<unsigned>(-quantumExp);
-        else den <<= static_cast<unsigned>(quantumExp);
-        Integer rounded = num / den;
-        const Integer rest = num - rounded * den;
-        if (2 * rest > den || (2 * rest == den && (rounded & 1) != 0)) ++rounded;
-        if (rounded == 0) return negative ? T(-T(0)) : T(0);
-        const long long top = quantumExp + static_cast<long long>(msb(rounded));
-        if (top > emax) return negative ? T(-infinity) : infinity;
-        if (!hasSubnormals<T>() && top < emin) return negative ? T(-T(0)) : T(0);
-        const T t = ldexp(impl::integerToFloat<T>(rounded), static_cast<int>(quantumExp));
+        const impl::Rounded r = impl::roundBinary(abs(q), precisionBits<T>(), minExponent<T>(), maxExponent<T>(), hasSubnormals<T>());
+        if (r.overflow) return negative ? T(-std::numeric_limits<T>::infinity()) : std::numeric_limits<T>::infinity();
+        if (r.significand == 0) return negative ? T(-T(0)) : T(0);
+        const T t = ldexp(impl::integerToFloat<T>(r.significand), static_cast<int>(r.exponent));
         return negative ? T(-t) : t;
     }
+}
+
+// A non-negative integer in the ruler, from its top bits: cheap for millions of bits.
+inline Ruler rulerOf(const Integer& n) {
+    using std::ldexp;
+    if (n == 0) return Ruler(0);
+    const long long bits = static_cast<long long>(msb(n)) + 1;
+    const long long shift = std::max(0LL, bits - (precisionBits<Ruler>() + 64));
+    return ldexp(impl::integerToFloat<Ruler>(n >> static_cast<unsigned>(shift)), static_cast<int>(shift));
+}
+
+// |a − b| in the ruler. Huge fractions (a literal like 1e-1000000 against its binary value) are not reduced: their
+// greatest common divisor is what costs; the result is then within a few ruler ulps instead of correctly rounded.
+inline Ruler rulerDistance(const Rational& a, const Rational& b) {
+    using std::abs;
+    constexpr unsigned huge = 100000;  // bits
+    if (msb(denominator(a)) < huge && msb(denominator(b)) < huge) return fromRational<Ruler>(abs(a - b));
+    const Integer n = abs(Integer(impl::product(numerator(a), denominator(b)) - impl::product(numerator(b), denominator(a))));
+    return rulerOf(n) / rulerOf(impl::product(denominator(a), denominator(b)));
 }
 
 template <class To, class From>
 To exactCast(const From& x) {
     return fromRational<To>(toRational(x));
 }
+
+namespace impl {
+
+constexpr long long exponentLimit = 1000000000000000LL;  // 10^15
+
+// The rest of a literal from i: nothing (exponent 0), or the marker in either case, an optional sign (+ - −) and
+// decimal digits, saturating at ±10^15. Empty when anything else is left.
+inline std::optional<long long> readExponent(std::string_view text, std::size_t i, char marker) {
+    long long exponent = 0;
+    if (i < text.size() && (text[i] | 0x20) == marker) {
+        ++i;
+        bool negative = false;
+        if (i < text.size() && (text[i] == '+' || text[i] == '-')) {
+            negative = text[i++] == '-';
+        } else if (text.substr(i, 3) == "\xE2\x88\x92") {  // −, the calculator's minus
+            negative = true;
+            i += 3;
+        }
+        const std::size_t start = i;
+        for (; i < text.size() && text[i] >= '0' && text[i] <= '9'; ++i)
+            if (exponent <= exponentLimit) exponent = exponent * 10 + (text[i] - '0');
+        if (i == start) return std::nullopt;
+        exponent = std::min(exponent, exponentLimit);
+        if (negative) exponent = -exponent;
+    }
+    if (i != text.size()) return std::nullopt;
+    return exponent;
+}
+
+}  // namespace impl
 
 // value = significand * 10^exponent10 (non-negative; unary minus belongs to the grammar).
 struct DecimalLiteral {
@@ -203,7 +294,6 @@ struct DecimalLiteral {
 // digits [. [digits]] [exponent] | . digits [exponent], exponent = (e|E) [+|-|−] digits.
 // The exponent saturates at ±10^15, so it never overflows.
 inline std::optional<DecimalLiteral> parseDecimal(std::string_view text) {
-    constexpr long long limit = 1000000000000000LL;
     const auto isDigit = [](char c) { return c >= '0' && c <= '9'; };
     DecimalLiteral d;
     std::size_t i = 0;
@@ -215,26 +305,44 @@ inline std::optional<DecimalLiteral> parseDecimal(std::string_view text) {
             d.significand = d.significand * 10 + (text[i] - '0');
     }
     if (digits == 0) return std::nullopt;
-    long long exponent = 0;
-    if (i < text.size() && (text[i] == 'e' || text[i] == 'E')) {
-        ++i;
-        bool negative = false;
-        if (i < text.size() && (text[i] == '+' || text[i] == '-')) {
-            negative = text[i++] == '-';
-        } else if (text.substr(i, 3) == "\xE2\x88\x92") {  // −, the calculator's minus
-            negative = true;
-            i += 3;
-        }
-        const std::size_t start = i;
-        for (; i < text.size() && isDigit(text[i]); ++i)
-            if (exponent <= limit) exponent = exponent * 10 + (text[i] - '0');
-        if (i == start) return std::nullopt;
-        exponent = std::min(exponent, limit);
-        if (negative) exponent = -exponent;
-    }
-    if (i != text.size()) return std::nullopt;
-    d.exponent10 = std::clamp(exponent - fractionDigits, -limit, limit);
+    const std::optional<long long> exponent = impl::readExponent(text, i, 'e');
+    if (!exponent) return std::nullopt;
+    d.exponent10 = std::clamp(*exponent - fractionDigits, -impl::exponentLimit, impl::exponentLimit);
     return d;
+}
+
+// value = significand * 2^exponent2 (non-negative, like a decimal literal).
+struct BaseLiteral {
+    Integer significand;
+    long long exponent2 = 0;
+};
+
+// 0x|0b|0o (either case) digits [. [digits]] [exponent], exponent = (p|P) [+|-|−] decimal digits: a power of two.
+// Each digit after the point lowers exponent2 by the digit's bits (4, 1 or 3); the exponent saturates at ±10^15.
+inline std::optional<BaseLiteral> parseBaseLiteral(std::string_view text) {
+    if (text.size() < 2 || text[0] != '0') return std::nullopt;
+    const char prefix = static_cast<char>(text[1] | 0x20);
+    const int bits = prefix == 'x' ? 4 : prefix == 'b' ? 1 : prefix == 'o' ? 3 : 0;
+    if (bits == 0) return std::nullopt;
+    const auto digitValue = [bits](char c) {
+        int v = c >= '0' && c <= '9' ? c - '0' : (c | 0x20) >= 'a' && (c | 0x20) <= 'f' ? (c | 0x20) - 'a' + 10 : 99;
+        return v < (1 << bits) ? v : -1;
+    };
+    BaseLiteral b;
+    std::size_t i = 2;
+    int digits = 0;
+    long long fractionBits = 0;
+    for (; i < text.size() && digitValue(text[i]) >= 0; ++i, ++digits)
+        b.significand = (b.significand << bits) + digitValue(text[i]);
+    if (i < text.size() && text[i] == '.') {
+        for (++i; i < text.size() && digitValue(text[i]) >= 0; ++i, ++digits, fractionBits += bits)
+            b.significand = (b.significand << bits) + digitValue(text[i]);
+    }
+    if (digits == 0) return std::nullopt;
+    const std::optional<long long> exponent = impl::readExponent(text, i, 'p');
+    if (!exponent) return std::nullopt;
+    b.exponent2 = std::clamp(*exponent - fractionBits, -impl::exponentLimit, impl::exponentLimit);
+    return b;
 }
 
 // Exact. Precondition: |exponent10| <= 10^6 (a larger literal cannot be materialized).
@@ -248,15 +356,19 @@ namespace impl {
 
 // Conservative decimal range of T: beyond these, a literal certainly overflows or rounds to 0.
 // (30103/100000 approximates log10(2); the margins cover the error.)
+// Decimal exponents beyond which a literal certainly overflows (largest binary exponent emax) or certainly rounds
+// to zero (smallest positive value 2^smallestExponent): decided without building the number.
+inline long long maxDecimalExponent(long long emax) { return (emax + 1) * 30103 / 100000 + 2; }
+inline long long minDecimalExponent(long long smallestExponent) { return (smallestExponent - 1) * 30103 / 100000 - 3; }
+
 template <class T>
 long long maxDecimalExponent() {
-    return (static_cast<long long>(maxExponent<T>()) + 1) * 30103 / 100000 + 2;
+    return maxDecimalExponent(maxExponent<T>());
 }
 
 template <class T>
 long long minDecimalExponent() {
-    const long long smallest = hasSubnormals<T>() ? minExponent<T>() - precisionBits<T>() + 1 : minExponent<T>();
-    return (smallest - 1) * 30103 / 100000 - 3;
+    return minDecimalExponent(hasSubnormals<T>() ? minExponent<T>() - precisionBits<T>() + 1 : minExponent<T>());
 }
 
 }  // namespace impl
@@ -275,7 +387,45 @@ T decimalTo(const DecimalLiteral& d) {
     }
 }
 
-// value = (negative ? -1 : 1) * d1.d2d3... * 10^exponent10; no trailing zeros; zero is {"0", 0}.
+// Exact. Precondition: |exponent2| <= 10^6, like a decimal literal's exponent.
+inline Rational toRational(const BaseLiteral& b) {
+    const long long e = b.exponent2;
+    const Integer power = Integer(1) << static_cast<unsigned>(e < 0 ? -e : e);
+    return e < 0 ? Rational(b.significand, power) : Rational(b.significand * power);
+}
+
+// The literal correctly rounded into T (exact for Rational): beyond T's largest binary exponent it is infinity,
+// below half its smallest positive value 0, decided without building the number.
+template <class T>
+T baseTo(const BaseLiteral& b) {
+    if constexpr (isExact<T>) {
+        return toRational(b);
+    } else {
+        if (b.significand == 0) return T(0);
+        const long long top = b.exponent2 + static_cast<long long>(msb(b.significand));
+        const long long smallest = hasSubnormals<T>() ? minExponent<T>() - precisionBits<T>() + 1 : minExponent<T>();
+        if (top > maxExponent<T>()) return std::numeric_limits<T>::infinity();
+        if (top < smallest - 1) return T(0);
+        return fromRational<T>(toRational(b));
+    }
+}
+
+// A typed number's text, decimal or in a base, in T; empty when it is no number or too large to build exactly.
+template <class T>
+std::optional<T> literalTo(std::string_view text) {
+    const auto tooLarge = [](long long exponent) { return isExact<T> && (exponent > exactDigitsLimit || exponent < -exactDigitsLimit); };
+    if (const auto b = parseBaseLiteral(text)) {
+        if (tooLarge(b->exponent2)) return std::nullopt;
+        return baseTo<T>(*b);
+    }
+    const auto d = parseDecimal(text);
+    if (!d || tooLarge(d->exponent10)) return std::nullopt;
+    return decimalTo<T>(*d);
+}
+
+// The exact value of a typed number's text. Precondition: literalTo<Rational>(text) is not empty.
+inline Rational literalRational(std::string_view text) { return *literalTo<Rational>(text); }
+
 // 10^n in the ruler, by binary powering.
 inline Ruler powerOfTen(long long n) {
     Ruler result = 1;
@@ -287,6 +437,7 @@ inline Ruler powerOfTen(long long n) {
     return n < 0 ? Ruler(1 / result) : result;
 }
 
+// value = (negative ? -1 : 1) * d1.d2d3... * 10^exponent10; no trailing zeros; zero is {"0", 0}.
 struct DecimalDigits {
     bool negative = false;
     std::string digits;

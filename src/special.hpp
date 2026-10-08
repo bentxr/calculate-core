@@ -460,15 +460,19 @@ Special<T> betaincWord(const T& x, const T& a, const T& b, const std::atomic<boo
     return r;
 }
 
-// The x with I_x(a, b) = y: Newton on I_x(a, b) - y, kept inside a bracket by bisection. The bracket test is inclusive:
-// next to the root the Newton point rounds onto an end of the bracket, and a strict test would bisect ~p times.
+// The x with I_x(a, b) = y: Newton on I_x(a, b) - y, kept inside a bracket by bisection, which also takes over when a
+// Newton step is not half the one before last (safeguarded Newton, as in Numerical Recipes' rtsafe): with a or b near
+// 0, I_x is nearly flat and Newton creeps. The bracket test is inclusive: next to the root the Newton point rounds onto
+// an end of the bracket, and a strict test would bisect ~p times.
 template <class T>
 Special<T> betaincinvWord(const T& y, const T& a, const T& b, const std::atomic<bool>* cancel) {
     using std::abs;
     using std::ldexp;
+    using std::sqrt;
     Special<T> r;
     const DoubleWord<T> lnB = lgammaPositive(dw(a)).value + lgammaPositive(dw(b)).value - lgammaPositive(dw(a) + b).value;
     T lo = 0, hi = 1, x = a / (a + b);
+    T before = 1, last = 1;  // the sizes of the last two moves
     for (int i = 0; i < impl::maxIterations; ++i) {
         if (impl::cancelled(cancel)) {  // every step costs a betainc
             r.error = ErrorCode::Cancelled;
@@ -486,8 +490,11 @@ Special<T> betaincinvWord(const T& y, const T& a, const T& b, const std::atomic<
         }
         if (f.hi < 0) lo = x;
         else hi = x;
-        const ExpParts<T> e = expParts(logWord(dw(x)) * (a - 1) + logWord(dw(T(1)) - x) * (b - 1) - lnB);  // I'(x)
-        bool newton = !e.overflow && !e.underflow;
+        // At an end of [0, 1] the logarithms do not exist: the root is within an ulp of that end, where bisection stops.
+        const bool inside = 0 < x && x < 1;
+        const ExpParts<T> e = inside ? expParts(logWord(dw(x)) * (a - 1) + logWord(dw(T(1)) - x) * (b - 1) - lnB)  // I'(x)
+                                     : ExpParts<T>{};
+        bool newton = inside && !e.overflow && !e.underflow;
         T next = x;
         if (newton) {
             const DoubleWord<T> step = f / expValue(e);
@@ -496,9 +503,19 @@ Special<T> betaincinvWord(const T& y, const T& a, const T& b, const std::atomic<
                 r.value = dw(x) - step;
                 return r;
             }
-            if (!(lo <= next && next <= hi)) newton = false;
+            if (!(lo <= next && next <= hi) || abs(next - x) > before / 2) newton = false;
         }
-        if (!newton) next = (lo + hi) / 2;
+        if (!newton) {  // bisection, by the exponent of x or of 1 - x while the bracket spans more than a factor 2 of it
+            const T dlo = 1 - lo, dhi = 1 - hi, half = std::numeric_limits<T>::epsilon() / 2;  // exact from 0.5 up
+            const T least = (std::max)(lo, (std::numeric_limits<T>::min)());  // below min() halving is short again
+            if (hi <= T(0.5) && lo == 0 && hi * hi >= (std::numeric_limits<T>::min)()) next = hi * hi;
+            else if (hi <= T(0.5) && hi > 2 * least) next = sqrt(least) * sqrt(hi);
+            else if (lo >= T(0.5) && hi == 1 && dlo > half) next = 1 - (std::max)(dlo * dlo, half);  // 1 - half: the last T under 1
+            else if (lo >= T(0.5) && hi < 1 && dlo > 2 * dhi) next = 1 - sqrt(dlo) * sqrt(dhi);
+            else next = (lo + hi) / 2;
+        }
+        before = last;
+        last = abs(next - x);
         if (next == x) {
             r.value = dw(x);
             return r;

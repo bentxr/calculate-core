@@ -16,6 +16,9 @@ enum class NumberType { Float, Double, LongDouble, Exact, Binary128, Binary256, 
 
 enum class AngleUnit { Radians, Degrees, Gradians };
 
+// What a floating-point bit pattern is. Noncanonical: an x87 extended pattern the 387 and later never produce.
+enum class FloatClass { Zero, Subnormal, Normal, Infinite, QuietNaN, SignalingNaN, Noncanonical };
+
 enum class ErrorCode {
     InvalidCharacter, InvalidNumber, UnexpectedToken, UnexpectedEnd, MissingClosingParenthesis,
     MissingOperator, UnknownName, WrongArgumentCount, NotAvailableInExact, LiteralOutOfRange,
@@ -74,9 +77,29 @@ struct TypeInfo {
 
 std::vector<TypeInfo> numberTypes();
 
+// The binary formats the IEEE 754 inspector knows.
+enum class FloatFormat { Binary16, Bfloat16, Binary32, Binary64, X87Extended, Binary128, Binary256, Binary512 };
+
+// One entry of the inspector's list: a number type's own storage in this build, or a format shown for display only.
+struct FloatFormatInfo {
+    FloatFormat format;
+    std::optional<NumberType> type;  // the type stored this way here; none: display only
+    std::string name;                // "binary64", "x87 extended"
+    int storageBits;                 // 1 + exponentBits + fractionBits
+    int exponentBits;
+    int fractionBits;                // the significand field (x87: 64, its leading bit included)
+    int precisionBits;
+    int bias;
+    bool explicitLeadingBit;         // x87 only
+    bool subnormals;                 // false for the software types: they flush to zero
+    std::string languageName{};      // as the language names it: "fp32", "fp80"
+};
+
+std::vector<FloatFormatInfo> floatFormats();
+
 // What an argument stands for: argument hints and generated keys use it. An Angle follows the angle unit; an
 // Integer must be whole.
-enum class ArgumentKind { Number, Integer, Angle };
+enum class ArgumentKind { Number, Integer, Angle, Format };  // Format: a format name such as fp32
 
 struct ArgumentDescription {
     std::string name;  // "x", "n", "base"
@@ -136,11 +159,18 @@ struct NumberParts {
 };
 
 // What "to <target>" made of a result: the same value in another form.
+// A labelled extra of a conversion: the CLI prints "  label value", the app shows a row.
+struct ConversionField {
+    std::string label;  // "hex", "stored", "error"…
+    std::string value;
+};
+
 struct Conversion {
     std::string target;  // the target's name, "fraction"
     std::string text;    // the converted result as plain text, "3602879701896397/36028797018963968"
     std::optional<NumberParts> parts;  // set by targets that show a number
     std::string note;  // "off by 3.3e-2": the stored value minus what the text shows, when they differ
+    std::vector<ConversionField> fields{};  // labelled extras (to fp32: hex, class, stored…)
 };
 
 // A conversion target, for completion and keys.
@@ -157,6 +187,47 @@ struct Digits {
     std::string digits;
     long long exponent10 = 0;
 };
+
+// One bit pattern of a format, field by field, and exactly what it stands for.
+struct FloatBits {
+    FloatClass valueClass = FloatClass::Zero;
+    bool negative = false;
+    std::string sign;          // "0" or "1"
+    std::string exponent;      // the exponent field: exponentBits binary digits
+    std::string fraction;      // the significand field: fractionBits binary digits
+    std::string hex;           // every bit: storageBits / 4 hexadecimal digits, upper case
+    long long biasedExponent = 0;
+    long long exponent2 = 0;   // finite non-zero values: value = significand × 2^exponent2
+    Digits significand;        // finite non-zero values: 1.f, or 0.f below the normal range, exactly
+    Digits value;              // finite values, exactly; no digits when too long to write out
+    std::string note;          // Noncanonical: "pseudo-denormal", "unnormal", "pseudo-infinity", "pseudo-NaN"
+};
+
+// A stored value with its neighbours, its ulp and, when it came from a decimal, its conversion error.
+struct FloatInspection {
+    std::optional<Error> error;  // the text could not be read; nothing else is set
+    FloatFormat format = FloatFormat::Binary64;
+    FloatBits stored;
+    bool hasNeighbours = false;  // finite and infinite values
+    FloatBits below;             // the next value down (IEEE nextDown) and up (nextUp)
+    FloatBits above;
+    long long ulpExponent = 0;   // finite values: ulp = 2^ulpExponent
+    Digits ulp;
+    Digits conversionError;      // stored − typed, exactly; no digits when nothing finite was converted
+    std::string note;            // "overflow", "underflow", "no subnormals", or ""
+};
+
+// `text`: a decimal number with an optional sign (- or −) and exponent, or inf, -inf, ∞, nan.
+FloatInspection inspectDecimal(const FloatFormatInfo& format, std::string_view text);
+
+// A value written out exactly in ASCII: positional for -7 <= exponent < 21, else d.ddd…e±N.
+std::string exactText(const Digits& digits);
+// A stored value: its exact decimal, inf, -inf or nan, or [-]s × 2^e when it is too long to write out.
+std::string exactText(const FloatBits& bits);
+
+// `digits`: a bit pattern in base 2 or 16 (spaces, _ and thin spaces ignored; an optional 0b or 0x prefix; either
+// case); leading zeros may be left out.
+FloatInspection inspectBits(const FloatFormatInfo& format, std::string_view digits, int base);
 
 // An exact rational. When hasDecimal: integerPart.fractionDigits(repeatingDigits repeated).
 struct Fraction {
@@ -177,11 +248,20 @@ struct UncertainInput {
     std::string contribution;  // sensitivity × u: "2e-1"
 };
 
+// A value written exactly as significand × 2^exponent2: when its decimal would be too long to write out.
+struct BinaryValue {
+    bool negative = false;
+    std::string significand;  // odd, in decimal
+    long long exponent2 = 0;
+};
+
 struct Result {
     std::optional<Error> error;
     NumberType type = NumberType::Double;
     Digits value;                     // floating types; empty for Exact
     std::optional<Fraction> exact;    // Exact only
+    std::optional<FloatInspection> stored;  // floating types: the result as stored, bit by bit
+    std::optional<BinaryValue> binaryValue;  // set instead of value.digits when the decimal would pass 20 000 digits
     int trustedDigits = 0;            // leading significant digits guaranteed by the bound
     int trustedDigitsMeasured = 0;    // leading significant digits confirmed by the measured error
     std::string bound;                // guaranteed bound: input + rounding + library
