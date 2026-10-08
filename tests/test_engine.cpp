@@ -511,3 +511,108 @@ TEST(Uncertain, ExactArithmeticKeepsTheValueExact) {
     EXPECT_EQ(ev.value, Rational(1, 3));
     EXPECT_EQ(ev.report.bound, 0);
 }
+
+TEST(UncertaintySources, OneQuantityUsedTwiceIsCountedOnce) {
+    AstBuilder b;
+    const auto five = b.literal("5");
+    const auto spread = b.literal("0.2");
+    const auto x = b.uncertain(five, spread);
+    x * x;
+    const Evaluation<double> ev = evaluate<double>(b.ast());
+    ASSERT_FALSE(ev.error);
+    const Uncertainty& u = ev.report.uncertainty;
+    ASSERT_EQ(u.sources.size(), 1u);
+    EXPECT_EQ(u.sources[0].node, x.index);
+    EXPECT_EQ(u.sources[0].uncertainty, exactCast<Ruler>(0.2));
+    EXPECT_EQ(u.sources[0].sensitivity, 10);  // d(x*x)/dx = 2x
+    EXPECT_EQ(u.linear, Ruler(10) * exactCast<Ruler>(0.2));
+    EXPECT_EQ(u.quadrature, u.linear);  // one quantity: both rules agree
+}
+
+TEST(UncertaintySources, AQuantityMinusItselfHasNoUncertainty) {
+    AstBuilder b;
+    const auto five = b.literal("5");
+    const auto spread = b.literal("0.2");
+    const auto x = b.uncertain(five, spread);
+    x - x;
+    const Uncertainty& u = evaluate<double>(b.ast()).report.uncertainty;
+    ASSERT_EQ(u.sources.size(), 1u);
+    EXPECT_EQ(u.sources[0].sensitivity, 0);
+    EXPECT_EQ(u.linear, 0);
+}
+
+TEST(UncertaintySources, TwoValuesTypedApartAreTwoQuantities) {
+    AstBuilder b;
+    const auto a = b.literal("5");
+    const auto ua = b.literal("0.2");
+    const auto x = b.uncertain(a, ua);
+    const auto c = b.literal("5");
+    const auto uc = b.literal("0.2");
+    const auto y = b.uncertain(c, uc);
+    x - y;
+    const Uncertainty& u = evaluate<double>(b.ast()).report.uncertainty;
+    EXPECT_EQ(u.sources.size(), 2u);
+    EXPECT_EQ(u.linear, Ruler(2) * exactCast<Ruler>(0.2));
+}
+
+TEST(UncertaintySources, TheSameKeyIsOneQuantity) {
+    AstBuilder b;
+    const auto a = b.literal("5");
+    const auto ua = b.literal("0.2");
+    const auto x = b.uncertain(a, ua, "G");
+    const auto c = b.literal("5");
+    const auto uc = b.literal("0.2");
+    const auto y = b.uncertain(c, uc, "G");
+    x - y;
+    const Uncertainty& u = evaluate<double>(b.ast()).report.uncertainty;
+    ASSERT_EQ(u.sources.size(), 1u);
+    EXPECT_EQ(u.sources[0].nodes, (std::vector<int>{x.index, y.index}));
+    EXPECT_EQ(u.linear, 0);
+}
+
+TEST(UncertaintySources, WorstCaseAndStatistical) {
+    AstBuilder b;
+    const auto three = b.literal("3");
+    const auto u3 = b.literal("0.4");
+    const auto x = b.uncertain(three, u3);
+    const auto four = b.literal("4");
+    const auto u4 = b.literal("0.3");
+    const auto y = b.uncertain(four, u4);
+    x * y;
+    const Uncertainty& u = evaluate<double>(b.ast()).report.uncertainty;
+    ASSERT_EQ(u.sources.size(), 2u);
+    EXPECT_EQ(u.sources[0].node, x.index);  // 4 * 0.4 = 1.6 comes before 3 * 0.3 = 0.9
+    EXPECT_EQ(formatScientific(u.sources[0].contribution), "1.6e+0");
+    EXPECT_EQ(formatScientific(u.sources[1].contribution), "9e-1");
+    EXPECT_EQ(formatScientific(u.linear), "2.5e+0");      // 1.6 + 0.9
+    EXPECT_EQ(formatScientific(u.quadrature), "1.8e+0");  // sqrt(1.6^2 + 0.9^2) = 1.8358
+}
+
+TEST(UncertaintySources, AnUncertaintyOfAnUncertaintyIsNotAnInput) {
+    AstBuilder b;
+    const auto five = b.literal("5");
+    const auto spread = b.literal("0.2");
+    const auto tiny = b.literal("0.01");
+    const auto fuzzy = b.uncertain(spread, tiny);
+    b.uncertain(five, fuzzy);
+    const Uncertainty& u = evaluate<double>(b.ast()).report.uncertainty;
+    EXPECT_EQ(u.sources.size(), 1u);
+}
+
+TEST(UncertaintySources, ExactArithmeticPropagatesThem) {
+    AstBuilder b;
+    const auto five = b.literal("5");
+    const auto spread = b.literal("0.2");
+    const auto x = b.uncertain(five, spread);
+    x * b.literal("2");
+    const Evaluation<Rational> ev = evaluate<Rational>(b.ast());
+    ASSERT_FALSE(ev.error);
+    EXPECT_EQ(ev.report.uncertainty.linear, Ruler(2) * fromRational<Ruler>(Rational(1, 5)));
+}
+
+TEST(UncertaintySources, NoneWithoutUncertainInputs) {
+    const Uncertainty& u = evaluate<double>(sum("0.1", "0.2")).report.uncertainty;
+    EXPECT_TRUE(u.sources.empty());
+    EXPECT_EQ(u.linear, 0);
+    EXPECT_EQ(u.quadrature, 0);
+}

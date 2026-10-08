@@ -399,6 +399,7 @@ inline int trustedDigits(const Ruler& absValue, const Ruler& error, int digitCou
 }
 
 struct Report {
+    Uncertainty uncertainty;  // the user's uncertain inputs: apart from the bound, which stays computational
     Ruler input = 0;
     Ruler rounding = 0;
     Ruler library = 0;
@@ -436,7 +437,8 @@ Evaluation<T> evaluate(const Ast& ast, const Options& options = {}) {
 
     // Discrete functions jump, so derivatives cannot carry their arguments' uncertainty:
     // refuse arguments that are not exactly known, unless the caller accepts an incomplete bound.
-    const Propagation propagation = propagate<T>(ast, fw, locals, userUncertainties(ast, fw.values));
+    const std::vector<Ruler> uncertainties = userUncertainties(ast, fw.values);
+    const Propagation propagation = propagate<T>(ast, fw, locals, uncertainties);
     const std::vector<Ruler>& bounds = propagation.bounds;
     for (const Node& node : ast.nodes) {
         if (!node.args.empty()) {
@@ -521,6 +523,7 @@ Evaluation<T> evaluate(const Ast& ast, const Options& options = {}) {
     }
 
     const Adjoints adj = adjoints(ast, parts, propagation.slopes);
+    r.uncertainty = combine(ast, adj.signedAdj, uncertainties);
     Ruler weighted = 0;  // sum over the inputs of |d root / d input| * |input|
     for (std::size_t i = 0; i < ast.nodes.size(); ++i) {
         const Ruler term = impl::times(adj.absoluteAdj[i], locals[i]);
