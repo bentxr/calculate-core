@@ -68,3 +68,39 @@ TYPED_TEST(FormatOfTest, MatchesTheTypesTraits) {
     EXPECT_EQ(f.minExponent(), minExponent<T>());
     EXPECT_EQ(f.maxExponent(), maxExponent<T>());
 }
+
+namespace {
+
+Rational pow2(long long e) { return scaleByPowerOfTwo(Rational(1), e); }
+
+}  // namespace
+
+TEST(RoundToFormat, Binary16) {
+    const FloatValue tenth = roundToFormat(false, Rational(1, 10), binary16, true);
+    EXPECT_EQ(tenth.kind, calculate_core::FloatClass::Normal);
+    EXPECT_EQ(tenth.magnitude, Rational(819, 8192));
+    EXPECT_EQ(roundToFormat(false, Rational(65519), binary16, true).magnitude, Rational(65504));
+    EXPECT_EQ(roundToFormat(false, Rational(65520), binary16, true).kind, calculate_core::FloatClass::Infinite);  // the tie rounds to 2^16
+    EXPECT_EQ(roundToFormat(false, pow2(-24), binary16, true).kind, calculate_core::FloatClass::Subnormal);
+    EXPECT_EQ(roundToFormat(false, pow2(-25), binary16, true).kind, calculate_core::FloatClass::Zero);  // tie: even is 0
+    EXPECT_EQ(roundToFormat(false, 3 * pow2(-26), binary16, true).magnitude, pow2(-24));
+    EXPECT_EQ(roundToFormat(false, Rational(1, 3), binary16, true).magnitude, Rational(1365, 4096));
+}
+
+TEST(RoundToFormat, WithoutSubnormalsSmallValuesFlushToZero) {
+    EXPECT_EQ(roundToFormat(false, pow2(-15), binary16, true).kind, calculate_core::FloatClass::Subnormal);
+    const FloatValue flushed = roundToFormat(true, pow2(-15), binary16, false);
+    EXPECT_EQ(flushed.kind, calculate_core::FloatClass::Zero);
+    EXPECT_TRUE(flushed.negative);  // the sign survives, as in the software types
+    EXPECT_EQ(roundToFormat(false, pow2(-14) - pow2(-26), binary16, false).magnitude, pow2(-14));  // rounds up into range
+}
+
+TYPED_TEST(FormatOfTest, AgreesWithTheTypesOwnRounding) {
+    using T = TypeParam;
+    std::mt19937_64 rng(20261003);
+    for (int i = 0; i < 200; ++i) {
+        const Rational q = toRational(test::randomFinite<T>(rng, 200)) * Rational(7, 5);
+        const FloatValue v = roundToFormat(q < 0, abs(q), formatOf<T>(), hasSubnormals<T>());
+        EXPECT_EQ(v.negative ? Rational(-v.magnitude) : v.magnitude, toRational(fromRational<T>(q)));
+    }
+}

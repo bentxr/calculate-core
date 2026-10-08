@@ -43,4 +43,29 @@ BinaryFormat formatOf() {
     return {w, precisionBits<T>() - 1, false};
 }
 
+// One datum of a format: its class and sign, and its exact magnitude (finite classes) or NaN payload.
+struct FloatValue {
+    calculate_core::FloatClass kind = calculate_core::FloatClass::Zero;
+    bool negative = false;
+    Rational magnitude;     // Zero, Subnormal, Normal, and the x87 pseudo-denormal; 0 otherwise
+    Integer payload;        // NaNs: the significand field below the quiet bit
+    std::string_view note;  // Noncanonical: "pseudo-denormal", "unnormal", "pseudo-infinity" or "pseudo-NaN"
+};
+
+// magnitude >= 0, with that sign, rounded to nearest-even into f (subnormals: whether f keeps them).
+inline FloatValue roundToFormat(bool negative, const Rational& magnitude, const BinaryFormat& f, bool subnormals) {
+    using calculate_core::FloatClass;
+    FloatValue v;
+    v.negative = negative;
+    const impl::Rounded r = impl::roundBinary(magnitude, f.precision(), f.minExponent(), f.maxExponent(), subnormals);
+    if (r.overflow) {
+        v.kind = FloatClass::Infinite;
+        return v;
+    }
+    if (r.significand == 0) return v;
+    v.magnitude = scaleByPowerOfTwo(Rational(r.significand), r.exponent);
+    v.kind = v.magnitude >= scaleByPowerOfTwo(Rational(1), f.minExponent()) ? FloatClass::Normal : FloatClass::Subnormal;
+    return v;
+}
+
 }  // namespace calculate_core::detail

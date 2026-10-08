@@ -152,6 +152,56 @@ T integerToFloat(const Integer& n) {
 
 }  // namespace impl
 
+namespace impl {
+
+// q > 0: the e with 2^e <= q < 2^(e+1).
+inline long long floorLog2(const Rational& q) {
+    const Integer n = numerator(q);
+    const Integer d = denominator(q);
+    long long e = static_cast<long long>(msb(n)) - static_cast<long long>(msb(d));
+    const bool below = e >= 0 ? n < (d << static_cast<unsigned>(e)) : (n << static_cast<unsigned>(-e)) < d;
+    return below ? e - 1 : e;
+}
+
+// A magnitude rounded to p significant bits: significand × 2^exponent (significand 0 is zero).
+struct Rounded {
+    bool overflow = false;
+    Integer significand;
+    long long exponent = 0;
+};
+
+// magnitude >= 0 rounded to nearest, ties to even, into p bits with exponents emin..emax: below the normal range
+// subnormals when the format has them, else a flush to zero.
+inline Rounded roundBinary(const Rational& magnitude, int p, long long emin, long long emax, bool subnormals) {
+    Rounded r;
+    if (magnitude == 0) return r;
+    const long long e = floorLog2(magnitude);
+    if (e > emax) {
+        r.overflow = true;
+        return r;
+    }
+    const long long quantumExp = (subnormals ? std::max(e, emin) : e) - (p - 1);
+    Integer num = numerator(magnitude);
+    Integer den = denominator(magnitude);
+    if (quantumExp < 0) num <<= static_cast<unsigned>(-quantumExp);
+    else den <<= static_cast<unsigned>(quantumExp);
+    Integer rounded = num / den;
+    const Integer rest = num - rounded * den;
+    if (2 * rest > den || (2 * rest == den && (rounded & 1) != 0)) ++rounded;
+    if (rounded == 0) return r;
+    const long long top = quantumExp + static_cast<long long>(msb(rounded));
+    if (top > emax) {
+        r.overflow = true;
+        return r;
+    }
+    if (!subnormals && top < emin) return r;
+    r.significand = rounded;
+    r.exponent = quantumExp;
+    return r;
+}
+
+}  // namespace impl
+
 // q rounded to the nearest T, ties to even. Overflow gives ±infinity. Below the normal range,
 // subnormals for types that have them, and a flush to zero (like cpp_bin_float) otherwise.
 template <class T>
@@ -162,29 +212,10 @@ T fromRational(const Rational& q) {
         using std::ldexp;
         if (q == 0) return T(0);
         const bool negative = q < 0;
-        const T infinity = std::numeric_limits<T>::infinity();
-        const Integer n = abs(numerator(q));
-        const Integer d = denominator(q);
-        long long e = static_cast<long long>(msb(n)) - static_cast<long long>(msb(d));
-        const bool below = e >= 0 ? n < (d << static_cast<unsigned>(e)) : (n << static_cast<unsigned>(-e)) < d;
-        if (below) --e;  // now 2^e <= |q| < 2^(e+1)
-        const int p = precisionBits<T>();
-        const long long emin = minExponent<T>();
-        const long long emax = maxExponent<T>();
-        if (e > emax) return negative ? T(-infinity) : infinity;
-        const long long quantumExp = (hasSubnormals<T>() ? std::max(e, emin) : e) - (p - 1);
-        Integer num = n;
-        Integer den = d;
-        if (quantumExp < 0) num <<= static_cast<unsigned>(-quantumExp);
-        else den <<= static_cast<unsigned>(quantumExp);
-        Integer rounded = num / den;
-        const Integer rest = num - rounded * den;
-        if (2 * rest > den || (2 * rest == den && (rounded & 1) != 0)) ++rounded;
-        if (rounded == 0) return negative ? T(-T(0)) : T(0);
-        const long long top = quantumExp + static_cast<long long>(msb(rounded));
-        if (top > emax) return negative ? T(-infinity) : infinity;
-        if (!hasSubnormals<T>() && top < emin) return negative ? T(-T(0)) : T(0);
-        const T t = ldexp(impl::integerToFloat<T>(rounded), static_cast<int>(quantumExp));
+        const impl::Rounded r = impl::roundBinary(abs(q), precisionBits<T>(), minExponent<T>(), maxExponent<T>(), hasSubnormals<T>());
+        if (r.overflow) return negative ? T(-std::numeric_limits<T>::infinity()) : std::numeric_limits<T>::infinity();
+        if (r.significand == 0) return negative ? T(-T(0)) : T(0);
+        const T t = ldexp(impl::integerToFloat<T>(r.significand), static_cast<int>(r.exponent));
         return negative ? T(-t) : t;
     }
 }

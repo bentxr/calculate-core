@@ -16,6 +16,9 @@ enum class NumberType { Float, Double, LongDouble, Exact, Binary128, Binary256, 
 
 enum class AngleUnit { Radians, Degrees, Gradians };
 
+// What a floating-point bit pattern is. Noncanonical: an x87 extended pattern the 387 and later never produce.
+enum class FloatClass { Zero, Subnormal, Normal, Infinite, QuietNaN, SignalingNaN, Noncanonical };
+
 enum class ErrorCode {
     InvalidCharacter, InvalidNumber, UnexpectedToken, UnexpectedEnd, MissingClosingParenthesis,
     MissingOperator, UnknownName, WrongArgumentCount, NotAvailableInExact, LiteralOutOfRange,
