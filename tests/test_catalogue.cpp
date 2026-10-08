@@ -518,3 +518,23 @@ TEST(Catalogue, SignJumpsOnlyAtZero) {
     EXPECT_EQ(evaluate("sgn(0.7 + 0.1 - 0.8)").error->code, ErrorCode::ArgumentNearJump);
     EXPECT_EQ(tree("signo(2)"), "(sgn 2)");
 }
+
+TYPED_TEST(RoundingTest, Clip) {
+    using T = TypeParam;
+    EXPECT_EQ(applied<T>(FunctionId::Clip, {T(5), T(0), T(2)}), T(2));
+    EXPECT_EQ(applied<T>(FunctionId::Clip, {T(-5), T(0), T(2)}), T(0));
+    EXPECT_EQ(applied<T>(FunctionId::Clip, {T(1), T(0), T(2)}), T(1));
+    EXPECT_EQ(applyFunction<T>(FunctionId::Clip, {T(1), T(2), T(0)}).error.value_or(ErrorCode::Cancelled), ErrorCode::DomainError);
+}
+
+TEST(Catalogue, ClipCountsBothSidesOfAReachableCorner) {
+    // 0.7 + 0.1 lands 1.1e-16 below lo = 0.8, within their errors (7.8e-17 + 4.4e-17): the clip may be lo's
+    // value or x's, so the bound must hold both errors.
+    const Result corner = evaluate("clip(0.7 + 0.1, 0.8, 1)");
+    ASSERT_FALSE(corner.error);
+    EXPECT_TRUE(corner.boundComplete);
+    const Ruler x = Ruler(std::stod(evaluate("0.7 + 0.1").bound));
+    const Ruler lo = Ruler(std::stod(evaluate("0.8").bound));
+    EXPECT_GE(Ruler(std::stod(corner.bound)), (x + lo) * Ruler(0.95));  // two significant digits lose up to 5 %
+    EXPECT_EQ(evaluate("clip(5, 0, 2)").bound, "0");
+}

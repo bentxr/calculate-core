@@ -97,6 +97,7 @@ inline const FunctionInfo& functionInfo(FunctionId id) {
         {F::Trunc, "trunc", 1, 1, C::Exact, K::Piecewise, true},
         {F::Round, "round", 1, 1, C::Exact, K::Piecewise, true},
         {F::Sgn, "sgn", 1, 1, C::Exact, K::Piecewise, true},
+        {F::Clip, "clip", 3, 3, C::Exact, K::Continuous, true},
         {F::Median, "median", 1, -1, C::Checked, K::Continuous, true},
     }};
     return table[static_cast<std::size_t>(id)];
@@ -528,6 +529,10 @@ Applied<T> applyFunction(FunctionId id, const std::vector<T>& a, const std::atom
         }
         break;
     case FunctionId::Sgn: r.value = a[0] > 0 ? T(1) : a[0] < 0 ? T(-1) : T(0); break;
+    case FunctionId::Clip:  // (x, lo, hi)
+        if (a[1] > a[2]) return impl::fail<T>(ErrorCode::DomainError);
+        r.value = a[0] < a[1] ? a[1] : a[0] > a[2] ? a[2] : a[0];
+        break;
     case FunctionId::Round: {  // halves away from zero; x − trunc(x) is exact, so 0.5 − tiny never rounds up
         T n;
         if constexpr (isExact<T>) {
@@ -641,6 +646,7 @@ std::vector<R> partials(FunctionId id, const std::vector<R>& a, const R& v) {
         const R d = a[1] * a[1] + a[0] * a[0];
         return {a[1] / d, -a[0] / d};
     }
+    case FunctionId::Clip: return a[0] < a[1] ? std::vector<R>{R(0), R(1), R(0)} : a[0] > a[2] ? std::vector<R>{R(0), R(0), R(1)} : std::vector<R>{R(1), R(0), R(0)};
     case FunctionId::Hypot:  // at the origin |Δh| <= |Δx| + |Δy|: 1 is a safe slope
         return v == 0 ? std::vector<R>{R(1), R(1)} : std::vector<R>{a[0] / v, a[1] / v};
     case FunctionId::FloorMod: {
@@ -884,6 +890,12 @@ inline std::vector<Ruler> slopes(FunctionId id, const std::vector<Ruler>& a, con
     case FunctionId::Root: return impl::rootSlopes(a, b);
     case FunctionId::LogBase: return impl::logBaseSlopes(a, b);
     case FunctionId::Median: return impl::medianSlopes(a, b);
+    case FunctionId::Clip: {  // the selected argument; at a corner the errors can reach, both sides of it count
+        std::vector<Ruler> s = a[0] < a[1] ? std::vector<Ruler>{0, 1, 0} : a[0] > a[2] ? std::vector<Ruler>{0, 0, 1} : std::vector<Ruler>{1, 0, 0};
+        for (const std::size_t k : {std::size_t(1), std::size_t(2)})
+            if (b[0] + b[k] > 0 && abs(a[0] - a[k]) <= b[0] + b[k]) s[0] = s[k] = 1;
+        return s;
+    }
     case FunctionId::Sqrt:
     case FunctionId::Cbrt:
     case FunctionId::Exp:
