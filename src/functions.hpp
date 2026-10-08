@@ -126,6 +126,8 @@ inline const FunctionInfo& functionInfo(FunctionId id) {
         {F::Apery, "apery", 0, 0, C::Input, K::Continuous, false},
         {F::Plastic, "plastic", 0, 0, C::Input, K::Continuous, false},
         {F::Omega, "omega", 0, 0, C::Input, K::Continuous, false},
+        {F::PerMille, "", 1, 1, C::Checked, K::Continuous, true},
+        {F::PerMyriad, "", 1, 1, C::Checked, K::Continuous, true},
     }};
     return table[static_cast<std::size_t>(id)];
 }
@@ -136,6 +138,8 @@ inline std::string_view symbolOf(FunctionId id) {
     case FunctionId::Divide: return "÷";
     case FunctionId::Power: return "^";
     case FunctionId::Factorial: return "!";
+    case FunctionId::PerMille: return "‰";
+    case FunctionId::PerMyriad: return "‱";
     default: return functionInfo(id).name;
     }
 }
@@ -647,6 +651,8 @@ Applied<T> applyFunction(FunctionId id, const std::vector<T>& a, const std::atom
         break;
     case FunctionId::Negate: r.value = -a[0]; break;
     case FunctionId::Percent: r.value = a[0] / T(100); break;
+    case FunctionId::PerMille: r.value = a[0] / T(1000); break;
+    case FunctionId::PerMyriad: r.value = a[0] / T(10000); break;
     case FunctionId::Square: r.value = a[0] * a[0]; break;
     case FunctionId::Cube: r.value = a[0] * a[0] * a[0]; break;
     case FunctionId::Abs: {
@@ -751,6 +757,8 @@ std::vector<R> partials(FunctionId id, const std::vector<R>& a, const R& v) {
     case FunctionId::Divide: return {R(1) / a[1], -v / a[1]};
     case FunctionId::Negate: return {R(-1)};
     case FunctionId::Percent: return {R(1) / R(100)};
+    case FunctionId::PerMille: return {R(1) / R(1000)};
+    case FunctionId::PerMyriad: return {R(1) / R(10000)};
     case FunctionId::Square: return {R(2) * a[0]};
     case FunctionId::Cube: return {R(3) * a[0] * a[0]};
     case FunctionId::Power: {
@@ -1077,6 +1085,8 @@ inline std::vector<Ruler> slopes(FunctionId id, const std::vector<Ruler>& a, con
     case FunctionId::Negate:
     case FunctionId::Abs: return {Ruler(1)};
     case FunctionId::Percent: return {Ruler(1) / 100};
+    case FunctionId::PerMille: return {Ruler(1) / 1000};
+    case FunctionId::PerMyriad: return {Ruler(1) / 10000};
     case FunctionId::Multiply: return {abs(a[1]), abs(a[0]) + b[0]};
     case FunctionId::Divide: {
         const Ruler nearest = abs(a[1]) - b[1];  // the smallest |y| in its interval
@@ -1225,6 +1235,8 @@ inline std::optional<Rational> exactResult(FunctionId id, const std::vector<Rati
     case FunctionId::Divide: return a[1] == 0 ? std::optional<Rational>() : a[0] / a[1];
     case FunctionId::FloorMod: return a[1] == 0 ? std::optional<Rational>() : a[0] - a[1] * Rational(floorOf(a[0] / a[1]));
     case FunctionId::Percent: return a[0] / 100;
+    case FunctionId::PerMille: return a[0] / 1000;
+    case FunctionId::PerMyriad: return a[0] / 10000;
     case FunctionId::Square: return a[0] * a[0];
     case FunctionId::Cube: return a[0] * a[0] * a[0];
     case FunctionId::Lcm: {

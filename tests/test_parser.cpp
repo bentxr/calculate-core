@@ -840,3 +840,48 @@ TEST(Parser, MathematicalConstantsReadAsTheirNames) {
     EXPECT_EQ(parse("2*catalan", AngleUnit::Radians).reading, "(2 × catalan)");
     EXPECT_EQ(parse("phi+tau", AngleUnit::Radians).reading, "(φ + τ)");
 }
+
+TEST(Lexer, NamesMayHoldSpanishLetters) {
+    const Lexed l = lex("billón+año");
+    ASSERT_FALSE(l.error);
+    EXPECT_EQ(kinds(l), (std::vector<TokenKind>{TokenKind::Identifier, TokenKind::Plus, TokenKind::Identifier, TokenKind::End}));
+    EXPECT_EQ(l.tokens[0].text, "billón");
+    EXPECT_EQ(l.tokens[2].text, "año");
+    EXPECT_TRUE(lex("€").error);  // other symbols are still not letters
+}
+
+TEST(Parser, NumberNamesAreExactLiterals) {
+    EXPECT_EQ(tree("3*dozen"), "(* 3 12)");
+    EXPECT_EQ(tree("million"), "1e6");
+    EXPECT_EQ(tree("milliard"), "1e9");
+    EXPECT_EQ(tree("billion"), "1e12");   // the long scale, in every language
+    EXPECT_EQ(tree("trillion"), "1e18");
+    EXPECT_EQ(tree("quadrillion"), "1e24");
+    EXPECT_EQ(tree("decillion"), "1e60");
+    EXPECT_EQ(tree("billón"), "1e12");
+    EXPECT_EQ(tree("billon"), "1e12");    // without the accent too
+    EXPECT_EQ(tree("millardo"), "1e9");
+    EXPECT_EQ(tree("cuatrillón"), "1e24");
+    EXPECT_EQ(tree("docena"), "12");
+    EXPECT_EQ(tree("googol"), "1e100");
+    EXPECT_EQ(tree("ppm"), "1e-6");
+    EXPECT_EQ(tree("pcm"), "1e-5");
+    for (const char* text : {"googolplex", "ppb", "ppt", "ppq"})
+        EXPECT_EQ(parseError(text).code, ErrorCode::UnknownName) << text;  // ppb… differ between the scales
+}
+
+TEST(EndToEnd, NumberNamesAndPerMille) {
+    EXPECT_EQ(evaluateText<Rational>("2*billion").value, Rational(2000000000000LL));
+    EXPECT_EQ(evaluateText<Rational>("gross-score").value, Rational(124));
+    EXPECT_EQ(evaluateText<Rational>("lakh/crore").value, Rational(1, 100));
+    EXPECT_EQ(evaluateText<Rational>("ppm").value, Rational(1, 1000000));
+    EXPECT_EQ(evaluateText<Rational>("5‰").value, Rational(1, 200));
+    EXPECT_EQ(evaluateText<Rational>("5‱").value, Rational(1, 2000));
+    EXPECT_EQ(evaluateText<Rational>("1000±5‰").report.uncertainty.linear, 5);  // relative: 5‰ of 1000
+    EXPECT_GT(evaluateText<double>("ppm").report.input, 0);  // 1e-6 has no exact binary form
+    EXPECT_EQ(evaluateText<Rational>("100+10‰").value, Rational(10001, 100));  // the default: ÷1000
+    Options of;
+    of.conventions.percent = Conventions::Percent::OfValue;
+    EXPECT_EQ(evaluateText<Rational>("100+10‰", of).value, Rational(101));  // the percentage convention, per mille
+    EXPECT_EQ(parse("100+10‰", of).expanded, "100+((100)×(10))÷1000");
+}
