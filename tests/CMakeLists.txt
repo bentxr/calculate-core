@@ -69,3 +69,10 @@ foreach(case IN LISTS golden_cases)
                      "-DLONG_DOUBLE_BITS=${long_double_bits}"
                      -P ${CMAKE_CURRENT_SOURCE_DIR}/golden/run.cmake)
 endforeach()
+
+# The constants header must be what the generator makes of the checked-in CODATA table.
+find_package(Python3 COMPONENTS Interpreter)
+if(Python3_FOUND)
+    add_test(NAME physical_constants.generated
+             COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/tools/physical_constants.py --check)
+endif()

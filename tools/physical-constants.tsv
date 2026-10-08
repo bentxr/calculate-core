@@ -1,0 +1,90 @@
+# name	CODATA 2022 quantity (as in codata-2022.txt)	definition, for exact values NIST cuts short
+c	speed of light in vacuum	
+h	Planck constant	
+hbar	reduced Planck constant	h/(2*pi)
+q_e	elementary charge	
+k_B	Boltzmann constant	
+N_A	Avogadro constant	
+dnu_Cs	hyperfine transition frequency of Cs-133	
+K_cd	luminous efficacy	
+G	Newtonian constant of gravitation	
+g_n	standard acceleration of gravity	
+atm	standard atmosphere	
+p_std	standard-state pressure	
+R	molar gas constant	N_A*k_B
+F	Faraday constant	N_A*q_e
+sigma_SB	Stefan-Boltzmann constant	2*pi^5*k_B^4/(15*h^3*c^2)
+c_1	first radiation constant	2*pi*h*c^2
+c_1L	first radiation constant for spectral radiance	2*h*c^2
+c_2	second radiation constant	h*c/k_B
+V_m	molar volume of ideal gas (273.15 K, 100 kPa)	N_A*k_B*273.15/100000
+V_m_atm	molar volume of ideal gas (273.15 K, 101.325 kPa)	N_A*k_B*273.15/101325
+n_0	Loschmidt constant (273.15 K, 100 kPa)	100000/(k_B*273.15)
+n_0_atm	Loschmidt constant (273.15 K, 101.325 kPa)	101325/(k_B*273.15)
+M_u	molar mass constant	
+mu_0	vacuum mag. permeability	
+eps_0	vacuum electric permittivity	
+Z_0	characteristic impedance of vacuum	
+alpha	fine-structure constant	
+alpha_inv	inverse fine-structure constant	
+R_inf	Rydberg constant	
+a_0	Bohr radius	
+E_h	Hartree energy	
+r_e	classical electron radius	
+sigma_e	Thomson cross section	
+lambda_C	Compton wavelength	
+lambdabar_C	reduced Compton wavelength	
+mu_B	Bohr magneton	
+mu_N	nuclear magneton	
+Phi_0	mag. flux quantum	h/(2*q_e)
+G_0	conductance quantum	2*q_e^2/h
+K_J	Josephson constant	2*q_e/h
+R_K	von Klitzing constant	h/q_e^2
+eV	electron volt	
+m_u	atomic mass constant	
+m_e	electron mass	
+m_p	proton mass	
+m_n	neutron mass	
+m_d	deuteron mass	
+m_h	helion mass	
+m_t	triton mass	
+m_alpha	alpha particle mass	
+m_mu	muon mass	
+m_tau	tau mass	
+m_e_u	electron mass in u	
+m_p_u	proton mass in u	
+m_n_u	neutron mass in u	
+m_e_MeV	electron mass energy equivalent in MeV	
+m_p_MeV	proton mass energy equivalent in MeV	
+m_n_MeV	neutron mass energy equivalent in MeV	
+m_mu_MeV	muon mass energy equivalent in MeV	
+m_p_m_e	proton-electron mass ratio	
+m_mu_m_e	muon-electron mass ratio	
+mu_e	electron mag. mom.	
+mu_p	proton mag. mom.	
+mu_n	neutron mag. mom.	
+mu_mu	muon mag. mom.	
+g_e	electron g factor	
+g_p	proton g factor	
+g_mu	muon g factor	
+a_e	electron mag. mom. anomaly	
+a_mu	muon mag. mom. anomaly	
+gamma_e	electron gyromag. ratio	
+gamma_p	proton gyromag. ratio	
+r_p	proton rms charge radius	
+r_d	deuteron rms charge radius	
+e_m_e	electron charge to mass quotient	
+k_B_eV	Boltzmann constant in eV/K	k_B/q_e
+h_eV	Planck constant in eV/Hz	h/q_e
+hbar_eV	reduced Planck constant in eV s	h/(2*pi*q_e)
+hbarc	reduced Planck constant times c in MeV fm	h*c/(2*pi*q_e)*1e9
+Ry_eV	Rydberg constant times hc in eV	
+E_h_eV	Hartree energy in eV	
+N_A_h	molar Planck constant	N_A*h
+G_F	Fermi coupling constant	
+sin2_theta_W	weak mixing angle	
+m_W_m_Z	W to Z mass ratio	
+l_P	Planck length	
+m_P	Planck mass	
+t_P	Planck time	
+T_P	Planck temperature	

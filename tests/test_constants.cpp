@@ -213,3 +213,46 @@ TEST(Constants, SeriesConstantsInDoubleAndFloat) {
     EXPECT_EQ(constantValue<float>(ConstantId::Apery), 0x1.33bap+0f);
     EXPECT_EQ(constantValue<float>(ConstantId::Omega), 0x1.22609ap-1f);
 }
+
+#include "physical_constants.hpp"
+
+#include <set>
+
+namespace {
+
+const PhysicalConstant* physical(std::string_view name) {
+    for (const PhysicalConstant& c : physicalConstants)
+        if (c.name == name) return &c;
+    return nullptr;
+}
+
+}  // namespace
+
+TEST(PhysicalConstants, TheTableComesFromCodata2022) {
+    EXPECT_EQ(physicalConstants.size(), 89u);
+    const PhysicalConstant* g = physical("G");
+    ASSERT_NE(g, nullptr);
+    EXPECT_EQ(g->quantity, "Newtonian constant of gravitation");
+    EXPECT_EQ(g->definition, "6.67430e-11+/-0.00015e-11");
+    EXPECT_EQ(g->nistValue, "6.67430e-11");
+    EXPECT_EQ(g->unit, "m^3 kg^-1 s^-2");
+    EXPECT_FALSE(g->exact);
+    ASSERT_NE(physical("c"), nullptr);
+    EXPECT_EQ(physical("c")->definition, "299792458");
+    EXPECT_TRUE(physical("c")->exact);
+    ASSERT_NE(physical("hbar"), nullptr);
+    EXPECT_EQ(physical("hbar")->definition, "h/(2*pi)");
+    EXPECT_EQ(physical("hbar")->nistValue, "1.054571817...e-34");
+    ASSERT_NE(physical("mu_e"), nullptr);
+    EXPECT_EQ(physical("mu_e")->definition, "-9.2847646917e-24+/-0.0000000029e-24");
+    ASSERT_NE(physical("alpha"), nullptr);
+    EXPECT_EQ(physical("alpha")->unit, "");
+}
+
+TEST(PhysicalConstants, NamesAreUniqueAndMeasuredValuesCarryTheirUncertainty) {
+    std::set<std::string_view> names;
+    for (const PhysicalConstant& c : physicalConstants) {
+        EXPECT_TRUE(names.insert(c.name).second) << c.name;
+        EXPECT_EQ(c.definition.find("+/-") != std::string_view::npos, !c.exact) << c.name;
+    }
+}
