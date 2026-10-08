@@ -1062,3 +1062,14 @@ TEST(Units, ACubeCubesTheUnit) {
 TEST(Api, AWholePowerOfAnArgumentNearZeroIsAllowed) {
     EXPECT_FALSE(evaluate("(0.1+0.2-0.3)^2").error);  // smooth at 0: only fractional exponents meet an edge there
 }
+
+TEST(Api, TheInspectionFunctionsAreListed) {
+    const std::vector<FunctionDescription> list = functions();
+    for (const char* name : {"floatBits", "floatParts", "floatValue", "floatError", "fromBits"}) {
+        const auto found = std::find_if(list.begin(), list.end(), [&](const FunctionDescription& f) { return f.name == name; });
+        ASSERT_NE(found, list.end()) << name;
+        EXPECT_EQ(found->minArgs, 1) << name;
+        EXPECT_EQ(found->maxArgs, 2) << name;
+        EXPECT_TRUE(found->exact) << name;
+    }
+}
