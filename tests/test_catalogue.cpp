@@ -355,3 +355,48 @@ TEST(Catalogue, SpanishNamesOfTheNewTrigonometry) {
     EXPECT_EQ(tree("arccotgh(2)"), tree("acoth(2)"));
     EXPECT_EQ(evaluate("cosec(0)").error->message, "cosec is not defined for this argument");  // as written
 }
+
+TEST(Catalogue, PartAEndToEnd) {
+    const Result r = evaluate("hypot(3, 4) + atan2(1, 1)*4 - sec(0)");  // 5 + pi - 1
+    ASSERT_FALSE(r.error);
+    EXPECT_TRUE(r.measurementReliable);
+    for (NumberType t : {NumberType::Float, NumberType::Binary512}) {
+        const Result each = inType("csch(1) + acoth(3) + sinc(2)", t);
+        ASSERT_FALSE(each.error);
+        EXPECT_TRUE(each.measurementReliable);
+        EXPECT_NE(each.libraryError, "0");
+    }
+    for (const char* name : {"sec", "csc", "cot", "sech", "csch", "coth", "asec", "acsc", "acot",
+                             "asech", "acsch", "acoth", "atan2", "hypot", "sinc"}) {
+        bool listed = false;
+        for (const FunctionDescription& f : functions()) listed = listed || f.name == name;
+        EXPECT_TRUE(listed) << name;
+    }
+}
+
+// A lowering's report is the written-out expression's, in every type (κ aside: a shared argument weighs its
+// paths' signed slopes together, the written-out text apart).
+TEST(Catalogue, ALoweringIsExactlyItsExpansion) {
+    const std::pair<const char*, const char*> cases[] = {
+        {"sec(0.7)", "1/cos(0.7)"},       {"csc(0.7)", "1/sin(0.7)"},       {"cot(0.7)", "1/tan(0.7)"},
+        {"coth(0.7)", "1/tanh(0.7)"},     {"sech(0.7)", "2*exp(-abs(0.7))/(1+exp(-(2*abs(0.7))))"},
+        {"asec(1.7)", "acos(1/1.7)"},     {"acsc(1.7)", "asin(1/1.7)"},     {"asech(0.4)", "acosh(1/0.4)"},
+        {"acsch(1.7)", "asinh(1/1.7)"},   {"acoth(1.7)", "atanh(1/1.7)"},   {"log2(10)", "log(10, 2)"},
+        {"exp2(0.3)", "2^0.3"},           {"exp10(0.3)", "10^0.3"},         {"sq(0.7)", "0.7²"},
+        {"sqrtpi(0.7)", "sqrt(0.7*pi)"}};
+    for (const TypeInfo& t : numberTypes())
+        for (const auto& [lowered, written] : cases) {
+            const Result a = inType(lowered, t.type);
+            const Result b = inType(written, t.type);
+            ASSERT_EQ(a.error.has_value(), b.error.has_value()) << t.label << ": " << lowered;
+            if (a.error) continue;  // irrational in Exact
+            EXPECT_EQ(a.value.digits, b.value.digits) << t.label << ": " << lowered;
+            EXPECT_EQ(a.value.exponent10, b.value.exponent10) << t.label << ": " << lowered;
+            EXPECT_EQ(a.bound, b.bound) << t.label << ": " << lowered;
+            EXPECT_EQ(a.inputError, b.inputError) << t.label << ": " << lowered;
+            EXPECT_EQ(a.roundingError, b.roundingError) << t.label << ": " << lowered;
+            EXPECT_EQ(a.libraryError, b.libraryError) << t.label << ": " << lowered;
+            EXPECT_EQ(a.measured, b.measured) << t.label << ": " << lowered;
+            EXPECT_EQ(a.trustedDigits, b.trustedDigits) << t.label << ": " << lowered;
+        }
+}

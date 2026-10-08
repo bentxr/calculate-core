@@ -124,8 +124,9 @@ transcendental functions are unavailable.
 |---|---|
 | Operators | `+  -  *  /  ^` and postfix `!  %  ²  ³`, prefix `√  ∛` (also `×  ÷  −`) |
 | Constants | `pi` (or `π`), `e`, `Ans`, `M` |
-| Roots, powers and logarithms | `sqrt  cbrt  root(x, n)  exp  ln  log(x)  log10(x)  log(x, b)  abs` |
-| Trigonometry | `sin  cos  tan  asin  acos  atan` and `sinh  cosh  tanh  asinh  acosh  atanh` |
+| Roots, powers and logarithms | `sqrt  cbrt  root(x, n)  exp  ln  log(x)  log10(x)  log(x, b)  abs  log2  exp2  exp10  sq  sqrtpi  hypot(x, y)` |
+| Trigonometry | `sin  cos  tan  asin  acos  atan  sec  csc  cot  asec  acsc  acot  atan2(y, x)  sinc` |
+| Hyperbolic | `sinh  cosh  tanh  asinh  acosh  atanh  sech  csch  coth  asech  acsch  acoth` |
 | Integers | `mod(a, b)  rem(a, b)  floormod(a, b)  gcd  lcm  nCr  nPr` |
 | Statistics | `mean  median  var  stdev  varp  stdevp` of any number of values |
 | Sums and products | `sum(f; from; to)`, `sum(f; from; to; k)`, `product(…)`, also `Σ  ∑  Π  ∏`: the variable is `x` unless named, the limits exact whole numbers |
@@ -142,7 +143,9 @@ Arguments are separated by `,` or `;`.
 of a) and `floormod` (sign of b) never change. Results and stored texts (Ans, M) are written with these explicit
 names, so changing a setting never changes what an earlier result means.
 The Spanish names work too: `sen  arcsen  arccos  arctan`, `senh  arcsenh  arccosh  arctanh`,
-`mcd` (gcd) and `mcm` (lcm).
+`cosec  cotg  cosech  cotgh  arccosec  arccotg  arccosech  arccotgh`, `mcd` (gcd) and `mcm` (lcm); and other common
+spellings: `arcsin  arsinh  arcosh  artanh  arcsec  arccsc  arccot  arsech  arcsch  arcoth`.
+Functions written with others (`sec x = 1/cos x`, `log2 x = log(x, 2)`…) report the error of that composition.
 
 ## Using the library
 
