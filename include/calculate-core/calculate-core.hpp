@@ -77,6 +77,25 @@ struct TypeInfo {
 
 std::vector<TypeInfo> numberTypes();
 
+// The binary formats the IEEE 754 inspector knows.
+enum class FloatFormat { Binary16, Bfloat16, Binary32, Binary64, X87Extended, Binary128, Binary256, Binary512 };
+
+// One entry of the inspector's list: a number type's own storage in this build, or a format shown for display only.
+struct FloatFormatInfo {
+    FloatFormat format;
+    std::optional<NumberType> type;  // the type stored this way here; none: display only
+    std::string name;                // "binary64", "x87 extended"
+    int storageBits;                 // 1 + exponentBits + fractionBits
+    int exponentBits;
+    int fractionBits;                // the significand field (x87: 64, its leading bit included)
+    int precisionBits;
+    int bias;
+    bool explicitLeadingBit;         // x87 only
+    bool subnormals;                 // false for the software types: they flush to zero
+};
+
+std::vector<FloatFormatInfo> floatFormats();
+
 // What an argument stands for: argument hints and generated keys use it. An Angle follows the angle unit; an
 // Integer must be whole.
 enum class ArgumentKind { Number, Integer, Angle };

@@ -33,7 +33,7 @@ if(PROJECT_IS_TOP_LEVEL)  # warnings are errors here, but never break a project 
     target_compile_options(calculate-core-warnings INTERFACE -Werror)
 endif()
 
-add_library(calculate-core STATIC src/calculate.cpp src/catalogue.cpp src/parser.cpp src/targets.cpp)
+add_library(calculate-core STATIC src/calculate.cpp src/catalogue.cpp src/inspect.cpp src/parser.cpp src/targets.cpp)
 target_include_directories(calculate-core
     PUBLIC  ${PROJECT_SOURCE_DIR}/include
     PRIVATE ${PROJECT_SOURCE_DIR}/src)
