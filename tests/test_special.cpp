@@ -360,6 +360,20 @@ TEST(Special, AnArgumentWhoseErrorReachesAPoleOrAnEdgeIsRefused) {
         ASSERT_TRUE(r.error) << text;
         EXPECT_EQ(r.error->code, ErrorCode::ArgumentNearEdge) << text;
     }
-    for (const char* text : {"gamma(0.1+0.2)", "gamma(-2.5)", "gammap(2, 0.1+0.2-0.3)", "betainc(2, 3, 0.25)", "erfinv(0.5)"})
+    for (const char* text : {"gamma(0.1+0.2)", "gamma(-2.5)", "betainc(2, 3, 0.25)", "erfinv(0.5)"})
         EXPECT_FALSE(evaluate(text).error) << text;  // far from every edge, or a finite slope there
 }
+
+// x below 0 (and, for betainc, above 1) is outside the domain, whatever the slope there: 1 - 30^(1e-17) is negative
+// and 30^(1e-17) is above 1, though both round to an end in double. Found by the fuzz.
+TEST(Special, AnArgumentWhoseErrorReachesTheEndOfTheDomainIsRefused) {
+    for (const char* text : {"gammap(2, 1-30**1e-17)", "gammaq(2, 0.1+0.2-0.3)", "igamma(2, 1-30**1e-17)",
+                             "gammainc(2, 1-30**1e-17)", "betainc(1e-17, 30, 30**1e-17)", "betainc(2, 30, 1-30**1e-17)"}) {
+        const Result r = evaluate(text);
+        ASSERT_TRUE(r.error) << text;
+        EXPECT_EQ(r.error->code, ErrorCode::ArgumentNearEdge) << text;
+    }
+    EXPECT_FALSE(evaluate("gammap(2, 0)").error);  // an exact end is in the domain
+    EXPECT_FALSE(evaluate("betainc(2, 3, 1)").error);
+}
+

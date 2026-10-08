@@ -125,13 +125,13 @@ inline int edgeReached(FunctionId id, const std::vector<Rational>& x, const std:
     case FunctionId::GammaP:
     case FunctionId::GammaQ:
     case FunctionId::Igamma:
-    case FunctionId::GammaInc:  // a at 0; x at 0 when a < 1, where the slope in x is infinite
+    case FunctionId::GammaInc:  // a at 0; x at 0, the end of its domain
         if (near(x[0], 0, b[0])) return 0;
-        return x[0] < 1 && near(x[1], 0, b[1]) ? 1 : -1;
-    case FunctionId::Betainc:  // a, b at 0; x at 0 when a < 1 and at 1 when b < 1
+        return near(x[1], 0, b[1]) ? 1 : -1;
+    case FunctionId::Betainc:  // a, b at 0; x at 0 and 1, the ends of its domain
         if (near(x[0], 0, b[0])) return 0;
         if (near(x[1], 0, b[1])) return 1;
-        return (x[0] < 1 && near(x[2], 0, b[2])) || (x[1] < 1 && near(x[2], 1, b[2])) ? 2 : -1;
+        return near(x[2], 0, b[2]) || near(x[2], 1, b[2]) ? 2 : -1;
     case FunctionId::Betaincinv:  // a, b at 0; y at 0 and 1
         if (near(x[0], 0, b[0])) return 0;
         if (near(x[1], 0, b[1])) return 1;
