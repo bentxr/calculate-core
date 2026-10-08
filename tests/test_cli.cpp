@@ -208,3 +208,13 @@ TEST(Cli, AConventionRefusesAnotherConventionsValue) {
     EXPECT_EQ(invoke({"--log", "divide", "1"}).code, 2);
     EXPECT_EQ(invoke({"--mod", "e", "1"}).code, 2);
 }
+
+TEST(Cli, ListsTheFunctions) {
+    const Outcome r = invoke({"--list-functions"});
+    EXPECT_EQ(r.code, 0);
+    EXPECT_NE(r.out.find("hypot(2)  exact\n"), std::string::npos);
+    EXPECT_NE(r.out.find("log(1..2)\n"), std::string::npos);
+    EXPECT_NE(r.out.find("mean(1..)  exact\n"), std::string::npos);
+    EXPECT_NE(r.out.find("gamma(1)\n"), std::string::npos);
+    EXPECT_NE(invoke({"--help"}).out.find("--list-functions"), std::string::npos);
+}

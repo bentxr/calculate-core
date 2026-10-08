@@ -96,6 +96,7 @@ share `Ans` and the memory `M`, which the lines `M+`, `M-` and `MC` update.
 | `--color <when>` | `auto` (default), `always` or `never` |
 | `--allow-uncertain` | Let `!`, `nCr`, `gcd`… take arguments that carry an error |
 | `--list-types` | Describe the number types of this build |
+| `--list-functions` | List the functions of the language |
 
 Errors point at their cause:
 

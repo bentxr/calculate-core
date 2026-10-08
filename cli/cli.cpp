@@ -45,6 +45,7 @@ std::string usage() {
            "  --color <when>     auto (default), always or never\n"
            "  --allow-uncertain  let discrete functions take arguments that carry error\n"
            "  --list-types       describe the number types of this build\n"
+           "  --list-functions   list the functions of the language\n"
            "  --help, --version\n"
            "\n"
            "Lines M+, M- and MC add Ans to, subtract it from, or clear the memory M.\n"
@@ -159,6 +160,16 @@ void listTypes(std::ostream& out) {
             if (!t.note.empty()) description += ", " + t.note;
         }
         out << pad(optionName(t.type), 13) << pad(t.label, 11) << description << "\n";
+    }
+}
+
+// name(arguments), then "exact" when the function is available in exact arithmetic.
+void listFunctions(std::ostream& out) {
+    for (const FunctionDescription& f : functions()) {
+        out << f.name << "(" << f.minArgs;
+        if (f.maxArgs < 0) out << "..";
+        else if (f.maxArgs != f.minArgs) out << ".." << f.maxArgs;
+        out << ")" << (f.exact ? "  exact" : "") << "\n";
     }
 }
 
@@ -319,6 +330,10 @@ int run(const std::vector<std::string>& args, std::istream& in, std::ostream& ou
         }
         if (a == "--list-types") {
             listTypes(out);
+            return 0;
+        }
+        if (a == "--list-functions") {
+            listFunctions(out);
             return 0;
         }
         if (a == "--json") {
