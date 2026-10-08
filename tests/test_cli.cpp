@@ -212,9 +212,28 @@ TEST(Cli, AConventionRefusesAnotherConventionsValue) {
 TEST(Cli, ListsTheFunctions) {
     const Outcome r = invoke({"--list-functions"});
     EXPECT_EQ(r.code, 0);
-    EXPECT_NE(r.out.find("hypot(2)  exact\n"), std::string::npos);
-    EXPECT_NE(r.out.find("log(1..2)\n"), std::string::npos);
-    EXPECT_NE(r.out.find("mean(1..)  exact\n"), std::string::npos);
-    EXPECT_NE(r.out.find("gamma(1)\n"), std::string::npos);
+    EXPECT_NE(r.out.find("hypot(2)  exact  Hypotenuse\n"), std::string::npos);
+    EXPECT_NE(r.out.find("log(1..2)  Logarithm\n"), std::string::npos);
+    EXPECT_NE(r.out.find("mean(1..)  exact  Mean\n"), std::string::npos);
+    EXPECT_NE(r.out.find("gamma(1)  Gamma function\n"), std::string::npos);
     EXPECT_NE(invoke({"--help"}).out.find("--list-functions"), std::string::npos);
+}
+
+TEST(Cli, DescribesAFunction) {
+    const Outcome r = invoke({"--info", "atan2"});
+    EXPECT_EQ(r.code, 0);
+    EXPECT_EQ(r.out, "atan2(y, x) — Angle of a point\n"
+                     "The angle in (−180°, 180°] of the point (x, y).\n"
+                     "Example: atan2(1, -1)\n");
+    const Outcome alias = invoke({"--info", "arcsen"});
+    EXPECT_EQ(alias.code, 0);
+    EXPECT_NE(alias.out.find("asin(x) — Inverse sine\n"), std::string::npos);
+    EXPECT_NE(alias.out.find("Also: "), std::string::npos);
+    EXPECT_EQ(invoke({"--info", "nosuch"}).code, 2);
+    EXPECT_NE(invoke({"--list-functions"}).out.find("hypot(2)  exact  Hypotenuse\n"), std::string::npos);
+}
+
+TEST(Cli, DescribesOptionalAndRepeatedArguments) {
+    EXPECT_EQ(invoke({"--info", "log"}).out.rfind("log(x[, base]) ", 0), 0u);
+    EXPECT_EQ(invoke({"--info", "var"}).out.rfind("var(value, value, …) ", 0), 0u);
 }
