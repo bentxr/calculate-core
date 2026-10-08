@@ -130,6 +130,10 @@ inline const FunctionInfo& functionInfo(FunctionId id) {
         {F::PerMyriad, "", 1, 1, C::Checked, K::Continuous, true},
         {F::ErrorPart, "errorPart", 1, 1, C::Rounded, K::Continuous, false},  // the ruler's figure, rounded once into T
         {F::FloatFromBits, "fromBits", 1, 2, C::Input, K::Continuous, true},  // a number written as its bits: a literal
+        {F::BitAnd, "", 2, 2, C::Checked, K::Discrete, true},  // & | xor ~: exact on integers, rounded into T
+        {F::BitOr, "", 2, 2, C::Checked, K::Discrete, true},
+        {F::BitXor, "", 2, 2, C::Checked, K::Discrete, true},
+        {F::BitNot, "", 1, 1, C::Checked, K::Discrete, true},
     }};
     return table[static_cast<std::size_t>(id)];
 }
@@ -142,6 +146,10 @@ inline std::string_view symbolOf(FunctionId id) {
     case FunctionId::Factorial: return "!";
     case FunctionId::PerMille: return "‰";
     case FunctionId::PerMyriad: return "‱";
+    case FunctionId::BitAnd: return "&";
+    case FunctionId::BitOr: return "|";
+    case FunctionId::BitXor: return "xor";
+    case FunctionId::BitNot: return "~";
     default: return functionInfo(id).name;
     }
 }
@@ -203,12 +211,31 @@ T withSign(const T& v, bool negative) {
 }
 
 
-// gcd, lcm, n!, nCr, nPr. gcd and lcm are exact through integers; the products count the
+// & | xor ~ on integers, as on two's complement numbers of unlimited width (~x = -x - 1).
+inline Integer bitwise(FunctionId id, const std::vector<Integer>& a) {
+    switch (id) {
+    case FunctionId::BitAnd: return a[0] & a[1];
+    case FunctionId::BitOr: return a[0] | a[1];
+    case FunctionId::BitXor: return a[0] ^ a[1];
+    default: return -a[0] - 1;  // BitNot
+    }
+}
+
+inline bool isBitwise(FunctionId id) {
+    return id == FunctionId::BitAnd || id == FunctionId::BitOr || id == FunctionId::BitXor || id == FunctionId::BitNot;
+}
+
+// gcd, lcm, n!, nCr, nPr, and the bitwise operators. gcd, lcm and the bitwise ones are exact through integers; the products count the
 // multiplications and divisions that may have rounded (those past 2^p) for inexact T.
 template <class T>
 Applied<T> integerFunction(FunctionId id, const std::vector<T>& a, const std::atomic<bool>* cancel) {
     for (const T& x : a)
         if (!isInteger(x)) return fail<T>(ErrorCode::NotAnInteger);
+    if (isBitwise(id)) {
+        std::vector<Integer> n;
+        for (const T& x : a) n.push_back(numerator(toRational(x)));
+        return ok<T>(fromRational<T>(Rational(bitwise(id, n))));
+    }
     if (id == FunctionId::Gcd)
         return ok<T>(fromRational<T>(Rational(gcd(numerator(toRational(a[0])), numerator(toRational(a[1]))))));
     if (id == FunctionId::Lcm) {
@@ -727,6 +754,10 @@ Applied<T> applyFunction(FunctionId id, const std::vector<T>& a, const std::atom
     case FunctionId::Npr:
     case FunctionId::Gcd:
     case FunctionId::Lcm:
+    case FunctionId::BitAnd:
+    case FunctionId::BitOr:
+    case FunctionId::BitXor:
+    case FunctionId::BitNot:
         r = impl::integerFunction<T>(id, a, cancel);
         if (r.error) return r;
         break;
@@ -1246,6 +1277,14 @@ inline std::optional<Rational> exactResult(FunctionId id, const std::vector<Rati
         const Integer x = abs(numerator(a[0]));
         const Integer y = abs(numerator(a[1]));
         return Rational(x / gcd(x, y) * y);
+    }
+    case FunctionId::BitAnd:
+    case FunctionId::BitOr:
+    case FunctionId::BitXor:
+    case FunctionId::BitNot: {
+        std::vector<Integer> n;  // whole numbers: the operators refuse anything else first
+        for (const Rational& x : a) n.push_back(numerator(x));
+        return Rational(bitwise(id, n));
     }
     case FunctionId::Median: {
         std::vector<Rational> sorted = a;

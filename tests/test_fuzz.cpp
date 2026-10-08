@@ -36,8 +36,8 @@ Vocabulary vocabulary() {
                   "sum(sum(y; 1; x; y); 1; 3)", "phi", "tau", "egamma", "catalan", "dozen", "billion", "ppm", "G", "c", "m_e", "h", "fromBits(0x3DCCCCCD, fp32)",
                   "0xFF", "0x1.8p3", "0b101"};
     v.small = {"0", "1", "3", "5", "12", "20", "(0.1*30)", "2.5"};
-    v.prefix = {"-", "√", "∛"};
-    v.infix = {"+", "-", "*", "/", "^", "**", "·", " mod ", " rem ", " floormod ", "±"};
+    v.prefix = {"-", "√", "∛", "~"};
+    v.infix = {"+", "-", "*", "/", "^", "**", "·", " mod ", " rem ", " floormod ", "±", "&", "|", " xor "};
     v.postfix = {"%", "²", "³", "‰", "‱"};
     v.calls = {{"abs", 1},  {"exp", 1},  {"sin", 1},   {"cos", 1},  {"atan", 1}, {"sinh", 1},
                {"cosh", 1}, {"tanh", 1}, {"asinh", 1}, {"mean", -1}, {"varp", -1}, {"mod", 2},

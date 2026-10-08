@@ -1097,3 +1097,30 @@ TEST(Api, BaseLiteralsAreExact) {
     EXPECT_EQ(evaluate("0x1.00200000000001p0 to fp16").conversion->fields[0].value, "0x3C01");
     EXPECT_EQ(evaluate("0x1p−3").value.digits, "125");  // the calculator's minus
 }
+
+TEST(Bitwise, OperatorsOnIntegers) {
+    EXPECT_EQ(evaluate("12 & 10").value.digits, "8");
+    EXPECT_EQ(evaluate("12 | 3").value.digits, "15");
+    EXPECT_EQ(evaluate("12 xor 10").value.digits, "6");
+    EXPECT_EQ(evaluate("12 ⊻ 10").value.digits, "6");
+    const Result notFive = evaluate("~5");
+    EXPECT_TRUE(notFive.value.negative);
+    EXPECT_EQ(notFive.value.digits, "6");
+    EXPECT_EQ(evaluate("-1 & 255").value.digits, "255");
+    EXPECT_EQ(evaluate("-6 & 3").value.digits, "2");
+}
+
+TEST(Bitwise, PrecedenceFollowsC) {
+    EXPECT_EQ(evaluate("6 | 1 & 2").value.digits, "6");   // & before |
+    EXPECT_EQ(evaluate("5 xor 3 & 1").value.digits, "4"); // & before xor
+    EXPECT_EQ(evaluate("1 | 2 + 5").value.digits, "7");   // + before |
+    EXPECT_EQ(evaluate("~5 & 3").value.digits, "2");      // ~ binds like unary minus
+}
+
+TEST(Bitwise, ReadingAndMessagesUseTheOperators) {
+    EXPECT_EQ(evaluate("~5 & 3 | 1 ⊻ 2").reading, "((~5 & 3) | (1 xor 2))");
+    EXPECT_EQ(evaluate("2.5 & 1").error->message, "& needs a whole-number argument");
+    EXPECT_EQ(evaluate("1 | 2.5").error->message, "| needs a whole-number argument");
+    EXPECT_EQ(evaluate("1 xor 2.5").error->message, "xor needs a whole-number argument");
+    EXPECT_EQ(evaluate("~2.5").error->message, "~ needs a whole-number argument");
+}

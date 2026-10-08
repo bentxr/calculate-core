@@ -81,7 +81,7 @@ struct Alias {
     TokenKind kind;
 };
 
-constexpr std::array<Alias, 13> aliases{{
+constexpr std::array<Alias, 14> aliases{{
     {"\xC3\x97", TokenKind::Star},            // ×
     {"\xC3\xB7", TokenKind::Slash},           // ÷
     {"\xE2\x88\x92", TokenKind::Minus},       // −
@@ -95,6 +95,7 @@ constexpr std::array<Alias, 13> aliases{{
     {"\xC2\xB1", TokenKind::PlusMinus},       // ±
     {"\xE2\x80\xB0", TokenKind::PerMille},   // ‰
     {"\xE2\x80\xB1", TokenKind::PerMyriad},  // ‱
+    {"\xE2\x8A\xBB", TokenKind::Xor},        // ⊻
 }};
 
 // Symbols that are names: Σ ∑ (sum) and Π ∏ (product).
@@ -143,6 +144,9 @@ TokenKind singleCharacter(char c) {
     case ';': return TokenKind::Comma;
     case '!': return TokenKind::Bang;
     case '%': return TokenKind::Percent;
+    case '&': return TokenKind::Ampersand;
+    case '|': return TokenKind::Pipe;
+    case '~': return TokenKind::Tilde;
     default: return TokenKind::End;  // not a single-character token
     }
 }
@@ -335,6 +339,9 @@ bool startsOperand(TokenKind k) {
 // Binding power of a token in the infix position; 0 ends an expression.
 int leftPower(TokenKind k) {
     switch (k) {
+    case TokenKind::Pipe: return 4;  // the bitwise operators bind as in C: | below xor below & below + −
+    case TokenKind::Xor: return 5;
+    case TokenKind::Ampersand: return 6;
     case TokenKind::Plus:
     case TokenKind::Minus: return 10;
     case TokenKind::Star:
@@ -514,6 +521,10 @@ private:
         case FunctionId::Factorial: return arg(0) + "!";
         case FunctionId::Sqrt: return "√(" + arg(0) + ")";
         case FunctionId::Cbrt: return "∛(" + arg(0) + ")";
+        case FunctionId::BitAnd: return infix("&");
+        case FunctionId::BitOr: return infix("|");
+        case FunctionId::BitXor: return infix("xor");
+        case FunctionId::BitNot: return "~" + arg(0);
         default: {
             if (tableConstant(n.function)) return std::string(functionInfo(n.function).name);  // catalan, not catalan()
             std::string call = std::string(n.function == FunctionId::Log10 ? "log10" : functionInfo(n.function).name) + "(";
@@ -584,6 +595,14 @@ private:
                 left = named(node(id, {left, right}, {spanOf(left).begin, spanOf(right).end}), std::string(word.text));
                 continue;
             }
+            if (t.kind == TokenKind::Identifier && t.text == "xor") {  // the word, as ⊻
+                if (leftPower(TokenKind::Xor) <= minPower) break;
+                next();
+                const int right = expression(leftPower(TokenKind::Xor));
+                if (error_) return -1;
+                left = node(FunctionId::BitXor, {left, right}, {spanOf(left).begin, spanOf(right).end});
+                continue;
+            }
             if (startsOperand(t.kind)) {
                 if (position_ > 0 && tokens_[position_ - 1].kind == TokenKind::Percent) {  // 3%2: a remainder was meant
                     const Span operand = spanOf(ast_.nodes[static_cast<std::size_t>(left)].args[0]);
@@ -643,6 +662,9 @@ private:
                                 : op.kind == TokenKind::Minus   ? FunctionId::Subtract
                                 : op.kind == TokenKind::Star    ? FunctionId::Multiply
                                 : op.kind == TokenKind::Slash   ? FunctionId::Divide
+                                : op.kind == TokenKind::Ampersand ? FunctionId::BitAnd
+                                : op.kind == TokenKind::Pipe    ? FunctionId::BitOr
+                                : op.kind == TokenKind::Xor     ? FunctionId::BitXor
                                                                 : FunctionId::Power;
             left = node(id, {left, right}, {spanOf(left).begin, spanOf(right).end});
         }
@@ -656,6 +678,11 @@ private:
             if (!parseDecimal(t.text) && !parseBaseLiteral(t.text)) return fail(ErrorCode::InvalidNumber, "Invalid number '" + std::string(t.text) + "'", t.span);
             return readWithPrecision(node(FunctionId::Literal, {}, t.span, std::string(t.text)), t);
         case TokenKind::Pi: return node(FunctionId::Pi, {}, t.span);
+        case TokenKind::Tilde: {  // binds like unary minus
+            const int operand = expression(30);
+            if (error_) return -1;
+            return node(FunctionId::BitNot, {operand}, {t.span.begin, spanOf(operand).end});
+        }
         case TokenKind::Minus:
         case TokenKind::Plus: {
             const int operand = expression(30);
