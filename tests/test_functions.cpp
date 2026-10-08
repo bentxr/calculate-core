@@ -729,3 +729,17 @@ TEST(Slopes, HypotenuseDominatesItsDerivatives) {
                                SlopeCase{FunctionId::Hypot, {-2, 0.5}, {0.5, 0.25}}})
         expectSlopesDominate(c.id, c.point, c.radius);
 }
+
+TEST(Partials, CardinalSine) {
+    using O = test::Oracle;
+    const std::vector<Ruler> d = partials<Ruler>(FunctionId::Sinc, {Ruler(0.7)}, applyFunction<Ruler>(FunctionId::Sinc, {Ruler(0.7)}).value);
+    const O expected = centralDifference(FunctionId::Sinc, {O(0.7)}, 0);
+    EXPECT_LE(abs(exactCast<O>(d[0]) - expected), ldexp(O(1), -200) * (abs(expected) + 1));
+    EXPECT_EQ(partials<Ruler>(FunctionId::Sinc, {Ruler(0)}, Ruler(1)), (std::vector<Ruler>{Ruler(0)}));
+}
+
+TEST(Slopes, CardinalSineDominatesItsDerivative) {
+    for (const SlopeCase& c : {SlopeCase{FunctionId::Sinc, {0.7}, {0.1}}, SlopeCase{FunctionId::Sinc, {10}, {1}},
+                               SlopeCase{FunctionId::Sinc, {2.08}, {0}}, SlopeCase{FunctionId::Sinc, {0}, {0.5}}})
+        expectSlopesDominate(c.id, c.point, c.radius);
+}

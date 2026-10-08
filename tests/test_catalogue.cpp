@@ -333,3 +333,13 @@ TEST(Catalogue, HypotenuseInExactArithmetic) {
     EXPECT_EQ(inType("hypot(3/5, 4/5)", NumberType::Exact).exact->numerator, "1");
     EXPECT_EQ(inType("hypot(1, 1)", NumberType::Exact).error->code, ErrorCode::IrrationalResult);
 }
+
+TYPED_TEST(CatalogueKernelTest, CardinalSine) {
+    using T = TypeParam;
+    test::expectWithinClaim<T>(FunctionId::Sinc, [](auto& rng) { return std::pair<T, T>{randomSign(rng, logUniform<T>(rng, -40, 60)), T(0)}; });
+    EXPECT_EQ(applyFunction<T>(FunctionId::Sinc, {T(0)}).value, T(1));
+}
+
+TEST(Catalogue, CardinalSineIgnoresTheAngleUnit) {
+    EXPECT_EQ(tree("sinc(1)", AngleUnit::Degrees), "(sinc 1)");
+}

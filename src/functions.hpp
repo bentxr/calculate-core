@@ -92,6 +92,7 @@ inline const FunctionInfo& functionInfo(FunctionId id) {
         {F::Acot, "acot", 1, 1, C::Library, K::Piecewise, false},
         {F::Atan2, "atan2", 2, 2, C::Library, K::Piecewise, false},
         {F::Hypot, "hypot", 2, 2, C::Library, K::Continuous, true},  // exact: rational results
+        {F::Sinc, "sinc", 1, 1, C::Library, K::Continuous, false},  // always in radians
         {F::Median, "median", 1, -1, C::Checked, K::Continuous, true},
     }};
     return table[static_cast<std::size_t>(id)];
@@ -426,6 +427,12 @@ Applied<T> kernel(FunctionId id, const std::vector<T>& a) {
         const DoubleWord<T> t = dw(x) - T(1);
         return ok<T>(toValue(logWord(t + sqrt(t * (t + T(2))) + T(1))));
     }
+    case FunctionId::Sinc: {
+        if (x == 0) return ok<T>(T(1));
+        const auto w = sinCosWord(x);
+        if (!w) return fail<T>(ErrorCode::ArgumentTooLarge);
+        return ok<T>(toValue(w->first / x));
+    }
     case FunctionId::Hypot: {  // scaled by the larger one's binade, so the squares neither overflow nor underflow
         using std::abs;
         using std::frexp;
@@ -589,6 +596,12 @@ std::vector<R> partials(FunctionId id, const std::vector<R>& a, const R& v) {
     case FunctionId::Atanh: return {R(1) / (R(1) - x * x)};
     case FunctionId::Csch: return {-v * f(FunctionId::Cosh, x) / f(FunctionId::Sinh, x)};
     case FunctionId::Acot: return {R(-1) / (R(1) + x * x)};
+    case FunctionId::Sinc: {  // (cos x − sinc x)/x cancels near 0: there the first Taylor term, −x/3
+        using std::abs;
+        using std::ldexp;
+        if (abs(x) < ldexp(R(1), -precisionBits<R>() / 4)) return {-x / 3};
+        return {(f(FunctionId::Cos, x) - v) / x};
+    }
     case FunctionId::Abs: return {x < 0 ? R(-1) : R(1)};
     case FunctionId::Rem: return {R(1), R(-trunc(a[0] / a[1]))};
     case FunctionId::Atan2: {  // (y, x)
@@ -769,6 +782,12 @@ inline Ruler functionSlope(FunctionId id, const Ruler& x, const Ruler& b) {
     case FunctionId::Asinh: return 1 / sqrt(near * near + 1);
     case FunctionId::Acosh: return lo > 1 ? Ruler(1 / sqrt(lo * lo - 1)) : inf;
     case FunctionId::Atanh: return far < 1 ? Ruler(1 / (1 - far * far)) : inf;
+    case FunctionId::Sinc: {  // |sinc'| <= 0.4362 everywhere, <= |t|/3, and <= 1/|t| + 1/t²; exact for an exact argument
+        if (b == 0) return x == 0 ? Ruler(0) : Ruler(abs((f(FunctionId::Cos, x) - f(FunctionId::Sinc, x)) / x));
+        Ruler s = std::min(Ruler(0.44), Ruler(far / 3));
+        if (near > 0) s = std::min(s, Ruler(1 / near + 1 / (near * near)));
+        return s;
+    }
     case FunctionId::Csch: {  // cosh/sinh^2 falls as |x| grows: largest at the smallest |x|, unbounded at 0
         const Ruler s = f(FunctionId::Sinh, near);
         return near > 0 ? Ruler(f(FunctionId::Cosh, near) / (s * s)) : inf;
@@ -852,7 +871,8 @@ inline std::vector<Ruler> slopes(FunctionId id, const std::vector<Ruler>& a, con
     case FunctionId::Acosh:
     case FunctionId::Atanh:
     case FunctionId::Csch:
-    case FunctionId::Acot: return {impl::functionSlope(id, a[0], b[0])};
+    case FunctionId::Acot:
+    case FunctionId::Sinc: return {impl::functionSlope(id, a[0], b[0])};
     default: return std::vector<Ruler>(a.size(), Ruler(0));  // discrete functions: uncertain arguments are refused
     }
 }
