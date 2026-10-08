@@ -727,7 +727,7 @@ private:
     // arithmetic through pi: its error stays visible in the report.
     int withAngles(FunctionId id, std::vector<int> args, Span span, const std::string& written) {
         const bool direct = id == FunctionId::Sin || id == FunctionId::Cos || id == FunctionId::Tan;
-        const bool inverse = id == FunctionId::Asin || id == FunctionId::Acos || id == FunctionId::Atan || id == FunctionId::Acot;
+        const bool inverse = id == FunctionId::Asin || id == FunctionId::Acos || id == FunctionId::Atan || id == FunctionId::Acot || id == FunctionId::Atan2;
         if (options_.angle == AngleUnit::Radians || (!direct && !inverse)) return named(node(id, std::move(args), span), written);
         const std::string plain = std::string(functionInfo(id).name) + "(" + readings_[static_cast<std::size_t>(args[0])] + ")";  // the conversion stays hidden
         const std::string full = options_.angle == AngleUnit::Degrees ? "180" : "200";

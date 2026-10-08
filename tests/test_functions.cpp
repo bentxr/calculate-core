@@ -695,3 +695,20 @@ TEST(Partials, InverseCotangent) {
         EXPECT_LE(abs(exactCast<O>(d[0]) - expected), ldexp(O(1), -200) * (abs(expected) + 1)) << point;
     }
 }
+
+TEST(Partials, FourQuadrantArctangent) {
+    using O = test::Oracle;
+    const std::vector<Ruler> args{Ruler(0.7), Ruler(-1.3)};
+    const std::vector<Ruler> d = partials<Ruler>(FunctionId::Atan2, args, applyFunction<Ruler>(FunctionId::Atan2, args).value);
+    for (std::size_t k = 0; k < 2; ++k) {
+        const O expected = centralDifference(FunctionId::Atan2, {O(0.7), O(-1.3)}, k);
+        EXPECT_LE(abs(exactCast<O>(d[k]) - expected), ldexp(O(1), -200) * (abs(expected) + 1)) << k;
+    }
+}
+
+TEST(Slopes, FourQuadrantArctangentDominatesItsDerivatives) {
+    for (const SlopeCase& c : {SlopeCase{FunctionId::Atan2, {0.7, -1.3}, {0.1, 0.2}}, SlopeCase{FunctionId::Atan2, {-2, 0.5}, {0.5, 0.25}},
+                               SlopeCase{FunctionId::Atan2, {0.7, -1.3}, {0, 0}}})
+        expectSlopesDominate(c.id, c.point, c.radius);
+    EXPECT_FALSE(isFinite(slopes(FunctionId::Atan2, {Ruler(0.1), Ruler(0.1)}, {Ruler(0.2), Ruler(0.2)})[0]));  // the box holds the origin
+}

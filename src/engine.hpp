@@ -105,6 +105,11 @@ inline int edgeReached(FunctionId id, const std::vector<Rational>& x, const std:
     }
     case FunctionId::Rem:
     case FunctionId::FloorMod: return near(x[1], 0, b[1]) ? 1 : -1;
+    case FunctionId::Atan2: {  // the origin, where the angle is undefined: both coordinates 0 within their errors
+        const bool y0 = x[0] == 0 || near(x[0], 0, b[0]);
+        const bool x0 = x[1] == 0 || near(x[1], 0, b[1]);
+        return y0 && x0 && (b[0] > 0 || b[1] > 0) ? (b[0] > 0 ? 0 : 1) : -1;
+    }
     default: return -1;
     }
 }
@@ -451,7 +456,11 @@ Evaluation<T> evaluate(const Ast& ast, const Options& options = {}) {
             const Ruler& by = bounds[node.args[1]];
             const Rational x = toRational(fw.values[node.args[0]]);
             const Rational y = toRational(fw.values[node.args[1]]);
-            if ((bx == 0 && by == 0) || !impl::nearJump(x, y, bx, by, node.function == FunctionId::FloorMod)) continue;
+            // atan2(y, x) jumps from π to −π across the negative x axis; the remainders at whole quotients.
+            const bool reached = node.function == FunctionId::Atan2
+                                     ? fromRational<Ruler>(abs(x)) <= bx && fromRational<Ruler>(y) - by < 0  // (y, x)
+                                     : impl::nearJump(x, y, bx, by, node.function == FunctionId::FloorMod);
+            if ((bx == 0 && by == 0) || !reached) continue;
             if (!options.allowUncertainDiscreteArguments) {
                 ev.error = impl::nodeError(node, ErrorCode::ArgumentNearJump,
                                            errorMessage(ErrorCode::ArgumentNearJump, name) + "; they carry errors of up to "

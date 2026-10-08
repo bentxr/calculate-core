@@ -279,3 +279,37 @@ TYPED_TEST(CatalogueKernelTest, InverseHyperbolicReciprocalsCoverTheTruth) {
     expectBoundCoversOracle<T>("acoth", [](const O& x) { return O(log((x + 1) / (x - 1)) / 2); },
                                [](std::mt19937_64& rng) { return randomSign(rng, T(T(1) + logUniform<T>(rng, std::max(-40, 2 - precisionBits<T>()), 30))); });
 }
+
+TYPED_TEST(CatalogueKernelTest, FourQuadrantArctangent) {
+    using T = TypeParam;
+    test::expectWithinClaim<T>(FunctionId::Atan2, [](auto& rng) {
+        return std::pair<T, T>{randomSign(rng, logUniform<T>(rng, -30, 30)), randomSign(rng, logUniform<T>(rng, -30, 30))};
+    });
+    const int far = maxExponent<T>() / 2;  // ratios that overflow or underflow T
+    test::expectWithinClaim<T>(FunctionId::Atan2, [far](auto& rng) {
+        return std::pair<T, T>{randomSign(rng, logUniform<T>(rng, far - 8, far)), randomSign(rng, logUniform<T>(rng, -far, 8 - far))};
+    });
+    const T pi = constantValue<T>(ConstantId::Pi);
+    EXPECT_EQ(applyFunction<T>(FunctionId::Atan2, {T(1), T(1)}).value, pi / 4);
+    EXPECT_EQ(applyFunction<T>(FunctionId::Atan2, {T(0), T(-1)}).value, pi);
+    EXPECT_EQ(applyFunction<T>(FunctionId::Atan2, {T(-1), T(0)}).value, -pi / 2);
+    EXPECT_EQ(applyFunction<T>(FunctionId::Atan2, {T(0), T(2)}).value, T(0));
+    EXPECT_EQ(applyFunction<T>(FunctionId::Atan2, {T(0), T(0)}).error.value_or(ErrorCode::Cancelled), ErrorCode::DomainError);
+}
+
+TEST(Catalogue, Atan2GivesAnAngle) {
+    EXPECT_EQ(tree("atan2(1, 2)", AngleUnit::Degrees), "(* (atan2 1 2) (/ 180 pi))");
+    EXPECT_EQ(tree("atan2(1)"), "error: atan2 takes 2 arguments");
+}
+
+TEST(Catalogue, Atan2JumpsAcrossTheNegativeAxis) {
+    EXPECT_EQ(evaluate("atan2(0.1+0.2-0.3, -1)").error->code, ErrorCode::ArgumentNearJump);  // π or −π
+    EXPECT_FALSE(evaluate("atan2(0.1+0.2-0.3, 1)").error);  // on the positive side it is smooth
+    EXPECT_EQ(evaluate("atan2(0.1+0.2-0.3, 0.1+0.2-0.3)").error->code, ErrorCode::ArgumentNearEdge);  // the origin
+    EXPECT_FALSE(evaluate("atan2(0, -1)").error);  // exactly on the axis: π
+}
+
+TEST(Catalogue, Atan2NearTheOriginWithOneExactZero) {
+    EXPECT_EQ(evaluate("atan2(0.1+0.2-0.3, 0)").error->code, ErrorCode::ArgumentNearEdge);
+    EXPECT_EQ(evaluate("atan2(0, 0.1+0.2-0.3)").error->code, ErrorCode::ArgumentNearEdge);
+}

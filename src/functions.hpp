@@ -90,6 +90,7 @@ inline const FunctionInfo& functionInfo(FunctionId id) {
         {F::Npr, "nPr", 2, 2, C::Counted, K::Discrete, true},
         {F::Csch, "csch", 1, 1, C::Library, K::Continuous, false},
         {F::Acot, "acot", 1, 1, C::Library, K::Piecewise, false},
+        {F::Atan2, "atan2", 2, 2, C::Library, K::Piecewise, false},
         {F::Median, "median", 1, -1, C::Checked, K::Continuous, true},
     }};
     return table[static_cast<std::size_t>(id)];
@@ -423,6 +424,15 @@ Applied<T> kernel(FunctionId id, const std::vector<T>& a) {
         const DoubleWord<T> t = dw(x) - T(1);
         return ok<T>(toValue(logWord(t + sqrt(t * (t + T(2))) + T(1))));
     }
+    case FunctionId::Atan2: {  // (y, x): the angle of the point, in (−π, π]
+        using std::abs;
+        const T y = a[0], ax = abs(a[1]), ay = abs(y);
+        if (a[1] == 0 && y == 0) return fail<T>(ErrorCode::DomainError);
+        DoubleWord<T> r = ay <= ax ? atanWord(dw(ay) / ax)                                // in [0, π/4]
+                                   : impl::halfPi<T>() - atanWord(dw(ax) / ay);          // in (π/4, π/2]
+        if (a[1] < 0) r = impl::word<T>(ConstantId::Pi) - r;  // never below π/2 there: no cancellation
+        return ok<T>(toValue(y < 0 ? -r : r));                // y == 0 and x < 0 gives +π
+    }
     case FunctionId::Acot:  // odd, (−π/2, π/2], π/2 at 0 (DLMF 4.23.9 elsewhere)
         if (x == 0) return ok<T>(toValue(impl::halfPi<T>()));
         return ok<T>(toValue(atanWord(dw(T(1)) / x)));
@@ -567,6 +577,10 @@ std::vector<R> partials(FunctionId id, const std::vector<R>& a, const R& v) {
     case FunctionId::Acot: return {R(-1) / (R(1) + x * x)};
     case FunctionId::Abs: return {x < 0 ? R(-1) : R(1)};
     case FunctionId::Rem: return {R(1), R(-trunc(a[0] / a[1]))};
+    case FunctionId::Atan2: {  // (y, x)
+        const R d = a[1] * a[1] + a[0] * a[0];
+        return {a[1] / d, -a[0] / d};
+    }
     case FunctionId::FloorMod: {
         using std::floor;
         return {R(1), R(-floor(a[0] / a[1]))};
@@ -771,6 +785,13 @@ inline std::vector<Ruler> slopes(FunctionId id, const std::vector<Ruler>& a, con
     case FunctionId::Square: return {2 * (abs(a[0]) + b[0])};
     case FunctionId::Cube: return {3 * (abs(a[0]) + b[0]) * (abs(a[0]) + b[0])};
     case FunctionId::Power: return impl::powerSlopes(a, b);
+    case FunctionId::Atan2: {  // |x|/(x²+y²) and |y|/(x²+y²): at most the largest |x| or |y| over the smallest x²+y²
+        const Ruler nearY = abs(a[0]) > b[0] ? Ruler(abs(a[0]) - b[0]) : Ruler(0);
+        const Ruler nearX = abs(a[1]) > b[1] ? Ruler(abs(a[1]) - b[1]) : Ruler(0);
+        const Ruler d = nearX * nearX + nearY * nearY;
+        if (d == 0) return {inf, inf};
+        return {Ruler((abs(a[1]) + b[1]) / d), Ruler((abs(a[0]) + b[0]) / d)};
+    }
     case FunctionId::Rem: {  // between its jumps: |trunc(x/y)| is largest at the largest |x| over the smallest |y|
         const Ruler nearest = abs(a[1]) - b[1];
         return {Ruler(1), nearest > 0 ? Ruler(floor((abs(a[0]) + b[0]) / nearest)) : inf};
