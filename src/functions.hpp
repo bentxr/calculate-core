@@ -115,6 +115,7 @@ inline const FunctionInfo& functionInfo(FunctionId id) {
         {F::Igamma, "igamma", 2, 2, C::Library, K::Continuous, false},
         {F::GammaInc, "gammainc", 2, 2, C::Library, K::Continuous, false},
         {F::Betainc, "betainc", 3, 3, C::Library, K::Continuous, false},
+        {F::Betaincinv, "betaincinv", 3, 3, C::Library, K::Continuous, false},
         {F::Median, "median", 1, -1, C::Checked, K::Continuous, true},
     }};
     return table[static_cast<std::size_t>(id)];
@@ -528,6 +529,11 @@ Applied<T> specialFunction(FunctionId id, const std::vector<T>& a, [[maybe_unuse
     case FunctionId::Betainc:  // (a, b, x)
         if (a[0] <= 0 || a[1] <= 0 || a[2] < 0 || a[2] > 1) return fail<T>(ErrorCode::DomainError);
         s = betaincWord(a[2], a[0], a[1], cancel);
+        break;
+    case FunctionId::Betaincinv:  // (a, b, y)
+        if (a[0] <= 0 || a[1] <= 0 || a[2] < 0 || a[2] > 1) return fail<T>(ErrorCode::DomainError);
+        if (a[2] == 0 || a[2] == 1) return ok<T>(a[2]);
+        s = betaincinvWord(a[2], a[0], a[1], cancel);
         break;
     case FunctionId::Igamma:     // Gamma(a, x) = Q Gamma(a)
     case FunctionId::GammaInc: {  // gamma(a, x) = P Gamma(a): in the log domain, so a tiny ratio times a huge Gamma(a) is fine

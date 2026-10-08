@@ -460,4 +460,53 @@ Special<T> betaincWord(const T& x, const T& a, const T& b, const std::atomic<boo
     return r;
 }
 
+// The x with I_x(a, b) = y: Newton on I_x(a, b) - y, kept inside a bracket by bisection. The bracket test is inclusive:
+// next to the root the Newton point rounds onto an end of the bracket, and a strict test would bisect ~p times.
+template <class T>
+Special<T> betaincinvWord(const T& y, const T& a, const T& b, const std::atomic<bool>* cancel) {
+    using std::abs;
+    using std::ldexp;
+    Special<T> r;
+    const DoubleWord<T> lnB = lgammaPositive(dw(a)).value + lgammaPositive(dw(b)).value - lgammaPositive(dw(a) + b).value;
+    T lo = 0, hi = 1, x = a / (a + b);
+    for (int i = 0; i < impl::maxIterations; ++i) {
+        if (impl::cancelled(cancel)) {  // every step costs a betainc
+            r.error = ErrorCode::Cancelled;
+            return r;
+        }
+        const Special<T> g = betaincWord(x, a, b, cancel);
+        if (g.error) {
+            r.error = g.error;
+            return r;
+        }
+        const DoubleWord<T> f = g.value - y;  // at the exact T point: accurate to ~u²
+        if (f.hi == 0) {
+            r.value = dw(x);
+            return r;
+        }
+        if (f.hi < 0) lo = x;
+        else hi = x;
+        const ExpParts<T> e = expParts(logWord(dw(x)) * (a - 1) + logWord(dw(T(1)) - x) * (b - 1) - lnB);  // I'(x)
+        bool newton = !e.overflow && !e.underflow;
+        T next = x;
+        if (newton) {
+            const DoubleWord<T> step = f / expValue(e);
+            next = toValue(dw(x) - step);
+            if (abs(step.hi) <= ldexp(abs(x), 1 - precisionBits<T>()) && lo <= next && next <= hi) {  // within 2 ulps
+                r.value = dw(x) - step;
+                return r;
+            }
+            if (!(lo <= next && next <= hi)) newton = false;
+        }
+        if (!newton) next = (lo + hi) / 2;
+        if (next == x) {
+            r.value = dw(x);
+            return r;
+        }
+        x = next;
+    }
+    r.error = ErrorCode::ArgumentTooLarge;
+    return r;
+}
+
 }  // namespace calculate_core::detail

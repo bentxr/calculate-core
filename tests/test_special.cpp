@@ -303,3 +303,20 @@ TEST(Special, IncompleteBetaOfWholeParametersIsRational) {
     ASSERT_FALSE(r.error);
     EXPECT_LE(abs(r.value - Ruler(108591111) / Ruler(68719476736)), ldexp(Ruler(108591111) / Ruler(68719476736), -990));
 }
+
+TYPED_TEST(SpecialKernelTest, InverseIncompleteBeta) {
+    using T = TypeParam;
+    using O = test::SpecialOracleFor<T>;
+    std::mt19937_64 rng(77);
+    for (int i = 0; i < test::samplesFor<T>(); ++i) {
+        const T a = uniform<T>(rng, 0.2, 20), b = uniform<T>(rng, 0.2, 20), y = uniform<T>(rng, 0.001, 0.999);
+        const Applied<T> r = applyFunction<T>(FunctionId::Betaincinv, {a, b, y});
+        ASSERT_FALSE(r.error) << i;
+        const O exact = test::betaincinvReference(exactCast<O>(a), exactCast<O>(b), exactCast<O>(y), exactCast<O>(r.value));
+        EXPECT_LE(test::errorInUScaled(r.value, exact, T(0)), claimedFactor(FunctionId::Betaincinv)) << i;
+    }
+    EXPECT_EQ(applyFunction<T>(FunctionId::Betaincinv, {T(2), T(3), T(0)}).value, T(0));
+    EXPECT_EQ(applyFunction<T>(FunctionId::Betaincinv, {T(2), T(3), T(1)}).value, T(1));
+    EXPECT_EQ(applyFunction<T>(FunctionId::Betaincinv, {T(1), T(1), T(0.25)}).value, T(0.25));
+    EXPECT_EQ(applyFunction<T>(FunctionId::Betaincinv, {T(1), T(1), T(2)}).error.value_or(ErrorCode::Cancelled), ErrorCode::DomainError);
+}
