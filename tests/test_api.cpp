@@ -1007,3 +1007,18 @@ TEST(Api, ConstantsForKeypadsAndLists) {
     EXPECT_EQ(find("billón").category, "number name");
     EXPECT_EQ(list.size(), 10u + 34u + 89u);
 }
+
+TEST(Uncertainty, ToConciseAndToPlusMinus) {
+    const Result c = evaluate("5±0.2 to concise");
+    ASSERT_FALSE(c.error);
+    ASSERT_TRUE(c.conversion);
+    EXPECT_EQ(c.conversion->target, "concise");
+    EXPECT_EQ(c.conversion->text, "5.00(20)");
+    EXPECT_EQ(evaluate("5±0.2 to ±").conversion->text, "5.00 ± 0.20");
+    EXPECT_EQ(evaluate("5±0.2 to pm").conversion->text, "5.00 ± 0.20");
+    EXPECT_EQ(evaluate("0.1+0.2 to concise").conversion->text, "0.300000000000000044(44)");
+    EXPECT_TRUE(evaluate("2+2 to concise").error);
+    bool listed = false;
+    for (const TargetDescription& t : conversionTargets()) listed = listed || t.name == "concise";
+    EXPECT_TRUE(listed);
+}
