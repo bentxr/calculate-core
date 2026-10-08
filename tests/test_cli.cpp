@@ -301,3 +301,21 @@ TEST(Cli, AHugeExpansionIsWrittenInBinary) {
     EXPECT_NE(r.out.find(" × 2^-"), std::string::npos);
     EXPECT_NE(r.out.find("too long to write out in decimal"), std::string::npos);
 }
+
+TEST(Cli, BitsShowTheStoredValue) {
+    const Outcome r = invoke({"--bits", "0.1 + 0.2"});
+    EXPECT_EQ(r.code, 0);
+    EXPECT_EQ(r.out,
+              "0.1 + 0.2\n"
+              "= 0.300000000000000|0444089209850062616169452667236328125\n"
+              "  ± 4.4e-17  input 1.7e-17 · rounding 2.8e-17 · library 0\n"
+              "  measured 4.4e-17 · κ 1e+0 · 15 trusted digits\n"
+              "  stored binary64 0 01111111101 0011001100110011001100110011001100110011001100110100"
+              " · 0x3FD3333333333334 · normal\n"
+              "  ulp 2^-54 · below 0.299999999999999988897769753748434595763683319091796875"
+              " · above 0.300000000000000099920072216264088638126850128173828125\n");
+    const Outcome zero = invoke({"--bits", "--type", "binary512", "1 - 1"});
+    EXPECT_NE(zero.out.find("  ulp 2^-4194302 · below -2^-4194302 · above 2^-4194302\n"), std::string::npos);
+    EXPECT_EQ(invoke({"--bits", "--type", "exact", "1/3"}).out, invoke({"--type", "exact", "1/3"}).out);
+    EXPECT_EQ(invoke({"0.1 + 0.2"}).out.find("stored"), std::string::npos);  // only when asked
+}
