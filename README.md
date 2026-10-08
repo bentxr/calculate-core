@@ -161,6 +161,23 @@ Functions written with others (`sec x = 1/cos x`, `log2 x = log(x, 2)`…) repor
 The rounding functions jump, so when an argument's error could reach a jump the calculator says so and offers to
 proceed anyway. Their Spanish names: `redondeo  suelo  techo  ent  signo`.
 
+## Bases and bits
+
+Numbers can be written in a base: `0xFF`, `0b1010`, `0o17`, with a point and a power of two after `p`
+(`0x1.8p3` is 12, `0x1p-1074` the smallest double). They are exact, so read precision leaves them alone, and they
+work in every number type.
+
+| Kind | Syntax |
+|---|---|
+| In a base | `… to hex`, `to bin`, `to oct`, `to duo` (12), `to base N` (2 to 36): the stored value's exact digits (`0.1 to hex` is `0x0.1999999999999A`), a period in parentheses (`0b0.(01)`), and `\|` after the trusted digits when the computation leaves some untrusted |
+| Fixed width | `-1 to bin 16`, `to oct N`, `to hex N`: a whole number as the two's complement pattern of N bits (1 to 4096), every digit; `signed(x, bits)` and `unsigned(x, bits)` read the low bits of x with or without a sign |
+| Bitwise | `a & b`, `a \| b`, `a xor b` (also `⊻`), `~a`, `a << n`, `a >> n`: on whole numbers, as two's complement of unlimited width (`-6 & 3` is 2; `x >> n` rounds down); a shift moves at most 2^20 places |
+| Floating point | `… to fp16`, `bf16`, `fp32`, `fp64`, `fp80`, `fp128`, `fp256`, `fp512` (also `binary32`…) and `to bits` (the result's own type): the bit fields, hexadecimal pattern, class, stored value, conversion error, ulp and neighbours; `floatBits(x, fp32)`, `floatParts`, `floatValue`, `floatError` show one of them; `fromBits(0x3DCCCCCD, fp32)` is the number a pattern stands for |
+
+The bitwise operators bind as in C, looser than `+` and `−`: `<<` and `>>` first, then `&`, `xor`, `|` (`1 | 2 + 5`
+is 7, `6 | 1 & 2` is 6), and `~` like unary minus. They take only exactly known whole numbers: `2.5 & 1` is refused,
+and so is `0.1*10 & 1`, whose 1 is not exactly known (unless asked to proceed anyway).
+
 ## Uncertain values, constants and units
 
 A value can carry its own uncertainty: `5±0.2`, `5+/-0.2` or `uncertainty(5, 0.2)`, and relative with `%`, `‰` or
