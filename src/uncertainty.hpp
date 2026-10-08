@@ -131,12 +131,22 @@ inline UncertainForms uncertainForms(const Rational& value, const Ruler& total) 
         ++q;
     }
     f.shown = {false, std::to_string(m), q + 1};
-    // |value| / 10^q to the nearest integer, ties to even.
-    const Rational ten = q < 0 ? Rational(pow(Integer(10), static_cast<unsigned>(-q))) : Rational(1, pow(Integer(10), static_cast<unsigned>(q)));
-    const Rational x = abs(value) * ten;
-    const Integer num = numerator(x), den = denominator(x);
-    Integer n = num / den;
-    const Integer twice = 2 * (num % den);
+    // |value| / 10^q to the nearest integer, ties to even; the fraction is not reduced (for a value like 1e-1000000 the
+    // reduction is what costs), and a power-of-two denominator divides as a shift.
+    const Integer power = pow(Integer(10), static_cast<unsigned>(q < 0 ? -q : q));
+    const Integer num = q < 0 ? impl::product(abs(numerator(value)), power) : Integer(abs(numerator(value)));
+    const Integer den = q < 0 ? Integer(denominator(value)) : impl::product(denominator(value), power);
+    Integer n;
+    Integer rest;
+    if (lsb(den) == msb(den)) {
+        const unsigned k = static_cast<unsigned>(lsb(den));
+        n = num >> k;
+        rest = num - (n << k);
+    } else {
+        n = num / den;
+        rest = num % den;
+    }
+    const Integer twice = 2 * rest;
     if (twice > den || (twice == den && n % 2 != 0)) ++n;
     const std::string digits = n.str();
     long long e = n == 0 ? q + 1 : static_cast<long long>(digits.size()) - 1 + q;  // the place of its first digit

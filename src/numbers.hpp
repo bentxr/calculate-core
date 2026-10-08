@@ -202,6 +202,17 @@ inline Rounded roundBinary(const Rational& magnitude, int p, long long emin, lon
 
 }  // namespace impl
 
+namespace impl {
+
+// x·y, with a power of two done as a shift: 10^k against 2^j costs no long multiplication.
+inline Integer product(const Integer& x, const Integer& y) {
+    if (x > 0 && lsb(x) == msb(x)) return y << static_cast<unsigned>(lsb(x));
+    if (y > 0 && lsb(y) == msb(y)) return x << static_cast<unsigned>(lsb(y));
+    return x * y;
+}
+
+}  // namespace impl
+
 // q rounded to the nearest T, ties to even. Overflow gives ±infinity. Below the normal range,
 // subnormals for types that have them, and a flush to zero (like cpp_bin_float) otherwise.
 template <class T>
@@ -218,6 +229,25 @@ T fromRational(const Rational& q) {
         const T t = ldexp(impl::integerToFloat<T>(r.significand), static_cast<int>(r.exponent));
         return negative ? T(-t) : t;
     }
+}
+
+// A non-negative integer in the ruler, from its top bits: cheap for millions of bits.
+inline Ruler rulerOf(const Integer& n) {
+    using std::ldexp;
+    if (n == 0) return Ruler(0);
+    const long long bits = static_cast<long long>(msb(n)) + 1;
+    const long long shift = std::max(0LL, bits - (precisionBits<Ruler>() + 64));
+    return ldexp(impl::integerToFloat<Ruler>(n >> static_cast<unsigned>(shift)), static_cast<int>(shift));
+}
+
+// |a − b| in the ruler. Huge fractions (a literal like 1e-1000000 against its binary value) are not reduced: their
+// greatest common divisor is what costs; the result is then within a few ruler ulps instead of correctly rounded.
+inline Ruler rulerDistance(const Rational& a, const Rational& b) {
+    using std::abs;
+    constexpr unsigned huge = 100000;  // bits
+    if (msb(denominator(a)) < huge && msb(denominator(b)) < huge) return fromRational<Ruler>(abs(a - b));
+    const Integer n = abs(Integer(impl::product(numerator(a), denominator(b)) - impl::product(numerator(b), denominator(a))));
+    return rulerOf(n) / rulerOf(impl::product(denominator(a), denominator(b)));
 }
 
 template <class To, class From>

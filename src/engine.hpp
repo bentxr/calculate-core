@@ -162,7 +162,7 @@ std::vector<Ruler> localErrors(const Ast& ast, const Forward<T>& fw) {
     for (std::size_t i = 0; i < ast.nodes.size(); ++i) {
         const Node& node = ast.nodes[i];
         if (node.function == FunctionId::Literal) {
-            locals[i] = fromRational<Ruler>(abs(toRational(*parseDecimal(node.text)) - toRational(fw.values[i])));
+            locals[i] = rulerDistance(toRational(*parseDecimal(node.text)), toRational(fw.values[i]));
         } else if (const auto c = tableConstant(node.function)) {
             locals[i] = fromRational<Ruler>(abs(constantRational(*c) - toRational(fw.values[i])));
         } else {
