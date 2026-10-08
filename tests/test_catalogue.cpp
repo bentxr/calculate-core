@@ -253,3 +253,29 @@ TYPED_TEST(CatalogueKernelTest, InverseReciprocalTrigonometry) {
     expectBoundCoversOracle<T>("asec", [](const O& x) { return O(acos(1 / x)); }, outside);
     expectBoundCoversOracle<T>("acsc", [](const O& x) { return O(asin(1 / x)); }, outside);
 }
+
+TEST(Catalogue, InverseHyperbolicReciprocalsAreWrittenWithTheFunctionsWeHave) {
+    EXPECT_EQ(tree("asech(0.5)"), "(acosh (/ 1 0.5))");
+    EXPECT_EQ(tree("acsch(2)"), "(asinh (/ 1 2))");
+    EXPECT_EQ(tree("acoth(2)"), "(atanh (/ 1 2))");
+    EXPECT_EQ(tree("asech(0.5)", AngleUnit::Degrees), "(acosh (/ 1 0.5))");  // not angles
+    EXPECT_EQ(tree("arsech(0.5)"), tree("asech(0.5)"));
+    EXPECT_EQ(tree("arcsch(2)"), tree("acsch(2)"));
+    EXPECT_EQ(tree("arcoth(2)"), tree("acoth(2)"));
+    for (const char* text : {"asech(0)", "asech(1.5)", "acsch(0)", "acoth(1)", "acoth(0.5)"})
+        EXPECT_EQ(evaluate(text).error->code, ErrorCode::DomainError) << text;
+    EXPECT_EQ(evaluate("acoth(0.5)").error->message, "acoth is not defined for this argument");
+    EXPECT_EQ(evaluate("asech(1)").value.digits, "0");
+}
+
+TYPED_TEST(CatalogueKernelTest, InverseHyperbolicReciprocalsCoverTheTruth) {
+    using T = TypeParam;
+    using O = test::Oracle;
+    expectBoundCoversOracle<T>("asech", [](const O& x) { return O(log((1 + sqrt(1 - x * x)) / x)); },
+                               [](std::mt19937_64& rng) { return uniform<T>(rng, 0.001, 0.999); });
+    expectBoundCoversOracle<T>("acsch", [](const O& x) { const O t = 1 / x; return t < 0 ? O(-log(-t + sqrt(t * t + 1))) : O(log(t + sqrt(t * t + 1))); },
+                               [](std::mt19937_64& rng) { return randomSign(rng, logUniform<T>(rng, -60, 60)); });
+    // 1 + 2^-k stays above 1 only for k below T's precision (in float 1 + 2^-40 is 1, outside acoth's domain).
+    expectBoundCoversOracle<T>("acoth", [](const O& x) { return O(log((x + 1) / (x - 1)) / 2); },
+                               [](std::mt19937_64& rng) { return randomSign(rng, T(T(1) + logUniform<T>(rng, std::max(-40, 2 - precisionBits<T>()), 30))); });
+}

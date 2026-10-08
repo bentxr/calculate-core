@@ -253,14 +253,14 @@ int leftPower(TokenKind k) {
 // returns -1 and nothing else is parsed.
 // Functions written with nodes the engine already has (a lowering): their error is the composition's.
 bool isLowering(std::string_view name) {
-    for (const char* n : {"log2", "exp2", "exp10", "sq", "sqrtpi", "sec", "csc", "cot", "sech", "coth", "asec", "acsc"})
+    for (const char* n : {"log2", "exp2", "exp10", "sq", "sqrtpi", "sec", "csc", "cot", "sech", "coth", "asec", "acsc", "asech", "acsch", "acoth"})
         if (name == n) return true;
     return false;
 }
 
 // Other spellings of the lowerings (spelling → lowering name).
-constexpr std::array<std::pair<std::string_view, std::string_view>, 2> loweringAliases{{
-    {"arcsec", "asec"}, {"arccsc", "acsc"},
+constexpr std::array<std::pair<std::string_view, std::string_view>, 5> loweringAliases{{
+    {"arcsec", "asec"}, {"arccsc", "acsc"}, {"arsech", "asech"}, {"arcsch", "acsch"}, {"arcoth", "acoth"},
 }};
 
 std::string loweringNamed(std::string_view name) {
@@ -782,6 +782,11 @@ private:
             const int twice = lowered(FunctionId::Multiply, {literal("2"), a}, span, written);
             const int bottom = lowered(FunctionId::Add, {one, lowered(FunctionId::Exp, {lowered(FunctionId::Negate, {twice}, span, written)}, span, written)}, span, written);
             return read(lowered(FunctionId::Divide, {top, bottom}, span, written), call);
+        }
+        if (name == "asech" || name == "acsch" || name == "acoth") {  // the inner function's refusals are the outer one's
+            const FunctionId id = name == "asech" ? FunctionId::Acosh : name == "acsch" ? FunctionId::Asinh : FunctionId::Atanh;
+            const int reciprocal = lowered(FunctionId::Divide, {literal("1"), x}, span, written);
+            return read(lowered(id, {reciprocal}, span, written), call);
         }
         if (name == "asec" || name == "acsc") {  // acos(1/x), asin(1/x): 1/x stays in [−1, 1] over their domain
             const int reciprocal = lowered(FunctionId::Divide, {literal("1"), x}, span, written);
