@@ -343,3 +343,15 @@ TYPED_TEST(CatalogueKernelTest, CardinalSine) {
 TEST(Catalogue, CardinalSineIgnoresTheAngleUnit) {
     EXPECT_EQ(tree("sinc(1)", AngleUnit::Degrees), "(sinc 1)");
 }
+
+TEST(Catalogue, SpanishNamesOfTheNewTrigonometry) {
+    EXPECT_EQ(tree("cosec(1)"), tree("csc(1)"));
+    EXPECT_EQ(tree("cotg(1)"), tree("cot(1)"));
+    EXPECT_EQ(tree("cosech(1)"), "(csch 1)");
+    EXPECT_EQ(tree("cotgh(1)"), tree("coth(1)"));
+    EXPECT_EQ(tree("arccosec(2)"), tree("acsc(2)"));
+    EXPECT_EQ(tree("arccotg(2)"), "(acot 2)");
+    EXPECT_EQ(tree("arccosech(2)"), tree("acsch(2)"));
+    EXPECT_EQ(tree("arccotgh(2)"), tree("acoth(2)"));
+    EXPECT_EQ(evaluate("cosec(0)").error->message, "cosec is not defined for this argument");  // as written
+}
