@@ -133,7 +133,7 @@ transcendental functions are unavailable.
 | Comments | `# …` after an expression, or alone as a note: kept in the history, never evaluated |
 | Variables | `name := expression` stores the expression (as text, with names expanded) under any name that is not a constant, function or reserved word; it is recomputed in each number type |
 
-`^` is right-associative and `-2^2` is −4. There is no implicit multiplication: write `2π` as `2×π`.
+`^` is right-associative and `-2^2` is −4; `**` is `^`, and `·` and `⋅` are `×`. There is no implicit multiplication: write `2π` as `2×π`.
 Arguments are separated by `,` or `;`.
 
 `log(x)` is base 10, `mod(a, b)` keeps the sign of a, and `%` divides by 100, by default; each is a setting

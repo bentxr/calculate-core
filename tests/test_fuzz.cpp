@@ -36,7 +36,7 @@ Vocabulary vocabulary() {
                   "sum(sum(y; 1; x; y); 1; 3)"};
     v.small = {"0", "1", "3", "5", "12", "20", "(0.1*30)", "2.5"};
     v.prefix = {"-", "√", "∛"};
-    v.infix = {"+", "-", "*", "/", "^"};
+    v.infix = {"+", "-", "*", "/", "^", "**", "·"};
     v.postfix = {"%", "²", "³"};
     v.calls = {{"abs", 1},  {"exp", 1},  {"sin", 1},   {"cos", 1},  {"atan", 1}, {"sinh", 1},
                {"cosh", 1}, {"tanh", 1}, {"asinh", 1}, {"mean", -1}, {"varp", -1}, {"mod", 2},

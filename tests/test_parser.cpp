@@ -678,3 +678,15 @@ TEST(Parser, AnAssignmentNamesTheExpression) {
     EXPECT_EQ(parseError("a := b := 1").code, ErrorCode::UnexpectedToken);
     EXPECT_EQ(parseError("a := ").code, ErrorCode::UnexpectedEnd);
 }
+
+TEST(Parser, OtherSpellingsOfPowerAndProduct) {
+    EXPECT_EQ(tree("2**3"), "(^ 2 3)");
+    EXPECT_EQ(tree("2**3**2"), "(^ 2 (^ 3 2))");  // right to left, like ^
+    EXPECT_EQ(tree("2·3"), "(* 2 3)");
+    EXPECT_EQ(tree("2⋅3"), "(* 2 3)");
+    const Lexed l = lex("2**3");
+    ASSERT_FALSE(l.error);
+    EXPECT_EQ(kinds(l), (std::vector<TokenKind>{TokenKind::Number, TokenKind::Caret, TokenKind::Number, TokenKind::End}));
+    EXPECT_EQ(l.tokens[1].span.end - l.tokens[1].span.begin, 2u);
+    EXPECT_EQ(tree("2*-3"), "(* 2 (neg 3))");  // a single * stays a product
+}

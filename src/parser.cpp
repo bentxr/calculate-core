@@ -30,7 +30,7 @@ struct Alias {
     TokenKind kind;
 };
 
-constexpr std::array<Alias, 8> aliases{{
+constexpr std::array<Alias, 10> aliases{{
     {"\xC3\x97", TokenKind::Star},            // ×
     {"\xC3\xB7", TokenKind::Slash},           // ÷
     {"\xE2\x88\x92", TokenKind::Minus},       // −
@@ -39,6 +39,8 @@ constexpr std::array<Alias, 8> aliases{{
     {"\xE2\x88\x9B", TokenKind::CubeRoot},    // ∛
     {"\xC2\xB2", TokenKind::Squared},         // ²
     {"\xC2\xB3", TokenKind::Cubed},           // ³
+    {"\xC2\xB7", TokenKind::Star},            // ·
+    {"\xE2\x8B\x85", TokenKind::Star},        // ⋅
 }};
 
 // Symbols that are names: Σ ∑ (sum) and Π ∏ (product).
@@ -145,6 +147,11 @@ Lexed lex(std::string_view s) {
             keyword(i, i + (c == '-' ? 2 : 3));
             if (out.error) return out;
             break;
+        }
+        if (s.substr(i, 2) == "**") {  // another spelling of ^
+            push(TokenKind::Caret, i, i + 2);
+            i += 2;
+            continue;
         }
         if (s.substr(i, 2) == ":=") {
             push(TokenKind::Assign, i, i + 2);
