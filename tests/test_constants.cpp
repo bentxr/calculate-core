@@ -30,6 +30,7 @@ Integer seriesValue(ConstantId id, int bits) {
         for (unsigned k = 1; term != 0; ++k) { sum += term; term /= k; }
         return sum;
     }
+    default: break;  // the others are checked by their own tests
     }
     return 0;
 }
@@ -66,4 +67,43 @@ TEST(Constants, FloatValuesAreCorrectlyRounded) {
 TEST(Constants, RationalIsTheTableValue) {
     EXPECT_EQ(constantRational(ConstantId::Pi),
               Rational(constantMantissa(ConstantId::Pi)) / Rational(Integer(1) << constantFractionBits));
+}
+
+namespace {
+
+// floor(constant * 2^bits) with exact integers only.
+Integer algebraicValue(ConstantId id, int bits) {
+    switch (id) {
+    case ConstantId::Sqrt2: return sqrt(Integer(2) << (2 * bits));
+    case ConstantId::Phi: return ((Integer(1) << bits) + sqrt(Integer(5) << (2 * bits))) >> 1;
+    case ConstantId::Plastic: {  // the real root of x^3 = x + 1: the largest X with X^3 - X 2^(2b) - 2^(3b) <= 0
+        const Integer square = Integer(1) << (2 * bits);
+        const Integer cube = Integer(1) << (3 * bits);
+        Integer lo = Integer(1) << bits;
+        Integer hi = Integer(2) << bits;
+        while (hi - lo > 1) {
+            const Integer mid = (lo + hi) >> 1;
+            if (mid * mid * mid - mid * square - cube <= 0) lo = mid;
+            else hi = mid;
+        }
+        return lo;
+    }
+    default: return 0;
+    }
+}
+
+}  // namespace
+
+TEST(Constants, AlgebraicConstantsAreTheirTruncatedValues) {
+    for (ConstantId id : {ConstantId::Sqrt2, ConstantId::Phi, ConstantId::Plastic})
+        EXPECT_EQ(constantMantissa(id), algebraicValue(id, constantFractionBits)) << static_cast<int>(id);
+}
+
+TEST(Constants, AlgebraicConstantsInDoubleAndFloat) {
+    EXPECT_EQ(constantValue<double>(ConstantId::Sqrt2), 0x1.6a09e667f3bcdp+0);
+    EXPECT_EQ(constantValue<double>(ConstantId::Phi), 0x1.9e3779b97f4a8p+0);
+    EXPECT_EQ(constantValue<double>(ConstantId::Plastic), 0x1.5320b74eca44bp+0);
+    EXPECT_EQ(constantValue<float>(ConstantId::Sqrt2), 0x1.6a09e6p+0f);
+    EXPECT_EQ(constantValue<float>(ConstantId::Phi), 0x1.9e377ap+0f);
+    EXPECT_EQ(constantValue<float>(ConstantId::Plastic), 0x1.5320b8p+0f);
 }
