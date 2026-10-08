@@ -57,6 +57,7 @@ O specialOracle(FunctionId id, [[maybe_unused]] const std::vector<O>& a) {
     switch (id) {
     // later cycles add one case each here
     case FunctionId::Lgamma: return boost::math::lgamma(a[0]);
+    case FunctionId::Gamma: return boost::math::tgamma(a[0]);
     default: return O(0);
     }
 }

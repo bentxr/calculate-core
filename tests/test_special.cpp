@@ -114,3 +114,24 @@ TYPED_TEST(SpecialKernelTest, SineOfPiTimesATinyArgument) {
     const T large = ldexp(T(3), precisionBits<T>() - 1);  // an odd multiple of a large power of 2: an integer
     EXPECT_EQ(toValue(sinCosPi(large).first), T(0));
 }
+
+TYPED_TEST(SpecialKernelTest, Gamma) {
+    using T = TypeParam;
+    test::expectSpecialWithinClaim<T>(FunctionId::Gamma, [](auto& rng) { return std::vector<T>{uniform<T>(rng, 0.01, 30)}; });
+    test::expectSpecialWithinClaim<T>(FunctionId::Gamma, [](auto& rng) { return std::vector<T>{uniform<T>(rng, -30, -0.01)}; });
+    test::expectSpecialWithinClaim<T>(FunctionId::Gamma, [](auto& rng) { return std::vector<T>{randomSign(rng, logUniform<T>(rng, -60, -4))}; });
+    EXPECT_EQ(applyFunction<T>(FunctionId::Gamma, {T(5)}).value, T(24));
+    EXPECT_EQ(applyFunction<T>(FunctionId::Gamma, {T(1)}).value, T(1));
+    EXPECT_EQ(applyFunction<T>(FunctionId::Gamma, {T(-3)}).error.value_or(ErrorCode::Cancelled), ErrorCode::DomainError);
+    EXPECT_EQ(applyFunction<T>(FunctionId::Gamma, {ldexp(T(1), maxExponent<T>() / 2)}).error.value_or(ErrorCode::Cancelled),
+              ErrorCode::Overflow);
+    EXPECT_EQ(applyFunction<T>(FunctionId::Gamma, {T(T(-maxExponent<T>()) - T(0.5))}).value, T(0));  // underflows
+}
+
+TEST(Special, GammaOfWholeNumbersIsExact) {
+    const Result r = evaluate("gamma(5)");
+    ASSERT_FALSE(r.error);
+    EXPECT_EQ(r.value.digits, "24");
+    EXPECT_EQ(r.bound, "0");
+    EXPECT_NE(evaluate("gamma(0.5)").libraryError, "0");
+}

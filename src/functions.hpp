@@ -102,6 +102,7 @@ inline const FunctionInfo& functionInfo(FunctionId id) {
         {F::Numerator, "numerator", 1, 1, C::Exact, K::Discrete, true},
         {F::Denominator, "denominator", 1, 1, C::Exact, K::Discrete, true},
         {F::Lgamma, "lgamma", 1, 1, C::Library, K::Continuous, false},
+        {F::Gamma, "gamma", 1, 1, C::Library, K::Continuous, false},
         {F::Median, "median", 1, -1, C::Checked, K::Continuous, true},
     }};
     return table[static_cast<std::size_t>(id)];
@@ -481,6 +482,19 @@ Applied<T> specialFunction(FunctionId id, const std::vector<T>& a, [[maybe_unuse
         if (x == 1 || x == 2) return ok<T>(T(0));                            // the exact zeros
         s = lgammaWord(x);
         break;
+    case FunctionId::Gamma: {
+        if (x <= 0 && isInteger(x)) return fail<T>(ErrorCode::DomainError);  // a pole
+        if (isInteger(x) && x <= 1024) {                                     // (n-1)! exactly, as 5! is
+            const Applied<T> f = integerFunction<T>(FunctionId::Factorial, {T(x - 1)}, cancel);
+            if (f.error || f.roundings == 0) return f;
+        }
+        // e^lgamma: |lgamma| <= ln(max T) + X ln X, so exp's relative error stays far below u (scale 0)
+        const ExpParts<T> e = expParts(lgammaWord(x).value);
+        if (e.overflow) return fail<T>(ErrorCode::Overflow);
+        if (e.underflow) return ok<T>(T(0));
+        const bool negative = x < 0 && sinCosPi(x).first.hi < 0;  // the sign of sin(pi x) for x < 0
+        return ok<T>(withSign(toValue(expValue(e)), negative));
+    }
     default: return fail<T>(ErrorCode::DomainError);
     }
     if (s.error) return fail<T>(*s.error);
@@ -1032,6 +1046,11 @@ Ruler localError(FunctionId id, const std::vector<T>& args, const Applied<T>& ap
                 return fromRational<Ruler>(abs(exact - toRational(applied.value)));
         }
         if (impl::exactRootResult(id, args, applied.value)) return Ruler(0);
+        if (id == FunctionId::Gamma && impl::isInteger(args[0]) && args[0] >= 1 && args[0] <= 1024) {  // (n - 1)!
+            Integer factorial = 1;
+            for (long long k = 2; k < static_cast<long long>(impl::toLongLong(args[0])); ++k) factorial *= k;
+            return fromRational<Ruler>(abs(Rational(factorial) - toRational(applied.value)));
+        }
         if (id == FunctionId::Hypot && toRational(applied.value) * toRational(applied.value) == exactArgs[0] * exactArgs[0] + exactArgs[1] * exactArgs[1])
             return Ruler(0);  // hypot(3, 4) is exactly 5
         if (args.size() == 1)
