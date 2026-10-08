@@ -38,11 +38,28 @@ std::string longDoubleNote() {
     return "";
 }
 
+// An uncertain input's name: its source text, without parentheses that enclose all of it ("(3±0.4)" → "3±0.4").
+std::string sourceName(std::string_view text, Span span) {
+    std::string_view name = text.substr(span.begin, span.end - span.begin);
+    while (name.size() >= 2 && name.front() == '(' && name.back() == ')') {
+        int depth = 0;
+        bool whole = true;  // the first '(' closes at the last byte
+        for (std::size_t i = 0; i + 1 < name.size(); ++i) {
+            depth += name[i] == '(' ? 1 : name[i] == ')' ? -1 : 0;
+            if (depth == 0) whole = false;
+        }
+        if (!whole) break;
+        name = name.substr(1, name.size() - 2);
+    }
+    return std::string(name);
+}
+
 template <class T>
-Result build(const Parsed& parsed, const Options& options) {
+Result build(const Parsed& parsed, const Options& options, std::string_view text) {
     using std::abs;
     Result r;
     r.type = options.type;
+    r.uncertaintyRule = options.uncertaintyRule;
     const Evaluation<T> ev = detail::evaluate<T>(parsed.ast, options);
     if (ev.error) {
         r.error = ev.error;
@@ -60,6 +77,9 @@ Result build(const Parsed& parsed, const Options& options) {
         const int count = static_cast<int>(d.digits.size());
         r.trustedDigits = trustedDigits(magnitude, report.bound, count);
         if (report.measuredAvailable) r.trustedDigitsMeasured = trustedDigits(magnitude, report.measured, count);
+        const Uncertainty& u = report.uncertainty;
+        const Ruler lead = options.uncertaintyRule == UncertaintyRule::Linear ? u.linear : u.quadrature;
+        r.trustedDigitsWithUncertainty = trustedDigits(magnitude, report.bound + lead, count);
     }
     r.bound = formatScientific(report.bound);
     r.inputError = formatScientific(report.input);
@@ -76,6 +96,24 @@ Result build(const Parsed& parsed, const Options& options) {
     r.warnings = parsed.warnings;
     r.assigned = parsed.assigned;
     r.reading = parsed.reading;
+    const Uncertainty& u = report.uncertainty;
+    if (!u.sources.empty()) {
+        for (const UncertainSource& source : u.sources)
+            r.uncertainInputs.push_back({sourceName(text, parsed.ast.nodes[static_cast<std::size_t>(source.node)].span),
+                                         formatScientific(source.uncertainty), formatScientific(source.sensitivity),
+                                         formatScientific(source.contribution)});
+        r.uncertaintyLinear = formatScientific(u.linear);
+        r.uncertaintyQuadrature = formatScientific(u.quadrature);
+    }
+    r.firstOrderChecked = u.checked;
+    r.firstOrderReliable = u.reliable;
+    if (u.checked) r.firstOrderObserved = formatScientific(u.observed);
+    if (u.checked && !u.reliable) {
+        const std::string message = r.firstOrderObserved == "inf"
+                                        ? "first order unreliable: an input shifted by its limit leaves a function's domain"
+                                        : "first order unreliable: at the corners the result moved by " + r.firstOrderObserved;
+        r.warnings.push_back({WarningCode::FirstOrderUnreliable, message, 0, text.size()});
+    }
     if (parsed.target) {
         const Rational value = toRational(ev.value);
         const TargetInput in{parsed, options, value, report};
@@ -114,13 +152,13 @@ Result evaluateWithNames(std::string_view text, const Options& options, const Na
         }
     }
     switch (options.type) {  // the one place where a runtime type meets a compile-time T
-    case NumberType::Float: return build<float>(parsed, options);
-    case NumberType::Double: return build<double>(parsed, options);
-    case NumberType::LongDouble: return build<long double>(parsed, options);
-    case NumberType::Exact: return build<Rational>(parsed, options);
-    case NumberType::Binary128: return build<Binary128>(parsed, options);
-    case NumberType::Binary256: return build<Binary256>(parsed, options);
-    case NumberType::Binary512: return build<Binary512>(parsed, options);
+    case NumberType::Float: return build<float>(parsed, options, text);
+    case NumberType::Double: return build<double>(parsed, options, text);
+    case NumberType::LongDouble: return build<long double>(parsed, options, text);
+    case NumberType::Exact: return build<Rational>(parsed, options, text);
+    case NumberType::Binary128: return build<Binary128>(parsed, options, text);
+    case NumberType::Binary256: return build<Binary256>(parsed, options, text);
+    case NumberType::Binary512: return build<Binary512>(parsed, options, text);
     }
     return r;
 }

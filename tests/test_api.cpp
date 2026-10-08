@@ -820,3 +820,83 @@ TEST(Api, FunctionsWrittenWithOthersListTheirSpellingsToo) {
     EXPECT_EQ(aliases["csc"], std::vector<std::string>{"cosec"});
     EXPECT_EQ(aliases["acoth"], std::vector<std::string>({"arcoth", "arccotgh"}));
 }
+
+TEST(Uncertainty, PlusMinusThroughTheFacade) {
+    const Result r = evaluate("5±0.2");
+    ASSERT_FALSE(r.error);
+    EXPECT_EQ(r.value.digits, "5");
+    EXPECT_EQ(r.bound, "0");
+    ASSERT_EQ(r.uncertainInputs.size(), 1u);
+    EXPECT_EQ(r.uncertainInputs[0].name, "5±0.2");
+    EXPECT_EQ(r.uncertainInputs[0].uncertainty, "2e-1");
+    EXPECT_EQ(r.uncertainInputs[0].sensitivity, "1e+0");
+    EXPECT_EQ(r.uncertainInputs[0].contribution, "2e-1");
+    EXPECT_EQ(r.uncertaintyLinear, "2e-1");
+    EXPECT_EQ(r.uncertaintyQuadrature, "2e-1");
+    EXPECT_EQ(r.uncertaintyRule, UncertaintyRule::Linear);
+    EXPECT_TRUE(r.firstOrderChecked);
+    EXPECT_TRUE(r.firstOrderReliable);
+}
+
+TEST(Uncertainty, TwoInputsLargestFirst) {
+    const Result r = evaluate("(3±0.4)*(4±0.3)");
+    ASSERT_EQ(r.uncertainInputs.size(), 2u);
+    EXPECT_EQ(r.uncertainInputs[0].name, "3±0.4");  // its enclosing parentheses are dropped
+    EXPECT_EQ(r.uncertainInputs[0].sensitivity, "4e+0");
+    EXPECT_EQ(r.uncertainInputs[0].contribution, "1.6e+0");
+    EXPECT_EQ(r.uncertainInputs[1].name, "4±0.3");
+    EXPECT_EQ(r.uncertainInputs[1].contribution, "9e-1");
+    EXPECT_EQ(r.uncertaintyLinear, "2.5e+0");
+    EXPECT_EQ(r.uncertaintyQuadrature, "1.8e+0");
+    EXPECT_EQ(r.trustedDigits, 2);                 // 3 * 4 = 12 exactly
+    EXPECT_EQ(r.trustedDigitsWithUncertainty, 0);  // 12 ± 2.5
+}
+
+TEST(Uncertainty, NoUncertainInputs) {
+    const Result r = evaluate("0.1 + 0.2");
+    EXPECT_TRUE(r.uncertainInputs.empty());
+    EXPECT_EQ(r.uncertaintyLinear, "");
+    EXPECT_EQ(r.uncertaintyQuadrature, "");
+    EXPECT_FALSE(r.firstOrderChecked);
+    EXPECT_EQ(r.trustedDigitsWithUncertainty, r.trustedDigits);
+}
+
+TEST(Uncertainty, ARelativeUncertainty) {
+    const Result r = evaluate("5±20%");
+    ASSERT_EQ(r.uncertainInputs.size(), 1u);
+    EXPECT_EQ(r.uncertainInputs[0].name, "5±20%");
+    EXPECT_EQ(r.uncertainInputs[0].uncertainty, "1e+0");
+}
+
+TEST(Uncertainty, ExactValuesWithAnUncertainty) {
+    Options o;
+    o.type = NumberType::Exact;
+    const Result r = evaluate("1/3±0.1", o);
+    ASSERT_FALSE(r.error);
+    ASSERT_TRUE(r.exact);
+    EXPECT_EQ(r.exact->denominator, "3");
+    EXPECT_EQ(r.bound, "0");
+    EXPECT_EQ(r.uncertaintyLinear, "1.1e-2");  // ± binds tighter than ÷: 1/(3±0.1), so 0.1/3² = 0.0111
+}
+
+TEST(Uncertainty, AFirstOrderWarning) {
+    const Result r = evaluate("(0±1)^2");
+    EXPECT_TRUE(r.firstOrderChecked);
+    EXPECT_FALSE(r.firstOrderReliable);
+    EXPECT_EQ(r.uncertaintyLinear, "0");
+    EXPECT_EQ(r.firstOrderObserved, "1e+0");
+    ASSERT_EQ(r.warnings.size(), 1u);
+    EXPECT_EQ(r.warnings[0].code, WarningCode::FirstOrderUnreliable);
+    EXPECT_EQ(r.warnings[0].message, "first order unreliable: at the corners the result moved by 1e+0");
+    // sqrt(0.05±0.1) would leave sqrt's domain at a corner: the edge check refuses it first.
+    EXPECT_EQ(evaluate("sqrt(0.05±0.1)").error->code, ErrorCode::ArgumentNearEdge);
+}
+
+TEST(Session, AnsMinusAnsIsCertain) {
+    Session s;
+    ASSERT_FALSE(s.evaluate("5±0.2").error);
+    const Result r = s.evaluate("Ans-Ans");
+    ASSERT_EQ(r.uncertainInputs.size(), 1u);
+    EXPECT_EQ(r.uncertainInputs[0].name, "Ans");
+    EXPECT_EQ(r.uncertaintyLinear, "0");
+}

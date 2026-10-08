@@ -98,6 +98,7 @@ const char* codeName(ErrorCode c) {
 const char* warningName(WarningCode code) {
     switch (code) {
     case WarningCode::EmptyRange: return "EmptyRange";
+    case WarningCode::FirstOrderUnreliable: return "FirstOrderUnreliable";
     }
     return "";
 }
