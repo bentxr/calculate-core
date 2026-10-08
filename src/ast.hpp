@@ -29,6 +29,7 @@ struct Node {
     Span span;
     bool lowered = false;  // made by a lowering of the function named in written
     std::string written;  // the function's name as the user wrote it ("sen", "log10"), for messages; empty for operators and literals
+    int constant = -1;    // the root of a physical constant's definition: its index in physicalConstants
 };
 
 // Post-order arena: every node's arguments come before it; the root is the last node.

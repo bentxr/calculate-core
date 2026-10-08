@@ -885,3 +885,53 @@ TEST(EndToEnd, NumberNamesAndPerMille) {
     EXPECT_EQ(evaluateText<Rational>("100+10‰", of).value, Rational(101));  // the percentage convention, per mille
     EXPECT_EQ(parse("100+10‰", of).expanded, "100+((100)×(10))÷1000");
 }
+
+#include "physical_constants.hpp"
+
+TEST(Parser, PhysicalConstantsStandForTheirDefinitions) {
+    EXPECT_EQ(tree("c"), "299792458");
+    EXPECT_EQ(tree("G"), "(uncertainty 6.67430e-11 (* 3 0.00015e-11))");  // three standard uncertainties
+    EXPECT_EQ(tree("hbar"), "(/ 6.62607015e-34 (* 2 pi))");
+    EXPECT_EQ(tree("ħ"), tree("hbar"));
+    const Parsed p = parse("G*G", AngleUnit::Radians);
+    ASSERT_FALSE(p.error);
+    for (const Node& n : p.ast.nodes)
+        if (n.function == FunctionId::Uncertain) {
+            EXPECT_EQ(n.text, "G");
+        }
+    EXPECT_EQ(p.expanded, "G*G");  // fixed values keep their names in Ans
+}
+
+TEST(EndToEnd, PhysicalConstants) {
+    const Evaluation<double> g = evaluateText<double>("G");
+    EXPECT_EQ(g.value, 6.67430e-11);
+    ASSERT_EQ(g.report.uncertainty.sources.size(), 1u);
+    EXPECT_EQ(g.report.uncertainty.sources[0].uncertainty, exactCast<Ruler>(3 * 0.00015e-11));
+    EXPECT_EQ(evaluateText<double>("G*G").report.uncertainty.linear, evaluateText<double>("G²").report.uncertainty.linear);
+    EXPECT_EQ(evaluateText<Rational>("h*c").value, toRational(*parseDecimal("6.62607015e-34")) * 299792458);
+    EXPECT_EQ(evaluateText<Rational>("R").value,
+              toRational(*parseDecimal("6.02214076e23")) * toRational(*parseDecimal("1.380649e-23")));
+    EXPECT_EQ(evaluateText<Rational>("hbar").error->code, ErrorCode::NotAvailableInExact);
+    EXPECT_FALSE(evaluateText<Rational>("G").error);
+}
+
+TEST(PhysicalConstants, DefinitionsGiveTheDigitsNistPrints) {
+    for (const PhysicalConstant& c : physicalConstants) {
+        const std::size_t cut = c.nistValue.find("...");
+        if (cut == std::string_view::npos) continue;
+        const std::string mantissa(c.nistValue.substr(0, cut));
+        const std::string_view rest = c.nistValue.substr(cut + 3);  // "e-34" or ""
+        const long long exponent = rest.empty() ? 0 : std::stoll(std::string(rest.substr(1)));
+        const std::size_t dot = mantissa.find('.');
+        std::string digits = mantissa;
+        if (dot != std::string::npos) digits.erase(dot, 1);
+        const long long leading = exponent + static_cast<long long>(dot == std::string::npos ? mantissa.size() : dot) - 1;
+        const Parsed p = parse(c.name, AngleUnit::Radians);
+        ASSERT_FALSE(p.error) << c.name;
+        const Evaluation<Binary512> ev = evaluate<Binary512>(p.ast);
+        ASSERT_FALSE(ev.error) << c.name;
+        const DecimalDigits d = exactDigits(ev.value);
+        EXPECT_EQ(d.exponent10, leading) << c.name;
+        EXPECT_EQ((d.digits + std::string(digits.size(), '0')).substr(0, digits.size()), digits) << c.name;  // NIST truncates
+    }
+}

@@ -3,6 +3,7 @@
 #include "engine.hpp"
 #include "functions.hpp"
 #include "numbers.hpp"
+#include "physical_constants.hpp"
 
 #include <algorithm>
 #include <array>
@@ -66,13 +67,22 @@ constexpr std::array<Alias, 13> aliases{{
 // Symbols that are names: Σ ∑ (sum) and Π ∏ (product).
 constexpr std::array<std::string_view, 4> symbolNames{"\xCE\xA3", "\xE2\x88\x91", "\xCE\xA0", "\xE2\x88\x8F"};
 
-// Letters that are names on their own: φ τ γ.
-constexpr std::array<std::string_view, 3> unicodeNames{"\xCF\x86", "\xCF\x84", "\xCE\xB3"};
+// Letters that are names on their own: φ τ γ ħ α ε₀ μ₀.
+constexpr std::array<std::string_view, 7> unicodeNames{"\xCF\x86", "\xCF\x84", "\xCE\xB3", "\xC4\xA7", "\xCE\xB1",
+                                                       "\xCE\xB5\xE2\x82\x80", "\xCE\xBC\xE2\x82\x80"};
 
 // What they spell.
-constexpr std::array<std::pair<std::string_view, std::string_view>, 3> nameSpellings{{
-    {"\xCF\x86", "phi"}, {"\xCF\x84", "tau"}, {"\xCE\xB3", "egamma"},
+constexpr std::array<std::pair<std::string_view, std::string_view>, 7> nameSpellings{{
+    {"\xCF\x86", "phi"}, {"\xCF\x84", "tau"}, {"\xCE\xB3", "egamma"}, {"\xC4\xA7", "hbar"}, {"\xCE\xB1", "alpha"},
+    {"\xCE\xB5\xE2\x82\x80", "eps_0"}, {"\xCE\xBC\xE2\x82\x80", "mu_0"},
 }};
+
+// The physical constant with this name; nullptr when there is none.
+const PhysicalConstant* physicalNamed(std::string_view name) {
+    for (const PhysicalConstant& c : physicalConstants)
+        if (c.name == name) return &c;
+    return nullptr;
+}
 
 // The 0-argument function (a constant of the table: pi, e, phi…) with this name.
 std::optional<FunctionId> constantNamed(std::string_view name) {
@@ -353,8 +363,7 @@ Range rangeNamed(std::string_view name) {
 
 // Names a variable (of a sum, or one assigned) cannot take.
 bool reserved(const std::string& n) {
-    const bool number = std::any_of(numberNames.begin(), numberNames.end(), [&](const NumberName& x) { return x.name == n; });
-    return constantNamed(n) || number || n == "Ans" || n == "M" || functionNamed(n) || statisticNamed(n) != Statistic::None
+    return constantNamed(n) || n == "Ans" || n == "M" || functionNamed(n) || statisticNamed(n) != Statistic::None
         || rangeNamed(n) != Range::None;
 }
 
@@ -649,6 +658,7 @@ private:
             if (name == plain) name = std::string(accented);
         for (const NumberName& number : numberNames)  // an exact literal: its input error is the literal's
             if (name == number.name) return node(FunctionId::Literal, {}, t.span, std::string(number.literal));
+        if (const PhysicalConstant* c = physicalNamed(name)) return constant(t, *c);
         if (name == "Ans") return fail(ErrorCode::UnknownName, "There is no previous result yet", t.span);
         if (name == "M") return fail(ErrorCode::UnknownName, "The memory is empty", t.span);
         if (functionNamed(name) || name == "mod" || statisticNamed(name) != Statistic::None || rangeNamed(name) != Range::None
@@ -676,6 +686,29 @@ private:
         }
         replacements_[t.span.begin] = {t.span.end, "(" + text + ")"};
         readings_.back() = inner.reading;  // a name reads as what it holds
+        return static_cast<int>(ast_.nodes.size()) - 1;
+    }
+
+    // A physical constant: the nodes of its definition, under its name. A measured value v±u becomes v±(3·u): three
+    // standard uncertainties serve as the limit, one quantity wherever the name appears. Its name stays in the text.
+    int constant(const Token& t, const PhysicalConstant& c) {
+        std::string definition(c.definition);
+        if (const std::size_t pm = definition.find("+/-"); pm != std::string::npos)
+            definition = definition.substr(0, pm + 3) + "(3*" + definition.substr(pm + 3) + ")";
+        Options own = options_;
+        own.readPrecision = ReadPrecision::Off;
+        const Parsed inner = parse(definition, own, {});
+        if (inner.error) return fail(inner.error->code, inner.error->message, t.span);
+        const int offset = static_cast<int>(ast_.nodes.size());
+        for (Node n : inner.ast.nodes) {
+            for (int& a : n.args) a += offset;
+            n.span = t.span;
+            if (n.function == FunctionId::Uncertain) n.text = std::string(c.name);
+            ast_.nodes.push_back(std::move(n));
+            readings_.emplace_back();
+        }
+        ast_.nodes.back().constant = static_cast<int>(&c - physicalConstants.data());
+        readings_.back() = std::string(c.name);
         return static_cast<int>(ast_.nodes.size()) - 1;
     }
 
