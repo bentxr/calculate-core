@@ -1124,3 +1124,17 @@ TEST(Bitwise, ReadingAndMessagesUseTheOperators) {
     EXPECT_EQ(evaluate("1 xor 2.5").error->message, "xor needs a whole-number argument");
     EXPECT_EQ(evaluate("~2.5").error->message, "~ needs a whole-number argument");
 }
+
+TEST(Bitwise, OnlyExactWholeNumbers) {
+    EXPECT_EQ(evaluate("2.5 & 1").error->code, ErrorCode::NotAnInteger);
+    EXPECT_EQ(evaluate("0.1 * 10 & 1").error->code, ErrorCode::UncertainDiscreteArgument);  // 1 in double, not exactly known
+    Options anyway;
+    anyway.allowUncertainDiscreteArguments = true;
+    const Result r = evaluate("0.1 * 10 & 1", anyway);
+    EXPECT_FALSE(r.error);
+    EXPECT_FALSE(r.boundComplete);
+    Options exact;
+    exact.type = NumberType::Exact;
+    EXPECT_EQ(evaluate("2^70 | 1", exact).exact->numerator, "1180591620717411303425");
+    EXPECT_EQ(evaluate("2^60 | 1").roundingError, "1e+0");  // 2^60 + 1 rounds back to 2^60 in double
+}
