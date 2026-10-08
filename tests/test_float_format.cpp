@@ -204,3 +204,45 @@ TEST(Decode, NoncanonicalX87Encodings) {
     EXPECT_EQ(decode(x87Extended, bits("7FFFC000000000000000")).kind, FloatClass::QuietNaN);
     EXPECT_EQ(decode(x87Extended, bits("7FFF8000000000000001")).kind, FloatClass::SignalingNaN);
 }
+
+namespace {
+
+// The bytes of a hardware value as an integer (an oracle for tests only; both targets are
+// little-endian; the x87 format uses the first 10 bytes of its 16).
+template <class T>
+Integer memoryBits(const T& x) {
+    unsigned char bytes[sizeof(T)];
+    std::memcpy(bytes, &x, sizeof(T));
+    Integer n = 0;
+    for (int i = formatOf<T>().storageBits() / 8 - 1; i >= 0; --i) {  // in place: GCC misreads n * 256 + b (array-bounds)
+        n <<= 8;
+        n += bytes[i];
+    }
+    return n;
+}
+
+}  // namespace
+
+using HardwareTypes = ::testing::Types<float, double, long double>;
+template <class T>
+class HardwareBitsTest : public ::testing::Test {};
+TYPED_TEST_SUITE(HardwareBitsTest, HardwareTypes, test::TypeNames);
+
+TYPED_TEST(HardwareBitsTest, EncodeMatchesTheBytesInMemory) {
+    using T = TypeParam;
+    using L = std::numeric_limits<T>;
+    std::mt19937_64 rng(5);
+    std::vector<T> values{T(0), -T(0), T(1), T(0.1), L::denorm_min(), (L::min)(), -(L::max)(),
+                          L::infinity(), -L::infinity(), L::quiet_NaN()};
+    for (int i = 0; i < 300; ++i) values.push_back(test::randomFinite<T>(rng, maxExponent<T>() - 1));
+    for (int i = 0; i < 50; ++i) values.push_back(std::ldexp(test::randomFinite<T>(rng, 0), minExponent<T>() - 5));  // subnormals
+    for (const T& x : values) EXPECT_EQ(encode(formatOf<T>(), valueOf(x)), memoryBits(x));
+}
+
+TEST(ValueOf, SoftwareTypesKeepTheSignOfZero) {
+    EXPECT_TRUE(valueOf(-Binary128(0)).negative);
+    EXPECT_EQ(valueOf(-Binary128(0)).kind, FloatClass::Zero);
+    EXPECT_EQ(valueOf(Binary128(1) / 3).magnitude, toRational(Binary128(1) / 3));
+    EXPECT_EQ(valueOf((std::numeric_limits<Binary256>::min)()).kind, FloatClass::Normal);
+    EXPECT_EQ(valueOf(std::numeric_limits<Binary512>::infinity()).kind, FloatClass::Infinite);
+}

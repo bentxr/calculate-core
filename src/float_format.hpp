@@ -174,4 +174,27 @@ inline FloatValue decode(const BinaryFormat& f, const Integer& bits) {
     return v;
 }
 
+// The datum a value of an inexact type T holds, from the value itself (never its memory).
+template <class T>
+FloatValue valueOf(const T& x) {
+    using calculate_core::FloatClass;
+    using std::isinf;
+    using std::isnan;
+    using std::signbit;
+    FloatValue v;
+    v.negative = signbit(x);
+    if (isnan(x)) {  // every NaN reads as quiet: the engine never makes one, and its payload would need the memory
+        v.kind = FloatClass::QuietNaN;
+        return v;
+    }
+    if (isinf(x)) {
+        v.kind = FloatClass::Infinite;
+        return v;
+    }
+    v.magnitude = abs(toRational(x));
+    if (v.magnitude == 0) return v;
+    v.kind = v.magnitude < scaleByPowerOfTwo(Rational(1), minExponent<T>()) ? FloatClass::Subnormal : FloatClass::Normal;
+    return v;
+}
+
 }  // namespace calculate_core::detail
