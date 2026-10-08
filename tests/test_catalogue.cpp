@@ -554,3 +554,23 @@ TEST(Catalogue, NumeratorAndDenominatorOfTheStoredValue) {
     EXPECT_EQ(evaluate("denominator(0.5)").value.digits, "2");  // exact input: no refusal
     EXPECT_EQ(evaluate("denominator(1e-300)", allow).error->code, ErrorCode::Overflow);  // 2^1048 > max double
 }
+
+TEST(Catalogue, SpanishNamesOfRounding) {
+    EXPECT_EQ(tree("redondeo(2.5)"), "(round 2.5)");
+    EXPECT_EQ(tree("suelo(2.5)"), "(floor 2.5)");
+    EXPECT_EQ(tree("techo(2.5)"), tree("ceil(2.5)"));  // ceil is a lowering: techo spells it
+    EXPECT_EQ(evaluate("techo(0.1*30)").error->message.rfind("techo jumps", 0), 0u);
+}
+
+TEST(Catalogue, CeilingAndFractionalPartAreTheirExpansions) {
+    for (const TypeInfo& t : numberTypes())
+        for (const auto& [lowered, written] : {std::pair<const char*, const char*>{"ceil(2.3)", "-floor(-2.3)"},
+                                               {"frac(2.3)", "2.3-trunc(2.3)"}}) {
+            const Result a = inType(lowered, t.type);
+            const Result b = inType(written, t.type);
+            ASSERT_EQ(a.error.has_value(), b.error.has_value()) << t.label << ": " << lowered;
+            if (a.error) continue;
+            EXPECT_EQ(a.value.digits, b.value.digits) << t.label << ": " << lowered;
+            EXPECT_EQ(a.bound, b.bound) << t.label << ": " << lowered;
+        }
+}

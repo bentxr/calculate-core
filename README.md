@@ -128,6 +128,7 @@ transcendental functions are unavailable.
 | Trigonometry | `sin  cos  tan  asin  acos  atan  sec  csc  cot  asec  acsc  acot  atan2(y, x)  sinc` |
 | Hyperbolic | `sinh  cosh  tanh  asinh  acosh  atanh  sech  csch  coth  asech  acsch  acoth` |
 | Integers | `mod(a, b)  rem(a, b)  floormod(a, b)  gcd  lcm  nCr  nPr` |
+| Rounding and parts | `floor  ceil  round  trunc (int)  frac  sgn  clip(x, lo, hi)  numerator  denominator` |
 | Statistics | `mean  median  var  stdev  varp  stdevp` of any number of values |
 | Sums and products | `sum(f; from; to)`, `sum(f; from; to; k)`, `product(…)`, also `Σ  ∑  Π  ∏`: the variable is `x` unless named, the limits exact whole numbers |
 | Conversions | `… to fraction` (also `->` and `→`): the same result in another form; `to fraction` alone converts Ans |
@@ -146,6 +147,8 @@ The Spanish names work too: `sen  arcsen  arccos  arctan`, `senh  arcsenh  arcco
 `cosec  cotg  cosech  cotgh  arccosec  arccotg  arccosech  arccotgh`, `mcd` (gcd) and `mcm` (lcm); and other common
 spellings: `arcsin  arsinh  arcosh  artanh  arcsec  arccsc  arccot  arsech  arcsch  arcoth`.
 Functions written with others (`sec x = 1/cos x`, `log2 x = log(x, 2)`…) report the error of that composition.
+The rounding functions jump, so when an argument's error could reach a jump the calculator says so and offers to
+proceed anyway. Their Spanish names: `redondeo  suelo  techo  ent  signo`.
 
 ## Using the library
 
