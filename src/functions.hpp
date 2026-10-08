@@ -108,6 +108,8 @@ inline const FunctionInfo& functionInfo(FunctionId id) {
         {F::Beta, "beta", 2, 2, C::Library, K::Continuous, false},
         {F::Erf, "erf", 1, 1, C::Library, K::Continuous, false},
         {F::Erfc, "erfc", 1, 1, C::Library, K::Continuous, false},
+        {F::Erfinv, "erfinv", 1, 1, C::Library, K::Continuous, false},
+        {F::Erfcinv, "erfcinv", 1, 1, C::Library, K::Continuous, false},
         {F::Median, "median", 1, -1, C::Checked, K::Continuous, true},
     }};
     return table[static_cast<std::size_t>(id)];
@@ -515,6 +517,25 @@ Applied<T> specialFunction(FunctionId id, const std::vector<T>& a, [[maybe_unuse
         const DoubleWord<T> c = small ? dw(T(1)) - erfSeries(ax) : erfcFraction(ax);
         return ok<T>(toValue(x < 0 ? dw(T(2)) - c : c));
     }
+    case FunctionId::Erfinv: {
+        using std::abs;
+        if (abs(x) >= 1) return fail<T>(ErrorCode::DomainError);
+        if (x == 0) return ok<T>(T(0));
+        const T ax = abs(x);
+        s = ax <= T(0.5) ? erfInverse(ax, T(0), false) : erfInverse(ax, T(T(1) - ax), true);  // 1 - |y| is exact
+        if (x < 0) s.value = -s.value;
+        break;
+    }
+    case FunctionId::Erfcinv:
+        if (x <= 0 || x >= 2) return fail<T>(ErrorCode::DomainError);
+        if (x == 1) return ok<T>(T(0));
+        if (x > 1) {  // erfcinv(2 - z) = -erfcinv(z); 2 - z is exact
+            s = erfcinvWord(T(T(2) - x));
+            s.value = -s.value;
+        } else {
+            s = erfcinvWord(x);
+        }
+        break;
     case FunctionId::Digamma:
     case FunctionId::Trigamma:
         if (x <= 0 && isInteger(x)) return fail<T>(ErrorCode::DomainError);  // a pole
@@ -701,6 +722,11 @@ std::vector<R> partials(FunctionId id, const std::vector<R>& a, const R& v) {
     case FunctionId::Csch: return {-v / f(FunctionId::Tanh, x)};  // −csch·coth: cosh/sinh would overflow for a huge x
     case FunctionId::Acot: return {R(-1) / (R(1) + x * x)};
     case FunctionId::Gamma: return {v * f(FunctionId::Digamma, x)};
+    case FunctionId::Erfinv:
+    case FunctionId::Erfcinv: {  // ±sqrt(pi)/2 e^(v²)
+        const R d = sqrt(constantValue<R>(ConstantId::Pi)) / 2 * f(FunctionId::Exp, R(v * v));
+        return {id == FunctionId::Erfinv ? d : R(-d)};
+    }
     case FunctionId::Erf:
     case FunctionId::Erfc: {  // ±2/sqrt(pi) e^-x²
         const R d = R(2) / sqrt(constantValue<R>(ConstantId::Pi)) * f(FunctionId::Exp, R(-x * x));
@@ -899,6 +925,14 @@ inline Ruler functionSlope(FunctionId id, const Ruler& x, const Ruler& b) {
     case FunctionId::Asinh: return 1 / sqrt(near * near + 1);
     case FunctionId::Acosh: return lo > 1 ? Ruler(1 / sqrt(lo * lo - 1)) : inf;
     case FunctionId::Atanh: return far < 1 ? Ruler(1 / (1 - far * far)) : inf;
+    case FunctionId::Erfinv:  // sqrt(pi)/2 e^(erfinv(y)²) grows with |y|: largest at the largest |y|, unbounded at ±1
+        return far < 1 ? Ruler(sqrt(constantValue<Ruler>(ConstantId::Pi)) / 2 * f(FunctionId::Exp, Ruler(f(FunctionId::Erfinv, far) * f(FunctionId::Erfinv, far)))) : inf;
+    case FunctionId::Erfcinv: {  // the same, measured from 1: largest at the end farthest from 1, unbounded at 0 and 2
+        const Ruler away = std::max(abs(lo - 1), abs(hi - 1));
+        if (away >= 1) return inf;
+        const Ruler v = f(FunctionId::Erfinv, away);
+        return sqrt(constantValue<Ruler>(ConstantId::Pi)) / 2 * f(FunctionId::Exp, Ruler(v * v));
+    }
     case FunctionId::Erf:
     case FunctionId::Erfc:  // 2/sqrt(pi) e^-t², largest at the smallest |t|
         return 2 / sqrt(constantValue<Ruler>(ConstantId::Pi)) * f(FunctionId::Exp, Ruler(-near * near));
@@ -1021,7 +1055,9 @@ inline std::vector<Ruler> slopes(FunctionId id, const std::vector<Ruler>& a, con
     case FunctionId::Gamma:
     case FunctionId::Digamma:
     case FunctionId::Erf:
-    case FunctionId::Erfc: return {impl::functionSlope(id, a[0], b[0])};
+    case FunctionId::Erfc:
+    case FunctionId::Erfinv:
+    case FunctionId::Erfcinv: return {impl::functionSlope(id, a[0], b[0])};
     default: return std::vector<Ruler>(a.size(), Ruler(0));  // discrete functions: uncertain arguments are refused
     }
 }

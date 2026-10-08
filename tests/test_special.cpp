@@ -209,3 +209,29 @@ TEST(SpecialPartials, ErrorFunctions) {
         EXPECT_LE(abs(exactCast<O>(d[0]) - expected), ldexp(O(1), -200)) << static_cast<int>(id);
     }
 }
+
+TYPED_TEST(SpecialKernelTest, InverseErrorFunctions) {
+    using T = TypeParam;
+    test::expectSpecialWithinClaim<T>(FunctionId::Erfinv, [](auto& rng) { return std::vector<T>{uniform<T>(rng, -0.99, 0.99)}; });
+    test::expectSpecialWithinClaim<T>(FunctionId::Erfinv, [](auto& rng) {  // up to the last values below 1
+        return std::vector<T>{randomSign(rng, T(T(1) - logUniform<T>(rng, 2 - precisionBits<T>(), -2)))};
+    });
+    test::expectSpecialWithinClaim<T>(FunctionId::Erfcinv, [](auto& rng) { return std::vector<T>{uniform<T>(rng, 0.01, 1.99)}; });
+    test::expectSpecialWithinClaim<T>(FunctionId::Erfcinv, [](auto& rng) { return std::vector<T>{logUniform<T>(rng, -200, -2)}; });
+    EXPECT_EQ(applyFunction<T>(FunctionId::Erfinv, {T(0)}).value, T(0));
+    for (const T& y : {T(1), T(-1), T(2)})
+        EXPECT_EQ(applyFunction<T>(FunctionId::Erfinv, {y}).error.value_or(ErrorCode::Cancelled), ErrorCode::DomainError);
+    for (const T& z : {T(0), T(2), T(-1)})
+        EXPECT_EQ(applyFunction<T>(FunctionId::Erfcinv, {z}).error.value_or(ErrorCode::Cancelled), ErrorCode::DomainError);
+}
+
+TEST(SpecialPartials, InverseErrorFunctions) {
+    using O = RulerCheck;
+    const O h = ldexp(O(1), -400);
+    for (FunctionId id : {FunctionId::Erfinv, FunctionId::Erfcinv}) {
+        const Ruler y(0.3);
+        const std::vector<Ruler> d = partials<Ruler>(id, {y}, applyFunction<Ruler>(id, {y}).value);
+        const O expected = (test::specialOracle<O>(id, {O(0.3) + h}) - test::specialOracle<O>(id, {O(0.3) - h})) / (2 * h);
+        EXPECT_LE(abs(exactCast<O>(d[0]) - expected), ldexp(O(1), -200) * (abs(expected) + 1)) << static_cast<int>(id);
+    }
+}

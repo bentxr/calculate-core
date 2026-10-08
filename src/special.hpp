@@ -145,6 +145,43 @@ DoubleWord<T> erfSeries(const T& x) {
     return scale(ex * sum / impl::sqrtPi<T>(), 1);
 }
 
+template <class T>
+DoubleWord<T> erfcFraction(const T& x);
+
+// x >= 0 with erf(x) = y (tail = false, 0 <= y <= 1/2) or erfc(x) = target (tail = true, 0 < target <= 1/2), by
+// Newton; the last step, within 2 ulps, is taken in double words from the exact T point.
+template <class T>
+Special<T> erfInverse(const T& y, const T& target, bool tail) {
+    using std::abs;
+    using std::ldexp;
+    using std::sqrt;
+    T x = tail ? T(T(0.9) * sqrt(toValue(-logWord(dw(target) * (T(2) - target)))))  // ~ sqrt(-ln(1 - y²)): a start
+               : toValue(impl::sqrtPi<T>() * y / T(2));                             // erf x ~ 2x / sqrt(pi)
+    Special<T> r;
+    for (int i = 0; i < 64; ++i) {
+        const bool small = x < erfSwitch<T>();
+        const DoubleWord<T> f = tail ? (small ? dw(T(1)) - erfSeries(x) : erfcFraction(x)) - target
+                                     : (small ? erfSeries(x) : dw(T(1)) - erfcFraction(x)) - y;
+        const DoubleWord<T> slope = scale(expValue(expParts(-(dw(x) * x))) / impl::sqrtPi<T>(), 1);
+        DoubleWord<T> step = f / slope;
+        if (tail) step = -step;  // erfc decreases
+        const DoubleWord<T> next = dw(x) - step;
+        if (abs(step.hi) <= ldexp(abs(x), 1 - precisionBits<T>())) {
+            r.value = next;
+            return r;
+        }
+        x = toValue(next);
+    }
+    r.value = dw(x);
+    return r;
+}
+
+// erfcinv(z) for 0 < z <= 1: below 1/2 the target is z itself, so a tiny z keeps every bit (1 - z is exact above).
+template <class T>
+Special<T> erfcinvWord(const T& z) {
+    return z < T(0.5) ? erfInverse(T(T(1) - z), z, true) : erfInverse(T(T(1) - z), T(0), false);
+}
+
 // erfc x for x >= erfSwitch, the continued fraction DLMF 7.9.2 by Lentz:
 // e^-x² / sqrt(pi) / (x + (1/2)/(x + 1/(x + (3/2)/(x + …)))).
 template <class T>

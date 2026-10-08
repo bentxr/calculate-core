@@ -777,3 +777,10 @@ TEST(Slopes, ErrorFunctionsDominateTheirDerivatives) {
                                SlopeCase{FunctionId::Erfc, {2.5}, {0.5}}, SlopeCase{FunctionId::Erfc, {1.2}, {0}}})
         expectSlopesDominate(c.id, c.point, c.radius);
 }
+
+TEST(Slopes, InverseErrorFunctionsDominateTheirDerivatives) {
+    for (const SlopeCase& c : {SlopeCase{FunctionId::Erfinv, {0.7}, {0.1}}, SlopeCase{FunctionId::Erfinv, {-0.3}, {0.2}},
+                               SlopeCase{FunctionId::Erfcinv, {0.3}, {0.1}}, SlopeCase{FunctionId::Erfcinv, {1.4}, {0}}})
+        expectSlopesDominate(c.id, c.point, c.radius);
+    EXPECT_FALSE(isFinite(slopes(FunctionId::Erfinv, {Ruler(0.95)}, {Ruler(0.1)})[0]));  // reaches 1
+}
