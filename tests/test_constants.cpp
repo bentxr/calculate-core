@@ -138,3 +138,78 @@ TEST(Constants, EulerGammaMatchesBrentMcMillan) {
     EXPECT_EQ(constantValue<double>(ConstantId::EulerGamma), 0x1.2788cfc6fb619p-1);
     EXPECT_EQ(constantValue<float>(ConstantId::EulerGamma), 0x1.2788dp-1f);
 }
+
+namespace {
+
+// Catalan * 2^bits: G = 1/2 sum_k (k!)^2 2^k / (2k+1)! * sum_(j<=k) 1/(2j+1).
+Integer catalan(int bits) {
+    Integer sum = 0;
+    Integer term = Integer(1) << bits;  // (k!)^2 2^k / (2k+1)!, scaled
+    Integer odd = Integer(1) << bits;   // sum_(j<=k) 1/(2j+1), scaled
+    for (unsigned k = 0; term != 0;) {
+        sum += (term * odd) >> bits;
+        ++k;
+        term = term * k * k * 2 / (Integer(2 * k) * (2 * k + 1));
+        odd += (Integer(1) << bits) / (2 * k + 1);
+    }
+    return sum >> 1;
+}
+
+// zeta(3) * 2^bits: 1/64 sum_n (-1)^n (n!)^10 (205 n^2 + 250 n + 77) / ((2n+1)!)^5.
+Integer apery(int bits) {
+    Integer sum = 0;
+    Integer factorial = 1;     // n!
+    Integer oddFactorial = 1;  // (2n+1)!
+    for (unsigned n = 0;; ) {
+        const Integer term = (pow(factorial, 10) * (205 * n * n + 250 * n + 77) << bits) / (64 * pow(oddFactorial, 5));
+        if (term == 0) break;
+        sum += n % 2 == 0 ? term : Integer(-term);
+        ++n;
+        factorial *= n;
+        oddFactorial *= Integer(2 * n) * (2 * n + 1);
+    }
+    return sum;
+}
+
+// e^(-x / 2^bits) * 2^bits for 0 <= x < 2^bits, by its series.
+Integer expNegative(const Integer& x, int bits) {
+    Integer sum = 0;
+    Integer term = Integer(1) << bits;
+    for (unsigned k = 0; term != 0;) {
+        sum += k % 2 == 0 ? term : Integer(-term);
+        ++k;
+        term = term * x / ((Integer(1) << bits) * k);
+    }
+    return sum;
+}
+
+}  // namespace
+
+TEST(Constants, CatalanAndAperyMatchOtherSeries) {
+    const int guard = 64;
+    for (ConstantId id : {ConstantId::Catalan, ConstantId::Apery}) {
+        const int bits = constantFractionBits + guard;
+        const Integer series = (id == ConstantId::Catalan ? catalan(bits) : apery(bits)) >> guard;
+        const Integer table = constantMantissa(id);
+        const Integer difference = series > table ? Integer(series - table) : Integer(table - series);
+        EXPECT_LE(difference, 2) << static_cast<int>(id);
+    }
+}
+
+TEST(Constants, OmegaIsTheTruncatedRootOfXEqualsExpMinusX) {
+    const int guard = 64;
+    const int bits = constantFractionBits + guard;
+    const Integer t = constantMantissa(ConstantId::Omega) << guard;
+    const Integer next = t + (Integer(1) << guard);  // one unit of the table further
+    EXPECT_GE(expNegative(t, bits) - t, 0);
+    EXPECT_LT(expNegative(next, bits) - next, 0);
+}
+
+TEST(Constants, SeriesConstantsInDoubleAndFloat) {
+    EXPECT_EQ(constantValue<double>(ConstantId::Catalan), 0x1.d4f9713e8135dp-1);
+    EXPECT_EQ(constantValue<double>(ConstantId::Apery), 0x1.33ba004f00621p+0);
+    EXPECT_EQ(constantValue<double>(ConstantId::Omega), 0x1.22609af8e9657p-1);
+    EXPECT_EQ(constantValue<float>(ConstantId::Catalan), 0x1.d4f972p-1f);
+    EXPECT_EQ(constantValue<float>(ConstantId::Apery), 0x1.33bap+0f);
+    EXPECT_EQ(constantValue<float>(ConstantId::Omega), 0x1.22609ap-1f);
+}

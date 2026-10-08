@@ -113,5 +113,8 @@ BC
     emit phiHex '(1+sqrt(5))/2'
     emit plasticHex "$plastic"
     emit egammaHex "$egamma"
+    emit catalanHex "$catalan"
+    emit aperyHex "$apery"
+    emit omegaHex "$omega"
     printf '}  // namespace calculate_core::detail\n'
 } > "$out"
