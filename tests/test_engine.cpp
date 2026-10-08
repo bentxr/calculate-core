@@ -702,3 +702,10 @@ TEST(Forms, ANegativeValueOfOneUnitKeepsItsSign) {
     EXPECT_EQ(f.concise, "-0.001(20)");
     EXPECT_FALSE(f.shown.negative);  // U itself has no sign
 }
+
+TEST(TrustedDigits, InOtherBases) {
+    using std::ldexp;
+    EXPECT_EQ(trustedDigits(Ruler(1), ldexp(Ruler(1), -10), 20, 2), 10);
+    EXPECT_EQ(trustedDigits(Ruler(1), ldexp(Ruler(1), -10), 20, 16), 2);
+    EXPECT_EQ(trustedDigits(Ruler(1), ldexp(Ruler(1), -10), 20), 3);
+}

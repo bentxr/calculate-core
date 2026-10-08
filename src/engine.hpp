@@ -405,13 +405,13 @@ inline NumberParts formatParts(const DecimalDigits& d, int trusted, Notation not
     return p;
 }
 
-// Leading significant digits guaranteed by `error`: floor(-log10(error / |value|)), capped.
-inline int trustedDigits(const Ruler& absValue, const Ruler& error, int digitCount) {
+// Leading significant digits in `base` guaranteed by `error`: floor(-log_base(error / |value|)), capped.
+inline int trustedDigits(const Ruler& absValue, const Ruler& error, int digitCount, int base = 10) {
     if (error == 0) return digitCount;
     if (absValue == 0 || !isFinite(error)) return 0;
     Ruler q = error / absValue;
     int t = 0;
-    for (; t < digitCount && q * 10 <= 1; ++t) q *= 10;
+    for (; t < digitCount && q * base <= 1; ++t) q *= base;
     return t;
 }
 
