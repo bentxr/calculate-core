@@ -162,3 +162,45 @@ TEST(Encode, InfinitiesAndNaNs) {
     EXPECT_EQ(encode(x87Extended, special(FloatClass::QuietNaN)), bits("7FFFC000000000000000"));
     EXPECT_EQ(encode(binary128, special(FloatClass::QuietNaN)), bits("7FFF8000000000000000000000000000"));
 }
+
+TEST(Decode, InvertsEncodeInEveryFormat) {
+    std::mt19937_64 rng(4);
+    for (const BinaryFormat& f : {binary16, bfloat16, binary32, binary64, x87Extended, binary128, binary256, binary512})
+        for (int i = 0; i < 100; ++i) {
+            const Rational ratio(Integer(rng() >> 1), Integer(rng() | 1));
+            const Rational q = scaleByPowerOfTwo(ratio, static_cast<long long>(rng() % 64) - 32);
+            const FloatValue v = finite(i % 2 ? Rational(-q) : q, f);
+            const FloatValue back = decode(f, encode(f, v));
+            EXPECT_EQ(back.kind, v.kind);
+            EXPECT_EQ(back.negative, v.negative);
+            EXPECT_EQ(back.magnitude, v.magnitude);
+        }
+}
+
+TEST(Decode, Classes) {
+    const FloatValue tiny = decode(binary32, bits("00000001"));
+    EXPECT_EQ(tiny.kind, FloatClass::Subnormal);
+    EXPECT_EQ(tiny.magnitude, pow2(-149));
+    EXPECT_EQ(decode(binary32, bits("80000000")).kind, FloatClass::Zero);
+    EXPECT_TRUE(decode(binary32, bits("80000000")).negative);
+    EXPECT_EQ(decode(binary32, bits("7F800000")).kind, FloatClass::Infinite);
+    const FloatValue quiet = decode(binary32, bits("FFC00001"));
+    EXPECT_EQ(quiet.kind, FloatClass::QuietNaN);
+    EXPECT_TRUE(quiet.negative);
+    EXPECT_EQ(quiet.payload, 1);
+    const FloatValue signaling = decode(binary32, bits("7F800001"));
+    EXPECT_EQ(signaling.kind, FloatClass::SignalingNaN);
+    EXPECT_EQ(signaling.payload, 1);
+}
+
+TEST(Decode, NoncanonicalX87Encodings) {
+    const FloatValue pseudoDenormal = decode(x87Extended, bits("00008000000000000000"));
+    EXPECT_EQ(pseudoDenormal.kind, FloatClass::Noncanonical);
+    EXPECT_EQ(pseudoDenormal.note, "pseudo-denormal");
+    EXPECT_EQ(pseudoDenormal.magnitude, pow2(-16382));  // what the 387 reads
+    EXPECT_EQ(decode(x87Extended, bits("3FFF4000000000000000")).note, "unnormal");
+    EXPECT_EQ(decode(x87Extended, bits("7FFF0000000000000000")).note, "pseudo-infinity");
+    EXPECT_EQ(decode(x87Extended, bits("7FFF0000000000000001")).note, "pseudo-NaN");
+    EXPECT_EQ(decode(x87Extended, bits("7FFFC000000000000000")).kind, FloatClass::QuietNaN);
+    EXPECT_EQ(decode(x87Extended, bits("7FFF8000000000000001")).kind, FloatClass::SignalingNaN);
+}

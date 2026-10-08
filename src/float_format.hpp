@@ -112,4 +112,66 @@ inline Integer encode(const BinaryFormat& f, const FloatValue& v) {
     return (sign << static_cast<unsigned>(f.storageBits() - 1)) | (exponent << t) | fraction;
 }
 
+// The datum a bit pattern of f stands for (0 <= bits < 2^storageBits), the x87's non-canonical patterns included.
+inline FloatValue decode(const BinaryFormat& f, const Integer& bits) {
+    using calculate_core::FloatClass;
+    const unsigned w = static_cast<unsigned>(f.exponentBits);
+    const unsigned t = static_cast<unsigned>(f.fractionBits);
+    const int p = f.precision();
+    const long long emin = f.minExponent();
+    const Integer one = 1;
+    const Integer allOnes = (one << w) - 1;
+    const Integer exponent = (bits >> t) & allOnes;
+    const Integer fraction = bits & ((one << t) - 1);
+    FloatValue v;
+    v.negative = (bits >> static_cast<unsigned>(f.storageBits() - 1)) != 0;
+    const auto scaled = [](const Integer& m, long long e) { return scaleByPowerOfTwo(Rational(m), e); };
+    if (!f.explicitLeadingBit) {
+        if (exponent == 0) {
+            if (fraction == 0) return v;
+            v.kind = FloatClass::Subnormal;
+            v.magnitude = scaled(fraction, emin - (p - 1));
+        } else if (exponent == allOnes) {
+            if (fraction == 0) {
+                v.kind = FloatClass::Infinite;
+            } else {
+                const Integer quiet = one << (t - 1);
+                v.kind = (fraction & quiet) != 0 ? FloatClass::QuietNaN : FloatClass::SignalingNaN;
+                v.payload = fraction & (quiet - 1);
+            }
+        } else {
+            v.kind = FloatClass::Normal;
+            v.magnitude = scaled((one << static_cast<unsigned>(p - 1)) + fraction, static_cast<long long>(exponent) - f.bias() - (p - 1));
+        }
+        return v;
+    }
+    // x87: the leading bit J is stored.
+    const bool leading = (fraction >> (t - 1)) != 0;
+    const Integer low = fraction & ((one << (t - 1)) - 1);
+    if (exponent == 0) {
+        if (fraction == 0) return v;
+        v.kind = leading ? FloatClass::Noncanonical : FloatClass::Subnormal;
+        if (leading) v.note = "pseudo-denormal";
+        v.magnitude = scaled(fraction, emin - (p - 1));
+    } else if (exponent == allOnes) {
+        if (!leading) {
+            v.kind = FloatClass::Noncanonical;
+            v.note = low == 0 ? "pseudo-infinity" : "pseudo-NaN";
+        } else if (low == 0) {
+            v.kind = FloatClass::Infinite;
+        } else {
+            const Integer quiet = one << (t - 2);
+            v.kind = (low & quiet) != 0 ? FloatClass::QuietNaN : FloatClass::SignalingNaN;
+            v.payload = low & (quiet - 1);
+        }
+    } else if (!leading) {
+        v.kind = FloatClass::Noncanonical;
+        v.note = "unnormal";
+    } else {
+        v.kind = FloatClass::Normal;
+        v.magnitude = scaled(fraction, static_cast<long long>(exponent) - f.bias() - (p - 1));
+    }
+    return v;
+}
+
 }  // namespace calculate_core::detail
