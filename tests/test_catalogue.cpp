@@ -486,3 +486,22 @@ TEST(Catalogue, RoundJumpsAtHalves) {
     EXPECT_EQ(evaluate("round(0.1*25)").error->code, ErrorCode::ArgumentNearJump);
     EXPECT_FALSE(evaluate("round(0.1*30)").error);  // near 3, far from 2.5 and 3.5
 }
+
+TEST(Catalogue, FractionalPart) {
+    EXPECT_EQ(tree("frac(2.5)"), "(- 2.5 (trunc 2.5))");
+    for (const TypeInfo& t : numberTypes()) {
+        const Result r = inType("frac(-9/4)", t.type);
+        ASSERT_FALSE(r.error) << t.label;
+        if (t.type == NumberType::Exact) EXPECT_EQ(r.exact->numerator, "1") << t.label;
+        else EXPECT_EQ(r.value.digits, "25") << t.label;  // -0.25
+        EXPECT_EQ(inType("frac(3)", t.type).bound, "0") << t.label;
+    }
+}
+
+TEST(Catalogue, FractionalPartCarriesItsArgumentsError) {
+    const Result r = evaluate("frac(0.1 + 0.2)");
+    ASSERT_FALSE(r.error);
+    EXPECT_EQ(r.bound, evaluate("0.1 + 0.2").bound);  // slope 1 away from the jumps
+    EXPECT_EQ(evaluate("frac(0.1*30)").error->code, ErrorCode::ArgumentNearJump);
+    EXPECT_EQ(evaluate("frac(0.1*30)").error->message.rfind("frac jumps", 0), 0u);
+}

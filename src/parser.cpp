@@ -254,7 +254,7 @@ int leftPower(TokenKind k) {
 // returns -1 and nothing else is parsed.
 // Functions written with nodes the engine already has (a lowering): their error is the composition's.
 bool isLowering(std::string_view name) {
-    for (const char* n : {"log2", "exp2", "exp10", "sq", "sqrtpi", "sec", "csc", "cot", "sech", "coth", "asec", "acsc", "asech", "acsch", "acoth", "ceil"})
+    for (const char* n : {"log2", "exp2", "exp10", "sq", "sqrtpi", "sec", "csc", "cot", "sech", "coth", "asec", "acsc", "asech", "acsch", "acoth", "ceil", "frac"})
         if (name == n) return true;
     return false;
 }
@@ -775,6 +775,8 @@ private:
             }
             return made;
         };
+        if (name == "frac")  // x − trunc(x): exact, and it jumps where trunc does
+            return read(lowered(FunctionId::Subtract, {x, lowered(FunctionId::Trunc, {x}, span, written)}, span, written), call);
         if (name == "ceil")  // −floor(−x)
             return read(lowered(FunctionId::Negate, {lowered(FunctionId::Floor, {lowered(FunctionId::Negate, {x}, span, written)}, span, written)}, span, written), call);
         if (name == "coth") return read(lowered(FunctionId::Divide, {literal("1"), lowered(FunctionId::Tanh, {x}, span, written)}, span, written), call);
