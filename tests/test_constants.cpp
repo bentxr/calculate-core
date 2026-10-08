@@ -107,3 +107,34 @@ TEST(Constants, AlgebraicConstantsInDoubleAndFloat) {
     EXPECT_EQ(constantValue<float>(ConstantId::Phi), 0x1.9e377ap+0f);
     EXPECT_EQ(constantValue<float>(ConstantId::Plastic), 0x1.5320b8p+0f);
 }
+
+namespace {
+
+// Euler-Mascheroni times 2^bits, Brent-McMillan with n = 2^11: gamma = U/V - ln n, where
+// B_k = B_(k-1) n^2 / k^2 and A_k = (A_(k-1) n^2 / k + B_k) / k, A_0 = -ln n, B_0 = 1.
+Integer eulerGamma(int bits) {
+    const unsigned n = 1u << 11;
+    Integer a = -11 * (2 * arctanInverse(3, bits, true));  // -ln(2^11), with ln 2 = 2 atanh(1/3)
+    Integer b = Integer(1) << bits;
+    Integer u = a;
+    Integer v = b;
+    for (unsigned k = 1; a != 0 || b != 0; ++k) {
+        b = b * n * n / (Integer(k) * k);
+        a = (a * n * n / k + b) / k;
+        u += a;
+        v += b;
+    }
+    return (u << bits) / v;
+}
+
+}  // namespace
+
+TEST(Constants, EulerGammaMatchesBrentMcMillan) {
+    const int guard = 64;
+    const Integer series = eulerGamma(constantFractionBits + guard) >> guard;
+    const Integer table = constantMantissa(ConstantId::EulerGamma);
+    const Integer difference = series > table ? Integer(series - table) : Integer(table - series);
+    EXPECT_LE(difference, 2);
+    EXPECT_EQ(constantValue<double>(ConstantId::EulerGamma), 0x1.2788cfc6fb619p-1);
+    EXPECT_EQ(constantValue<float>(ConstantId::EulerGamma), 0x1.2788dp-1f);
+}

@@ -112,5 +112,6 @@ BC
     emit sqrt2Hex 'sqrt(2)'
     emit phiHex '(1+sqrt(5))/2'
     emit plasticHex "$plastic"
+    emit egammaHex "$egamma"
     printf '}  // namespace calculate_core::detail\n'
 } > "$out"

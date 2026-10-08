@@ -351,7 +351,7 @@ inline FractionDigits exactFraction(const Rational& q, int maxPeriod = 60) {
     return f;
 }
 
-enum class ConstantId { Pi, TwoOverPi, Ln2, Ln10, E, Sqrt2, Phi, Plastic };
+enum class ConstantId { Pi, TwoOverPi, Ln2, Ln10, E, Sqrt2, Phi, Plastic, EulerGamma };
 
 // The table's hex digits as an integer: the constant times 2^constantFractionBits, truncated.
 inline Integer constantMantissa(ConstantId id) {
@@ -365,6 +365,7 @@ inline Integer constantMantissa(ConstantId id) {
     case ConstantId::Sqrt2: hex = sqrt2Hex; break;
     case ConstantId::Phi: hex = phiHex; break;
     case ConstantId::Plastic: hex = plasticHex; break;
+    case ConstantId::EulerGamma: hex = egammaHex; break;
     }
     Integer m = 0;
     for (const char* c = hex; *c; ++c) m = m * 16 + (*c <= '9' ? *c - '0' : *c - 'A' + 10);
