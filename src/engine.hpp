@@ -6,6 +6,7 @@
 
 #include <calculate-core/calculate-core.hpp>
 
+#include <algorithm>
 #include <atomic>
 #include <limits>
 #include <optional>
@@ -294,6 +295,40 @@ inline std::string formatScientific(const Ruler& x, int significant = 2) {
     s += e10 < 0 ? "e-" : "e+";
     s += std::to_string(e10 < 0 ? -e10 : e10);
     return s;
+}
+
+enum class Notation { Scientific, Engineering, Positional };
+
+// The digits of d in a notation, the first `trusted` significant ones apart from the rest. Scientific: one digit
+// before the point; engineering: one to three, the exponent a multiple of 3; positional: no exponent, with leading
+// "0.000" or trailing zeros up to the units. A point goes with the digit after it, so neither part ends in one.
+inline NumberParts formatParts(const DecimalDigits& d, int trusted, Notation notation) {
+    NumberParts p;
+    p.negative = d.negative;
+    const long long n = static_cast<long long>(d.digits.size());
+    const long long e = d.exponent10;
+    long long point;  // the significant digits before the point
+    if (notation == Notation::Positional) {
+        p.hasExponent = false;
+        if (e < 0) {
+            p.trusted = "0." + std::string(static_cast<std::size_t>(-e - 1), '0');
+            point = 0;
+        } else {
+            point = e + 1;
+        }
+    } else {
+        const long long shift = notation == Notation::Engineering ? ((e % 3) + 3) % 3 : 0;
+        point = shift + 1;
+        p.hasExponent = true;
+        p.exponent10 = e - shift;
+    }
+    const long long count = std::max(n, point);  // zeros pad the digits up to the point
+    for (long long i = 0; i < count; ++i) {
+        std::string& part = i < trusted ? p.trusted : p.noise;
+        if (i == point && i > 0) part += '.';
+        part += i < n ? d.digits[static_cast<std::size_t>(i)] : '0';
+    }
+    return p;
 }
 
 // Leading significant digits guaranteed by `error`: floor(-log10(error / |value|)), capped.

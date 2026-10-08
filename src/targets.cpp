@@ -11,7 +11,7 @@ std::optional<Error> fraction(const TargetInput& in, Result& result) {
         return Error{ErrorCode::UnexpectedToken, "fraction takes nothing after it", target.span.begin, target.span.end};
     std::string text = (in.value < 0 ? "-" : "") + Integer(abs(numerator(in.value))).str();
     if (denominator(in.value) != 1) text += "/" + denominator(in.value).str();
-    result.conversion = Conversion{"fraction", text};
+    result.conversion = Conversion{"fraction", text, std::nullopt};
     return std::nullopt;
 }
 

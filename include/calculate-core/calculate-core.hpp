@@ -85,10 +85,21 @@ struct Warning {
     std::size_t end = 0;
 };
 
+// A number as a target shows it, split where the trusted digits end.
+struct NumberParts {
+    bool negative = false;
+    std::string trusted;       // "1.000000000000000": the sign is apart, the point included
+    std::string noise;         // "055511151231257827021181583404541015625"; empty when every digit is trusted
+    long long exponent10 = 0;  // shown as e±n when hasExponent
+    bool hasExponent = false;
+    std::string suffix;        // "%" (to percent)
+};
+
 // What "to <target>" made of a result: the same value in another form.
 struct Conversion {
     std::string target;  // the target's name, "fraction"
     std::string text;    // the converted result as plain text, "3602879701896397/36028797018963968"
+    std::optional<NumberParts> parts;  // set by targets that show a number
 };
 
 // A conversion target, for completion and keys.

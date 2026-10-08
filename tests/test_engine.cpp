@@ -431,3 +431,30 @@ TEST(TrustedDigits, CountTheDecadesBetweenErrorAndValue) {
     EXPECT_EQ(trustedDigits(Ruler(1), Ruler(0.5), 16), 0);
     EXPECT_EQ(trustedDigits(Ruler(1), Ruler(0), 16), 16);
 }
+
+TEST(Format, PartsInEveryNotation) {
+    const DecimalDigits tenth{false, "1000000000000000055511151231257827021181583404541015625", -1};
+    const NumberParts sci = formatParts(tenth, 16, Notation::Scientific);
+    EXPECT_EQ(sci.trusted, "1.000000000000000");
+    EXPECT_EQ(sci.noise, "055511151231257827021181583404541015625");
+    EXPECT_EQ(sci.exponent10, -1);
+    EXPECT_TRUE(sci.hasExponent);
+    const NumberParts simple = formatParts(tenth, 16, Notation::Positional);
+    EXPECT_EQ(simple.trusted, "0.1000000000000000");
+    EXPECT_FALSE(simple.hasExponent);
+    const DecimalDigits big{false, "123456789000000004307366907596588134765625", 5};
+    const NumberParts eng = formatParts(big, 16, Notation::Engineering);
+    EXPECT_EQ(eng.trusted, "123.4567890000000");
+    EXPECT_EQ(eng.noise, "04307366907596588134765625");
+    EXPECT_EQ(eng.exponent10, 3);
+    const DecimalDigits huge{false, "10000000000000000905969664", 25};
+    EXPECT_EQ(formatParts(huge, 16, Notation::Positional).trusted, "1000000000000000");
+    EXPECT_EQ(formatParts(huge, 16, Notation::Positional).noise, "0905969664");
+    const DecimalDigits small{true, "999999999999999954748111825886258685613938723690807819366455078125", -8};
+    const NumberParts tiny = formatParts(small, 16, Notation::Positional);
+    EXPECT_TRUE(tiny.negative);
+    EXPECT_EQ(tiny.trusted, "0.00000009999999999999999");
+    EXPECT_EQ(tiny.noise, "54748111825886258685613938723690807819366455078125");
+    EXPECT_EQ(formatParts(DecimalDigits{false, "5", 0}, 1, Notation::Engineering).trusted, "5");  // no point when nothing follows
+    EXPECT_EQ(formatParts(DecimalDigits{false, "12345", 4}, 5, Notation::Engineering).trusted, "12.345");
+}
