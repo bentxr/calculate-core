@@ -130,7 +130,8 @@ void printJson(std::ostream& out, const std::string& input, const Result& r) {
         << ",\"measurementReliable\":" << flag(r.measurementReliable) << ",\"boundComplete\":" << flag(r.boundComplete)
         << ",\"roundingOperations\":" << r.roundingOperations << ",\"expanded\":" << jsonString(r.expression);
     if (r.conversion)
-        out << ",\"conversion\":{\"target\":" << jsonString(r.conversion->target) << ",\"text\":" << jsonString(r.conversion->text) << "}";
+        out << ",\"conversion\":{\"target\":" << jsonString(r.conversion->target) << ",\"text\":" << jsonString(r.conversion->text)
+            << (r.conversion->note.empty() ? "" : ",\"note\":" + jsonString(r.conversion->note)) << "}";
     if (!r.warnings.empty()) {
         out << ",\"warnings\":[";
         for (std::size_t i = 0; i < r.warnings.size(); ++i) {
@@ -185,13 +186,13 @@ void printHuman(std::ostream& out, const std::string& input, const Result& r, bo
     if (r.commentOnly) return;  // a note: the line alone
     if (r.exact) {
         out << "= " << formatFraction(*r.exact) << "\n";
-        if (r.conversion) out << "→ " << r.conversion->text << "\n";
+        if (r.conversion) out << "→ " << r.conversion->text << (r.conversion->note.empty() ? "" : " (" + r.conversion->note + ")") << "\n";
         out << "  exact, no rounding error · κ " << r.conditionNumber << "\n";
         printNotes(out, r);
         return;
     }
     out << "= " << formatValue(r.value, r.trustedDigits, color) << "\n";
-    if (r.conversion) out << "→ " << r.conversion->text << "\n";
+    if (r.conversion) out << "→ " << r.conversion->text << (r.conversion->note.empty() ? "" : " (" + r.conversion->note + ")") << "\n";
     out << "  ± " << r.bound << "  input " << r.inputError << " · rounding " << r.roundingError << " · library "
         << r.libraryError;
     if (!r.boundComplete) out << "  (incomplete: an uncertain argument was accepted)";

@@ -191,3 +191,9 @@ TEST(Cli, AssignmentsLastForTheSession) {
     EXPECT_NE(invoke({"--json", "a := 2"}).out.find(",\"assigned\":\"a\""), std::string::npos);
     EXPECT_EQ(invoke({"pi := 3"}).err, "pi := 3\n^^ 'pi' is a reserved name\n");
 }
+
+TEST(Cli, AnApproximateConversionSaysHowFarItIs) {
+    EXPECT_NE(invoke({"--color", "never", "2.7 to 1/3"}).out.find("\n→ 8/3 (off by 3.3e-2)\n"), std::string::npos);
+    EXPECT_NE(invoke({"--json", "2.7 to 1/3"}).out.find("\"text\":\"8/3\",\"note\":\"off by 3.3e-2\"}"), std::string::npos);
+    EXPECT_NE(invoke({"--color", "never", "2.5 to 1/2"}).out.find("\n→ 5/2\n"), std::string::npos);  // exact: no note
+}

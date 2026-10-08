@@ -100,6 +100,7 @@ struct Conversion {
     std::string target;  // the target's name, "fraction"
     std::string text;    // the converted result as plain text, "3602879701896397/36028797018963968"
     std::optional<NumberParts> parts;  // set by targets that show a number
+    std::string note;  // "off by 3.3e-2": the stored value minus what the text shows, when they differ
 };
 
 // A conversion target, for completion and keys.

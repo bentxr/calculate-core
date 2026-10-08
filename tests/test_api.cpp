@@ -736,3 +736,20 @@ TEST(Api, MixedNumbersAndPercentages) {
     EXPECT_EQ(tenth.conversion->parts->suffix, "%");
     EXPECT_EQ(evaluate("1/3 to percent", as(NumberType::Exact)).conversion->text, "33.(3)%");
 }
+
+TEST(Api, AFixedDenominatorSaysHowFarItIs) {
+    const Result r = evaluate("2.7 to 1/3");
+    ASSERT_TRUE(r.conversion);
+    EXPECT_EQ(r.conversion->target, "1/n");
+    EXPECT_EQ(r.conversion->text, "8/3");
+    EXPECT_EQ(r.conversion->note, "off by 3.3e-2");
+    EXPECT_EQ(evaluate("2.7 to 1/4").conversion->text, "11/4");
+    EXPECT_EQ(evaluate("2.7 to 1/4").conversion->note, "off by -5e-2");
+    EXPECT_EQ(evaluate("2.5 to 1/2").conversion->note, "");  // exact: nothing to say
+    EXPECT_EQ(evaluate("-2.5 to 1/1").conversion->text, "-3/1");  // halves away from zero
+    EXPECT_EQ(evaluate("1 to 1/0").error->code, ErrorCode::UnexpectedToken);
+    EXPECT_EQ(evaluate("1 to 1/x").error->code, ErrorCode::UnexpectedToken);
+    bool listed = false;
+    for (const TargetDescription& t : conversionTargets()) listed = listed || t.name == "1/n";
+    EXPECT_TRUE(listed);
+}

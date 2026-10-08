@@ -26,6 +26,7 @@ struct Target {
     std::string_view name;     // as written after `to`
     std::string_view summary;  // one line, for listings
     TargetFunction apply;
+    bool (*matches)(std::string_view name) = nullptr;  // a family of names ("1/3", "1/16"…), when the name is a pattern
 };
 
 // Every target, in listing order. To add one, add a row and its function in targets.cpp.

@@ -11,7 +11,7 @@ std::optional<Error> fraction(const TargetInput& in, Result& result) {
         return Error{ErrorCode::UnexpectedToken, "fraction takes nothing after it", target.span.begin, target.span.end};
     std::string text = (in.value < 0 ? "-" : "") + Integer(abs(numerator(in.value))).str();
     if (denominator(in.value) != 1) text += "/" + denominator(in.value).str();
-    result.conversion = Conversion{"fraction", text, std::nullopt};
+    result.conversion = Conversion{"fraction", text, std::nullopt, ""};
     return std::nullopt;
 }
 
@@ -91,7 +91,7 @@ std::optional<Error> notation(const TargetInput& in, Result& result, Notation n)
             return Error{ErrorCode::UnexpectedToken, "too many digits to write out: use to fraction", target.span.begin, target.span.end};
         parts = formatParts(d, result.trustedDigits, n);
     }
-    result.conversion = Conversion{target.name, joined(parts), parts};
+    result.conversion = Conversion{target.name, joined(parts), parts, ""};
     return std::nullopt;
 }
 
@@ -106,7 +106,7 @@ std::optional<Error> mixed(const TargetInput& in, Result& result) {
     const std::string fractionText = numerator(rest).str() + "/" + denominator(rest).str();
     std::string text = rest == 0 ? whole.str() : whole == 0 ? fractionText : whole.str() + " + " + fractionText;
     if (in.value < 0) text = whole != 0 && rest != 0 ? "-(" + text + ")" : "-" + text;
-    result.conversion = Conversion{"mixed", text, std::nullopt};
+    result.conversion = Conversion{"mixed", text, std::nullopt, ""};
     return std::nullopt;
 }
 
@@ -125,9 +125,30 @@ std::optional<Error> percent(const TargetInput& in, Result& result) {
         parts = formatParts(exactDigits(scaled), result.trustedDigits, Notation::Positional);
     }
     parts.suffix = "%";
-    result.conversion = Conversion{"percent", joined(parts), parts};
+    result.conversion = Conversion{"percent", joined(parts), parts, ""};
     return std::nullopt;
 }
+
+// The nearest fraction k/n with the denominator asked for, and how far the stored value is from it.
+std::optional<Error> fixedDenominator(const TargetInput& in, Result& result) {
+    const TargetText& target = *in.parsed.target;
+    const std::string digits = target.name.substr(2);
+    const bool whole = !target.argument.empty() ? false
+                       : !digits.empty() && digits.size() <= 10 && digits.find_first_not_of("0123456789") == std::string::npos;
+    if (!whole || std::stoll(digits) < 1 || std::stoll(digits) > 1000000000)
+        return Error{ErrorCode::UnexpectedToken, "1/n needs a whole n from 1 to 1000000000", target.span.begin, target.span.end};
+    const Integer n(std::stoll(digits));
+    const Rational scaled = abs(in.value) * Rational(n);
+    Integer k = numerator(scaled + Rational(1, 2)) / denominator(scaled + Rational(1, 2));  // halves away from zero
+    if (in.value < 0) k = -k;
+    const Rational shown(k, n);
+    const Rational off = in.value - shown;
+    result.conversion = Conversion{"1/n", k.str() + "/" + n.str(), std::nullopt,
+                                   off == 0 ? "" : "off by " + formatScientific(fromRational<Ruler>(off))};
+    return std::nullopt;
+}
+
+bool fixedDenominatorName(std::string_view s) { return s.size() > 2 && s.substr(0, 2) == "1/"; }
 
 std::optional<Error> scientific(const TargetInput& in, Result& result) { return notation(in, result, Notation::Scientific); }
 std::optional<Error> engineering(const TargetInput& in, Result& result) { return notation(in, result, Notation::Engineering); }
@@ -143,13 +164,14 @@ const std::vector<Target>& targets() {
         {"simple", "every digit, without an exponent", positional},
         {"mixed", "the stored value as a whole number and a fraction", mixed},
         {"percent", "the value × 100, every digit, with %", percent},
+        {"1/n", "the nearest fraction with denominator n, and how far it is", fixedDenominator, fixedDenominatorName},
     };
     return list;
 }
 
 const Target* findTarget(std::string_view name) {
     for (const Target& t : targets())
-        if (t.name == name) return &t;
+        if (t.name == name || (t.matches && t.matches(name))) return &t;
     return nullptr;
 }
 
