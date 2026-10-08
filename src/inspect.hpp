@@ -34,4 +34,7 @@ FloatFormat floatFormatOf() {
     }
 }
 
+// A bit pattern of f, field by field, with the value v it stands for.
+FloatBits bitsOf(const BinaryFormat& f, const FloatValue& v, const Integer& pattern);
+
 }  // namespace calculate_core::detail

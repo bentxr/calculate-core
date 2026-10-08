@@ -180,6 +180,38 @@ struct Digits {
     long long exponent10 = 0;
 };
 
+// One bit pattern of a format, field by field, and exactly what it stands for.
+struct FloatBits {
+    FloatClass valueClass = FloatClass::Zero;
+    bool negative = false;
+    std::string sign;          // "0" or "1"
+    std::string exponent;      // the exponent field: exponentBits binary digits
+    std::string fraction;      // the significand field: fractionBits binary digits
+    std::string hex;           // every bit: storageBits / 4 hexadecimal digits, upper case
+    long long biasedExponent = 0;
+    long long exponent2 = 0;   // finite non-zero values: value = significand × 2^exponent2
+    Digits significand;        // finite non-zero values: 1.f, or 0.f below the normal range, exactly
+    Digits value;              // finite values, exactly; no digits when too long to write out
+    std::string note;          // Noncanonical: "pseudo-denormal", "unnormal", "pseudo-infinity", "pseudo-NaN"
+};
+
+// A stored value with its neighbours, its ulp and, when it came from a decimal, its conversion error.
+struct FloatInspection {
+    std::optional<Error> error;  // the text could not be read; nothing else is set
+    FloatFormat format = FloatFormat::Binary64;
+    FloatBits stored;
+    bool hasNeighbours = false;  // finite and infinite values
+    FloatBits below;             // the next value down (IEEE nextDown) and up (nextUp)
+    FloatBits above;
+    long long ulpExponent = 0;   // finite values: ulp = 2^ulpExponent
+    Digits ulp;
+    Digits conversionError;      // stored − typed, exactly; no digits when nothing finite was converted
+    std::string note;            // "overflow", "underflow", "no subnormals", or ""
+};
+
+// `text`: a decimal number with an optional sign (- or −) and exponent, or inf, -inf, ∞, nan.
+FloatInspection inspectDecimal(const FloatFormatInfo& format, std::string_view text);
+
 // An exact rational. When hasDecimal: integerPart.fractionDigits(repeatingDigits repeated).
 struct Fraction {
     bool negative = false;

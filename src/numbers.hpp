@@ -279,15 +279,19 @@ namespace impl {
 
 // Conservative decimal range of T: beyond these, a literal certainly overflows or rounds to 0.
 // (30103/100000 approximates log10(2); the margins cover the error.)
+// Decimal exponents beyond which a literal certainly overflows (largest binary exponent emax) or certainly rounds
+// to zero (smallest positive value 2^smallestExponent): decided without building the number.
+inline long long maxDecimalExponent(long long emax) { return (emax + 1) * 30103 / 100000 + 2; }
+inline long long minDecimalExponent(long long smallestExponent) { return (smallestExponent - 1) * 30103 / 100000 - 3; }
+
 template <class T>
 long long maxDecimalExponent() {
-    return (static_cast<long long>(maxExponent<T>()) + 1) * 30103 / 100000 + 2;
+    return maxDecimalExponent(maxExponent<T>());
 }
 
 template <class T>
 long long minDecimalExponent() {
-    const long long smallest = hasSubnormals<T>() ? minExponent<T>() - precisionBits<T>() + 1 : minExponent<T>();
-    return (smallest - 1) * 30103 / 100000 - 3;
+    return minDecimalExponent(hasSubnormals<T>() ? minExponent<T>() - precisionBits<T>() + 1 : minExponent<T>());
 }
 
 }  // namespace impl
@@ -306,7 +310,6 @@ T decimalTo(const DecimalLiteral& d) {
     }
 }
 
-// value = (negative ? -1 : 1) * d1.d2d3... * 10^exponent10; no trailing zeros; zero is {"0", 0}.
 // 10^n in the ruler, by binary powering.
 inline Ruler powerOfTen(long long n) {
     Ruler result = 1;
@@ -318,6 +321,7 @@ inline Ruler powerOfTen(long long n) {
     return n < 0 ? Ruler(1 / result) : result;
 }
 
+// value = (negative ? -1 : 1) * d1.d2d3... * 10^exponent10; no trailing zeros; zero is {"0", 0}.
 struct DecimalDigits {
     bool negative = false;
     std::string digits;

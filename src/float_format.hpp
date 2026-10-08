@@ -263,6 +263,20 @@ inline FloatValue nextDown(const BinaryFormat& f, bool subnormals, const FloatVa
     return r;
 }
 
+// A decimal literal with that sign rounded into f, as decimalTo<T> does for a type.
+inline FloatValue decimalToFormat(bool negative, const DecimalLiteral& d, const BinaryFormat& f, bool subnormals) {
+    FloatValue v;
+    v.negative = negative;
+    if (d.significand == 0) return v;
+    const long long e10 = d.exponent10 + static_cast<long long>(d.significand.str().size()) - 1;
+    if (e10 > impl::maxDecimalExponent(f.maxExponent())) {
+        v.kind = calculate_core::FloatClass::Infinite;
+        return v;
+    }
+    if (e10 < impl::minDecimalExponent(subnormals ? f.minExponent() - f.precision() + 1 : f.minExponent())) return v;
+    return roundToFormat(negative, toRational(d), f, subnormals);
+}
+
 // The longest decimal written out in full: every value of float, double, long double and binary128 fits.
 inline constexpr long long shownDigitsLimit = 20000;
 
