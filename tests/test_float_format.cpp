@@ -277,3 +277,36 @@ TEST(Neighbours, UlpIsTheSpacingAtTheValue) {
     EXPECT_EQ(ulpExponent(binary128, false, special(FloatClass::Zero)), -16382);  // no subnormals: the gap above 0
     EXPECT_EQ(ulpExponent(binary32, true, finite(pow2(-149), binary32)), -149);
 }
+
+TEST(TerminatingDigits, ExactDecimals) {
+    const DecimalDigits tenth = terminatingDigits(Rational(1, 10));
+    EXPECT_EQ(tenth.digits, "1");
+    EXPECT_EQ(tenth.exponent10, -1);
+    EXPECT_FALSE(tenth.negative);
+    const DecimalDigits error = terminatingDigits(toRational(0.1) - Rational(1, 10));
+    EXPECT_EQ(error.digits, "55511151231257827021181583404541015625");
+    EXPECT_EQ(error.exponent10, -18);
+    const DecimalDigits eighth = terminatingDigits(Rational(-3, 8));
+    EXPECT_TRUE(eighth.negative);
+    EXPECT_EQ(eighth.digits, "375");
+    EXPECT_EQ(eighth.exponent10, -1);
+    EXPECT_EQ(terminatingDigits(Rational(0)).digits, "0");
+    EXPECT_EQ(terminatingDigits(Rational(1200)).digits, "12");
+    EXPECT_EQ(terminatingDigits(Rational(1200)).exponent10, 3);
+}
+
+TEST(TerminatingDigits, AgreeWithExactDigitsForBinaryValues) {
+    for (const double x : {0.1, 1e300, 5e-324, -2.5}) {
+        const DecimalDigits a = terminatingDigits(toRational(x));
+        const DecimalDigits b = exactDigits(x);
+        EXPECT_EQ(a.digits, b.digits);
+        EXPECT_EQ(a.exponent10, b.exponent10);
+        EXPECT_EQ(a.negative, b.negative);
+    }
+}
+
+TEST(TerminatingDigits, LeaveOutValuesBeyondTheLimit) {
+    EXPECT_EQ(terminatingDigits(pow2(-1074), 1000).digits.size(), 751u);
+    EXPECT_EQ(terminatingDigits(pow2(-1074), 500).digits, "");
+    EXPECT_EQ(terminatingDigits(pow2(-4194302)).digits, "");  // binary512's smallest normal: millions of digits
+}

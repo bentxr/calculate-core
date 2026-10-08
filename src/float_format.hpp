@@ -263,4 +263,32 @@ inline FloatValue nextDown(const BinaryFormat& f, bool subnormals, const FloatVa
     return r;
 }
 
+// The longest decimal written out in full: every value of float, double, long double and binary128 fits.
+inline constexpr long long shownDigitsLimit = 20000;
+
+// Every decimal digit of q, whose reduced denominator is 2^a 5^b; no digits ("") when there would be more than
+// `limit`. The limit applies to an upper estimate, so values somewhat shorter may also be left out.
+inline DecimalDigits terminatingDigits(const Rational& q, long long limit = shownDigitsLimit) {
+    if (q == 0) return {false, "0", 0};
+    const bool negative = q < 0;
+    Integer d = denominator(q);
+    const long long a = static_cast<long long>(lsb(d));  // d > 0
+    d >>= static_cast<unsigned>(a);
+    long long b = 0;
+    for (; d % 5 == 0; d /= 5) ++b;
+    const long long c = std::max(a, b);
+    const Integer n = abs(numerator(q));
+    // N = n × 2^(c−a) × 5^(c−b) has at most this many bits (5 < 2^2.33): estimated before it is built.
+    const long long bits = static_cast<long long>(msb(n)) + 1 + (c - a) + (c - b) * 233 / 100 + 1;
+    if (bits * 30103 / 100000 + 1 > limit) return {negative, "", 0};
+    const Integer big = (n << static_cast<unsigned>(c - a)) * pow(Integer(5), static_cast<unsigned>(c - b));
+    std::string s = big.str();
+    DecimalDigits r;
+    r.negative = negative;
+    r.exponent10 = static_cast<long long>(s.size()) - 1 - c;
+    s.erase(s.find_last_not_of('0') + 1);
+    r.digits = std::move(s);
+    return r;
+}
+
 }  // namespace calculate_core::detail
