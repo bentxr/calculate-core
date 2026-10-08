@@ -1,4 +1,7 @@
+#include "parser.hpp"
 #include "special_oracle.hpp"
+
+#include <calculate-core/calculate-core.hpp>
 
 using namespace calculate_core;
 using namespace calculate_core::detail;
@@ -69,4 +72,24 @@ TYPED_TEST(SpecialKernelTest, SineAndCosineOfPiTimesX) {
     EXPECT_EQ(toValue(sinCosPi(T(3)).first), T(0));
     EXPECT_EQ(toValue(sinCosPi(T(2.5)).first), T(1));
     EXPECT_EQ(toValue(sinCosPi(T(-0.5)).first), T(-1));
+}
+
+TYPED_TEST(SpecialKernelTest, LogGammaOfPositiveArguments) {
+    using T = TypeParam;
+    test::expectSpecialWithinClaim<T>(FunctionId::Lgamma, [](auto& rng) { return std::vector<T>{uniform<T>(rng, 0.01, 30)}; });
+    test::expectSpecialWithinClaim<T>(FunctionId::Lgamma, [](auto& rng) { return std::vector<T>{logUniform<T>(rng, -60, 60)}; });
+    // The values of T nearest the zeros at 1 and 2: only the floor u * scale can hold there.
+    test::expectSpecialWithinClaim<T>(FunctionId::Lgamma, [](auto& rng) {
+        const T zero = (rng() & 1) ? T(2) : T(1);
+        const T step = ldexp(T(1 + static_cast<int>(rng() % 8)), 1 - precisionBits<T>());
+        return std::vector<T>{T(zero + randomSign(rng, step))};
+    });
+    EXPECT_EQ(applyFunction<T>(FunctionId::Lgamma, {T(1)}).value, T(0));
+    EXPECT_EQ(applyFunction<T>(FunctionId::Lgamma, {T(2)}).value, T(0));
+}
+
+TEST(Special, LogGammaIsAlsoLngamma) {
+    EXPECT_EQ(parse("lngamma(3)", AngleUnit::Radians).ast.nodes.back().function, FunctionId::Lgamma);
+    EXPECT_EQ(evaluate("lgamma(3)", [] { Options o; o.type = NumberType::Exact; return o; }()).error->code,
+              ErrorCode::NotAvailableInExact);
 }

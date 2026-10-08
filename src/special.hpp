@@ -2,6 +2,9 @@
 
 #include "kernels.hpp"
 
+#include <calculate-core/calculate-core.hpp>
+
+#include <optional>
 #include <utility>
 #include <vector>
 
@@ -66,6 +69,55 @@ const DoubleWord<T>& sqrtPi() {
 }
 
 }  // namespace impl
+
+template <class T>
+struct Special {
+    DoubleWord<T> value;
+    T scale = 0;  // see Applied::scale
+    std::optional<ErrorCode> error;
+};
+
+// ln Gamma(z) for z > 0 (a double word): shift z up to X by Gamma(z) = Gamma(z + n) / (z (z+1) ... (z+n-1)), then
+// Stirling's series (DLMF 5.11.1). The result is S - ln P, so scale = |S| + |ln P| + n.
+template <class T>
+Special<T> lgammaPositive(DoubleWord<T> z) {
+    using std::abs;
+    using std::frexp;
+    const T shift = impl::stirlingShift<T>();
+    DoubleWord<T> product = dw(T(1));  // kept in [1/2, 1), its binary exponent in `exponent`: it never overflows
+    long long exponent = 0;
+    int n = 0;
+    while (z.hi < shift) {
+        product = product * z;
+        int e;
+        frexp(product.hi, &e);
+        product = scale(product, -e);
+        exponent += e;
+        z = z + T(1);
+        ++n;
+    }
+    DoubleWord<T> s = (z - T(0.5)) * logWord(z) - z + impl::halfLogTwoPi<T>();
+    const DoubleWord<T> z2 = z * z;
+    DoubleWord<T> power = z;
+    DoubleWord<T> series = dw(T(0));
+    for (const DoubleWord<T>& c : impl::stirlingWords<T>()) {
+        const DoubleWord<T> term = c / power;
+        if (impl::negligible(term, s)) break;
+        series = series + term;
+        power = power * z2;
+    }
+    s = s + series;
+    Special<T> r;
+    if (n == 0) {
+        r.value = s;
+        r.scale = abs(s.hi);
+        return r;
+    }
+    const DoubleWord<T> lnP = logWord(product) + impl::word<T>(ConstantId::Ln2) * T(exponent);
+    r.value = s - lnP;
+    r.scale = abs(s.hi) + abs(lnP.hi) + T(n);
+    return r;
+}
 
 // sin(pi x) and cos(pi x) as double words. x = n + r with r = x - n exact and |r| <= 1/2, so sin(pi x) is accurate
 // relative to itself even next to an integer (what the reflection formulas need).

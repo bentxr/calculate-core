@@ -101,6 +101,7 @@ inline const FunctionInfo& functionInfo(FunctionId id) {
         {F::Clip, "clip", 3, 3, C::Exact, K::Continuous, true},
         {F::Numerator, "numerator", 1, 1, C::Exact, K::Discrete, true},
         {F::Denominator, "denominator", 1, 1, C::Exact, K::Discrete, true},
+        {F::Lgamma, "lgamma", 1, 1, C::Library, K::Continuous, false},
         {F::Median, "median", 1, -1, C::Checked, K::Continuous, true},
     }};
     return table[static_cast<std::size_t>(id)];
@@ -302,7 +303,10 @@ Applied<T> exactFunction(FunctionId id, const std::vector<Rational>& a) {
 
 // The elementary functions, for inexact T: every result computed in T through double words.
 template <class T>
-Applied<T> kernel(FunctionId id, const std::vector<T>& a) {
+Applied<T> specialFunction(FunctionId id, const std::vector<T>& a, const std::atomic<bool>* cancel);
+
+template <class T>
+Applied<T> kernel(FunctionId id, const std::vector<T>& a, const std::atomic<bool>* cancel) {
     const T x = a[0];
     const auto fromExp = [](const ExpParts<T>& e, bool negative) -> Applied<T> {
         if (e.overflow) return fail<T>(ErrorCode::Overflow);
@@ -461,8 +465,29 @@ Applied<T> kernel(FunctionId id, const std::vector<T>& a) {
         const DoubleWord<T> w = scale(dw(ax), 1) / (dw(T(1)) - ax);  // atanh = log1p(w) / 2
         return ok<T>(withSign(toValue(scale(logWord(w + T(1)), -1)), x < 0));
     }
+    default: return specialFunction<T>(id, a, cancel);
+    }
+}
+
+// The special functions (special.hpp): each kernel gives a double word, rounded once here, and the size of the terms
+// it subtracted (the claim's floor).
+template <class T>
+Applied<T> specialFunction(FunctionId id, const std::vector<T>& a, [[maybe_unused]] const std::atomic<bool>* cancel) {
+    const T x = a[0];
+    Special<T> s;
+    switch (id) {
+    case FunctionId::Lgamma:
+        if (x <= 0 && isInteger(x)) return fail<T>(ErrorCode::DomainError);  // a pole
+        if (x == 1 || x == 2) return ok<T>(T(0));                            // the exact zeros
+        if (x < 0) return fail<T>(ErrorCode::DomainError);                   // reflection: next step
+        s = lgammaPositive(dw(x));
+        break;
     default: return fail<T>(ErrorCode::DomainError);
     }
+    if (s.error) return fail<T>(*s.error);
+    Applied<T> r = ok<T>(toValue(s.value));
+    r.scale = s.scale;
+    return r;
 }
 
 }  // namespace impl
@@ -565,7 +590,7 @@ Applied<T> applyFunction(FunctionId id, const std::vector<T>& a, const std::atom
             if (!functionInfo(id).exact) return impl::fail<T>(ErrorCode::NotAvailableInExact);
             return impl::exactFunction<T>(id, a);
         } else {
-            r = impl::kernel<T>(id, a);
+            r = impl::kernel<T>(id, a, cancel);
             if (r.error) return r;
         }
     }
