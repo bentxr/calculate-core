@@ -575,7 +575,7 @@ TEST(Session, ATargetAloneConvertsAns) {
     EXPECT_EQ(s.history().back().input, "Ans + 0 to fraction");
 }
 
-// Mutation survivors of Checkpoint A (Plan 1).
+// Mutation survivors.
 TEST(Api, ARemainderNearZeroSeesTheJumpOnItsNegativeSide) {
     // -0.297 ± 0.83 reaches -1, where rem(x, 1) jumps, but not +1: the nearest whole quotient is 0, so the jump checked
     // must be its lower neighbour.
@@ -756,7 +756,7 @@ TEST(Api, AFixedDenominatorSaysHowFarItIs) {
     EXPECT_TRUE(listed);
 }
 
-// Mutation survivors (Plan 1, final checkpoint): the sign of a mixed number, and the largest denominator of 1/n.
+// Mutation survivors: the sign of a mixed number, and the largest denominator of 1/n.
 TEST(Api, MixedNumbersKeepParenthesesForBothParts) {
     EXPECT_EQ(evaluate("-6 to mixed", as(NumberType::Exact)).conversion->text, "-6");
     EXPECT_EQ(evaluate("-1/3 to mixed", as(NumberType::Exact)).conversion->text, "-1/3");
@@ -1054,7 +1054,7 @@ TEST(Api, AValueTooLongToWriteOutIsShownInBinary) {
     EXPECT_FALSE(evaluate("0.1").binaryValue);  // short values stay decimal
 }
 
-// Mutation survivors (Plan 3's checkpoint).
+// Mutation survivors.
 TEST(Units, ACubeCubesTheUnit) {
     EXPECT_EQ(evaluate("c³").unit, "m³·s⁻³");
 }

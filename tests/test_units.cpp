@@ -44,7 +44,7 @@ TEST(Units, NamesOfUnits) {
     EXPECT_EQ(unitName(half), "m^(1/2)");                       // fractional exponents are written out
 }
 
-// Mutation survivors (Plan 3's checkpoint): the named units past the first few.
+// Mutation survivors: the named units past the first few.
 TEST(Units, MoreNamedUnits) {
     EXPECT_EQ(unitName(of({-1, 1, -2})), "Pa");
     EXPECT_EQ(unitName(of({-2, -1, 4, 2})), "F");

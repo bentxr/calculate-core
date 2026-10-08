@@ -203,7 +203,7 @@ TEST(Cli, JsonCarriesTheReading) {
     EXPECT_EQ(invoke({"--color", "never", "2^3^2"}).out.find("reading"), std::string::npos);  // human output unchanged
 }
 
-// Mutation survivor (Plan 1, final checkpoint): a value meant for another convention is still refused.
+// Mutation survivor: a value meant for another convention is still refused.
 TEST(Cli, AConventionRefusesAnotherConventionsValue) {
     EXPECT_EQ(invoke({"--log", "divide", "1"}).code, 2);
     EXPECT_EQ(invoke({"--mod", "e", "1"}).code, 2);

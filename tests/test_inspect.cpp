@@ -409,7 +409,7 @@ TEST(BaseTargets, FieldsNotesAndRefusals) {
     const Result long_ = evaluate("1/997 to hex", exact);  // a period of 83 hexadecimal digits
     EXPECT_EQ(long_.conversion->text, "0x0");
     EXPECT_EQ(field(long_, "note"), "period too long");
-    EXPECT_EQ(evaluate("1 to duo 3").error->code, ErrorCode::UnexpectedToken);  // to hex 3 is a width (4.48)
+    EXPECT_EQ(evaluate("1 to duo 3").error->code, ErrorCode::UnexpectedToken);  // to hex 3 is a width
     EXPECT_EQ(evaluate("1 to base").error->code, ErrorCode::DomainError);
 }
 

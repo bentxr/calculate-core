@@ -244,7 +244,7 @@ TEST(Parser, ExactArithmeticRefusesTranscendentals) {
 
 namespace {
 
-// Text to report, the way the facade does it: parse, check exactness, evaluate. (Plan 3 uses it too.)
+// Text to report, the way the facade does it: parse, check exactness, evaluate.
 template <class T>
 Evaluation<T> evaluateText(std::string_view text, const Options& options = {}) {
     Evaluation<T> ev;
@@ -369,7 +369,7 @@ TEST(Parser, OtherSpellingsNameTheFunctionItself) {
 
 TEST(Parser, RemIsTheTruncatedRemainderAndModSpellsIt) {
     EXPECT_EQ(tree("rem(-7, 3)"), "(rem (neg 7) 3)");
-    EXPECT_EQ(tree("mod(-7, 3)"), "(rem (neg 7) 3)");  // the default convention; 1.04 makes it a setting
+    EXPECT_EQ(tree("mod(-7, 3)"), "(rem (neg 7) 3)");  // the default convention (a setting)
 }
 
 namespace {
@@ -629,7 +629,7 @@ TYPED_TEST(SumTest, TheBoundCoversTheTrueErrorAndGrowsWithTheCount) {
     }
 }
 
-// Mutation survivors of Plan 1's checkpoint 1.29.
+// Mutation survivors.
 TEST(Lexer, ANumberMayStartWithItsPoint) {
     EXPECT_EQ(tree(".5"), ".5");
     EXPECT_EQ(tree("1+.5"), "(+ 1 .5)");
@@ -725,7 +725,7 @@ TEST(Parser, TheCanonicalReading) {
     EXPECT_EQ(parse("Ans*2", Options{}, {{"Ans", "1+2"}}).reading, "((1 + 2) × 2)");
 }
 
-// Mutation survivor (Plan 1, final checkpoint): the last letters of the alphabet are letters.
+// Mutation survivor: the last letters of the alphabet are letters.
 TEST(Lexer, ZIsALetter) {
     EXPECT_EQ(parse("z := 2", AngleUnit::Radians).assigned, "z");
     EXPECT_EQ(parse("Z := 2", AngleUnit::Radians).assigned, "Z");

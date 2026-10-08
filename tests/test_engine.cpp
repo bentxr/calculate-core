@@ -681,7 +681,7 @@ TEST(Forms, ConciseAndPlusMinus) {
     EXPECT_EQ(g.shown.exponent10, -1);
 }
 
-// Mutation survivors (Plan 3's checkpoint).
+// Mutation survivors.
 TEST(UncertaintySources, EqualContributionsKeepTreeOrder) {
     AstBuilder b;
     const auto five = b.literal("5");

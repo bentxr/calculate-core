@@ -15,7 +15,7 @@ using test::uniform;
 TEST(SpecialOracle, AgreesWithMpfr) {
     using O = Ruler;
     namespace bm = boost::math;
-    // MPFR 4.2.2 at 1600 bits (generator in the plan, cycle 2.22).
+    // MPFR 4.2.2 at 1600 bits.
     const std::pair<O, const char*> cases[] = {
         {bm::tgamma(O(0.5)), "1.77245385090551602729816748334114518279754945612239"},
         {bm::tgamma(O(-2.5)), "-0.945308720482941881225689324448610764158693043265273"},
@@ -298,7 +298,7 @@ TYPED_TEST(SpecialKernelTest, RegularizedIncompleteBeta) {
 }
 
 TEST(Special, IncompleteBetaOfWholeParametersIsRational) {
-    // I_{3/8}(10, 3) = 108591111/68719476736 (python3 fractions, see 2.22)
+    // I_{3/8}(10, 3) = 108591111/68719476736 (python3 fractions)
     const Applied<Ruler> r = applyFunction<Ruler>(FunctionId::Betainc, {Ruler(10), Ruler(3), Ruler(0.375)});
     ASSERT_FALSE(r.error);
     EXPECT_LE(abs(r.value - Ruler(108591111) / Ruler(68719476736)), ldexp(Ruler(108591111) / Ruler(68719476736), -990));
