@@ -82,6 +82,13 @@ Source sourceOf(const TargetInput& in, const Result& result) {
     return s;
 }
 
+// The datum the value becomes in that format: a typed number from its decimal, anything else from the stored value.
+FloatValue datumIn(const TargetInput& in, const Result& result, const FloatFormatInfo& info) {
+    const Source s = sourceOf(in, result);
+    const BinaryFormat& f = binaryFormat(info.format);
+    return s.literal ? decimalToFormat(s.negative, *s.literal, f, info.subnormals) : roundToFormat(s.negative, abs(s.value), f, info.subnormals);
+}
+
 std::optional<Error> convertTo(const TargetInput& in, Result& result, const FloatFormatInfo& info) {
     const TargetText& target = *in.parsed.target;
     if (!target.argument.empty())
@@ -108,6 +115,60 @@ std::optional<Error> toBits(const TargetInput& in, Result& result) {
     if (!e) result.conversion->target = "bits";
     return e;
 }
+
+// floatBits, floatParts, floatValue, floatError: spellings of the format targets that show one part. The argument
+// names the format (fp32…); none: the result's own type.
+enum class Part { Bits, Parts, Value, Error };
+
+std::optional<Error> inspection(const TargetInput& in, Result& result, Part part) {
+    const TargetText& target = *in.parsed.target;
+    std::optional<FloatFormatInfo> info;
+    if (target.argument.empty()) {
+        if (in.options.type == NumberType::Exact)
+            return Error{ErrorCode::NotAvailableInExact, "Exact has no binary format: name one, e.g. " + target.name + "(x, fp64)",
+                         target.span.begin, target.span.end};
+        info = formatInfo(in.options.type);
+    } else {
+        info = formatNamed(target.argument);
+        if (!info)
+            return Error{ErrorCode::UnknownName, "Unknown format '" + target.argument + "' (see calc --list-formats)", target.span.begin,
+                         target.span.end};
+    }
+    const Source s = sourceOf(in, result);
+    const FloatValue v = datumIn(in, result, *info);
+    Conversion c = conversionOf(*info, v, s.value);
+    const auto field = [&](const std::string& label) {
+        for (const ConversionField& f : c.fields)
+            if (f.label == label) return f.value;
+        return std::string();
+    };
+    switch (part) {
+    case Part::Bits: break;
+    case Part::Parts: {
+        const FloatBits b = inspectValue(*info, v).stored;
+        const std::string sign = b.negative ? "-" : "+";
+        if (b.valueClass == FloatClass::Zero) c.text = sign + " 0";
+        else if (b.valueClass == FloatClass::Normal || b.valueClass == FloatClass::Subnormal)
+            c.text = sign + " 2^" + std::to_string(b.exponent2) + " \xC3\x97 " + exactText(b.significand);
+        else c.text = field("class");
+        break;
+    }
+    case Part::Value: c.text = field("stored"); break;
+    case Part::Error: {
+        const std::string e = field("error");
+        c.text = e == "+0" || e == "-0" ? "0" : e;
+        break;
+    }
+    }
+    c.target = target.name;
+    result.conversion = c;
+    return std::nullopt;
+}
+
+std::optional<Error> floatBits(const TargetInput& in, Result& result) { return inspection(in, result, Part::Bits); }
+std::optional<Error> floatParts(const TargetInput& in, Result& result) { return inspection(in, result, Part::Parts); }
+std::optional<Error> floatValue(const TargetInput& in, Result& result) { return inspection(in, result, Part::Value); }
+std::optional<Error> floatError(const TargetInput& in, Result& result) { return inspection(in, result, Part::Error); }
 
 // More digits than this are not written out (an exact value's period, or a huge or tiny one's digits).
 constexpr std::size_t maxDigits = 20000;
@@ -276,6 +337,10 @@ const std::vector<Target>& targets() {
         {"fp512", "how the value is stored in binary512", toFormat},
         {"binary512", "how the value is stored in binary512", toFormat},
         {"bits", "how the value is stored in its own type", toBits},
+        {"floatBits", "the bits a format stores the value as", floatBits},
+        {"floatParts", "the sign, power of two and significand the value is stored as", floatParts},
+        {"floatValue", "the value a format stores, exactly", floatValue},
+        {"floatError", "the stored value minus the value, exactly", floatError},
         {"concise", "the value and its error or uncertainty as 1.23(4)", concise},
         {"\xC2\xB1", "the value \xC2\xB1 its error or uncertainty", plusMinus},
         {"pm", "the same as \xC2\xB1", plusMinus},

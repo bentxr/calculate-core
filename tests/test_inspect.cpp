@@ -295,3 +295,34 @@ TEST(FloatTargets, EveryFormatAndTheResultsOwn) {
     for (const auto& t : conversionTargets()) listed = listed || t.name == "fp32";
     EXPECT_TRUE(listed);
 }
+
+TEST(FloatFunctions, SpellingsOfTheTargets) {
+    EXPECT_EQ(evaluate("floatBits(0.1, fp32)").conversion->text, "0 01111011 10011001100110011001101");
+    EXPECT_EQ(evaluate("floatBits(0.1, fp32)").conversion->target, "floatBits");
+    EXPECT_EQ(evaluate("floatParts(0.1, fp32)").conversion->text, "+ 2^-4 × 1.60000002384185791015625");
+    EXPECT_EQ(evaluate("floatValue(0.1, fp16)").conversion->text, "0.0999755859375");
+    EXPECT_EQ(evaluate("floatError(52.345, fp32)").conversion->text, "+1.220703125e-6");
+    EXPECT_EQ(evaluate("floatError(0.1)").conversion->text, "+5.5511151231257827021181583404541015625e-18");
+    EXPECT_EQ(evaluate("floatBits(0.1)").conversion->text,
+              "0 01111111011 1001100110011001100110011001100110011001100110011010");
+    EXPECT_EQ(evaluate("0.1 to floatBits fp32").conversion->text, evaluate("floatBits(0.1, fp32)").conversion->text);
+}
+
+TEST(FloatFunctions, OnlyAroundTheWholeExpression) {
+    const Result r = evaluate("1 + floatBits(0.1)");
+    ASSERT_TRUE(r.error);
+    EXPECT_EQ(r.error->code, ErrorCode::UnexpectedToken);
+    EXPECT_EQ(r.error->message, "floatBits shows how a value is stored: write it around the whole expression");
+    EXPECT_EQ(evaluate("floatBits(0.1, fp33)").error->code, ErrorCode::UnknownName);
+    Options exact;
+    exact.type = NumberType::Exact;
+    EXPECT_EQ(evaluate("floatBits(1/3)", exact).error->code, ErrorCode::NotAvailableInExact);
+}
+
+TEST(FloatFunctions, AnsKeepsTheNumberNotTheInspection) {
+    Session s;
+    ASSERT_FALSE(s.evaluate("floatBits(0.1 + 0.2, fp32)").error);
+    const Result r = s.evaluate("Ans*2");
+    ASSERT_FALSE(r.error);
+    EXPECT_EQ(r.value.digits, "600000000000000088817841970012523233890533447265625");
+}

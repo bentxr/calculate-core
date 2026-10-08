@@ -148,7 +148,12 @@ Conversion conversionOf(const FloatFormatInfo& info, const FloatValue& v, const 
     if (finite && typed) {
         const Rational stored = v.negative ? Rational(-v.magnitude) : v.magnitude;
         const Digits error = digitsOf(terminatingDigits(stored - *typed));
-        c.fields.push_back({"error", (error.negative ? "-" : "+") + exactText(Digits{false, error.digits, error.exponent10})});
+        // an error is small: always d.ddd…e±N, so its size reads at a glance
+        std::string text = error.digits.substr(0, 1);
+        if (error.digits.size() > 1) text += "." + error.digits.substr(1);
+        if (error.digits != "0")
+            text += "e" + std::string(error.exponent10 < 0 ? "-" : "+") + std::to_string(error.exponent10 < 0 ? -error.exponent10 : error.exponent10);
+        c.fields.push_back({"error", (error.negative ? "-" : "+") + text});
     }
     if (finite) c.fields.push_back({"ulp", "2^" + std::to_string(i.ulpExponent)});
     if (i.hasNeighbours) {

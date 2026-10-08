@@ -410,6 +410,7 @@ public:
         out.ast = std::move(ast_);
         out.expanded = expandedText({start, peek().span.begin});
         out.warnings = warnings_;
+        out.target = inspection_;  // floatBits(x) and the like: x with a target, as `x to floatBits`
         return out;
     }
 
@@ -843,8 +844,35 @@ private:
         return read(total, std::string(kind == Range::Sum ? "Σ(" : "Π(") + body + "; " + fromReading + "; " + toReading + "; " + variable + ")");
     }
 
+    // floatBits(x[, format]) and its siblings: a target written as a call, so only around the whole expression. The
+    // expression is x; the target and its format are recorded as `x to floatBits fp32` records them.
+    int inspection(const Token& t) {
+        const std::string name(t.text);
+        const std::size_t open = position_;
+        const std::vector<TokenRange> parts = arguments(open);
+        if (parts.empty()) return fail(ErrorCode::MissingClosingParenthesis, "Missing ')'", {t.span.begin, tokens_.back().span.begin});
+        const std::size_t close = parts.back().end;  // the ')'
+        const Span span{t.span.begin, tokens_[close].span.end};
+        if (open != 1 || tokens_[close + 1].kind != TokenKind::End)
+            return fail(ErrorCode::UnexpectedToken, name + " shows how a value is stored: write it around the whole expression", span);
+        if (parts.size() > 2) return fail(ErrorCode::WrongArgumentCount, name + " takes a value and a format", span);
+        std::string format;
+        if (parts.size() == 2) {
+            const TokenRange& f = parts[1];
+            if (f.end != f.begin + 1 || tokens_[f.begin].kind != TokenKind::Identifier)
+                return fail(ErrorCode::UnexpectedToken, "the format is a name such as fp32", tokens_[f.begin].span);
+            format = std::string(tokens_[f.begin].text);
+        }
+        const int value = argument(parts[0]);
+        if (error_) return -1;
+        position_ = close + 1;
+        inspection_ = TargetText{name, format, span};
+        return value;
+    }
+
     int call(const Token& t) {
         if (const Range r = rangeNamed(std::string(t.text)); r != Range::None) return range(t, r);
+        if (t.text == "floatBits" || t.text == "floatParts" || t.text == "floatValue" || t.text == "floatError") return inspection(t);
         next();  // (
         std::vector<int> args;
         if (peek().kind != TokenKind::RightParen) {
@@ -999,6 +1027,7 @@ private:
     std::vector<Token> tokens_;
     const Options& options_;
     std::set<int> readNodes_;  // the numbers wrapped by read precision
+    std::optional<TargetText> inspection_;  // set by floatBits(…) and its siblings
     const Names& names_;
     Ast ast_;
     std::size_t position_ = 0;
@@ -1070,7 +1099,7 @@ Parsed parse(std::string_view source, const Options& options, const Names& names
                                                            : Parser(source, std::move(lexed.tokens), options, names).run();
     if (!out.error) {
         out.comment = comment;
-        out.target = target;
+        if (target) out.target = target;  // else what a floatBits(…) call recorded, if any
     }
     return out;
 }
