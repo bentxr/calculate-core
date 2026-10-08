@@ -48,7 +48,8 @@ std::string usage() {
            "  --help, --version\n"
            "\n"
            "Lines M+, M- and MC add Ans to, subtract it from, or clear the memory M.\n"
-           "An expression may end in 'to <target>' (to fraction: the exact stored value).\n";
+           "An expression may end in 'to <target>' (to fraction: the exact stored value).\n"
+           "'name := expression' stores an expression under a name.\n";
 }
 
 struct Settings {
@@ -140,6 +141,7 @@ void printJson(std::ostream& out, const std::string& input, const Result& r) {
         out << "]";
     }
     if (!r.comment.empty()) out << ",\"comment\":" << jsonString(r.comment);
+    if (!r.assigned.empty()) out << ",\"assigned\":" << jsonString(r.assigned);
     out << "}\n";
 }
 

@@ -183,3 +183,11 @@ TEST(Cli, NotesFollowTheReport) {
               std::string::npos);
     EXPECT_EQ(invoke({"--json", "1+1"}).out.find("warnings"), std::string::npos);  // only when there are some
 }
+
+TEST(Cli, AssignmentsLastForTheSession) {
+    const Outcome r = invoke({"--color", "never", "a := 2", "a*3"});
+    EXPECT_EQ(r.code, 0);
+    EXPECT_NE(r.out.find("a*3\n= 6\n"), std::string::npos);
+    EXPECT_NE(invoke({"--json", "a := 2"}).out.find(",\"assigned\":\"a\""), std::string::npos);
+    EXPECT_EQ(invoke({"pi := 3"}).err, "pi := 3\n^^ 'pi' is a reserved name\n");
+}
