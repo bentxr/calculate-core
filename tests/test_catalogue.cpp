@@ -538,3 +538,19 @@ TEST(Catalogue, ClipCountsBothSidesOfAReachableCorner) {
     EXPECT_GE(Ruler(std::stod(corner.bound)), (x + lo) * Ruler(0.95));  // two significant digits lose up to 5 %
     EXPECT_EQ(evaluate("clip(5, 0, 2)").bound, "0");
 }
+
+TEST(Catalogue, NumeratorAndDenominatorOfTheStoredValue) {
+    EXPECT_EQ(inType("numerator(-6/8)", NumberType::Exact).exact->numerator, "3");
+    EXPECT_TRUE(inType("numerator(-6/8)", NumberType::Exact).exact->negative);
+    EXPECT_EQ(inType("denominator(-6/8)", NumberType::Exact).exact->numerator, "4");
+    // 0.1 is not exactly known in double: refused, then shown as the fraction double really holds.
+    EXPECT_EQ(evaluate("numerator(0.1)").error->code, ErrorCode::UncertainDiscreteArgument);
+    Options allow;
+    allow.allowUncertainDiscreteArguments = true;
+    EXPECT_EQ(evaluate("numerator(0.1)", allow).value.digits, "3602879701896397");
+    const Result d = evaluate("denominator(0.1)", allow);
+    EXPECT_EQ(d.value.digits, "36028797018963968");
+    EXPECT_EQ(d.value.exponent10, 16);
+    EXPECT_EQ(evaluate("denominator(0.5)").value.digits, "2");  // exact input: no refusal
+    EXPECT_EQ(evaluate("denominator(1e-300)", allow).error->code, ErrorCode::Overflow);  // 2^1048 > max double
+}

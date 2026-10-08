@@ -46,7 +46,7 @@ Vocabulary vocabulary() {
                {"sq", 1}, {"sqrtpi", 1}, {"sec", 1}, {"csc", 1}, {"cot", 1}, {"sech", 1}, {"csch", 1},
                {"coth", 1}, {"asec", 1}, {"acsc", 1}, {"acot", 1}, {"arcsec", 1}, {"asech", 1}, {"acsch", 1},
                {"acoth", 1}, {"atan2", 2}, {"hypot", 2}, {"sinc", 1}, {"floor", 1}, {"ceil", 1}, {"trunc", 1}, {"int", 1}, {"round", 1}, {"frac", 1}, {"sgn", 1}, {"signo", 1}};
-    v.discrete = {{"gcd", 2}, {"lcm", 2}, {"nCr", 2}, {"nPr", 2}};
+    v.discrete = {{"gcd", 2}, {"lcm", 2}, {"nCr", 2}, {"nPr", 2}, {"numerator", 1}, {"denominator", 1}};
     v.calls.push_back({"clip", 3});
     return v;
 }

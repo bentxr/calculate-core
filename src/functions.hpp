@@ -98,6 +98,8 @@ inline const FunctionInfo& functionInfo(FunctionId id) {
         {F::Round, "round", 1, 1, C::Exact, K::Piecewise, true},
         {F::Sgn, "sgn", 1, 1, C::Exact, K::Piecewise, true},
         {F::Clip, "clip", 3, 3, C::Exact, K::Continuous, true},
+        {F::Numerator, "numerator", 1, 1, C::Exact, K::Discrete, true},
+        {F::Denominator, "denominator", 1, 1, C::Exact, K::Discrete, true},
         {F::Median, "median", 1, -1, C::Checked, K::Continuous, true},
     }};
     return table[static_cast<std::size_t>(id)];
@@ -529,6 +531,12 @@ Applied<T> applyFunction(FunctionId id, const std::vector<T>& a, const std::atom
         }
         break;
     case FunctionId::Sgn: r.value = a[0] > 0 ? T(1) : a[0] < 0 ? T(-1) : T(0); break;
+    case FunctionId::Numerator:  // of the fraction the type really holds (sign included)
+    case FunctionId::Denominator: {
+        const Rational q = toRational(a[0]);
+        r.value = fromRational<T>(Rational(id == FunctionId::Numerator ? numerator(q) : denominator(q)));
+        break;
+    }
     case FunctionId::Clip:  // (x, lo, hi)
         if (a[1] > a[2]) return impl::fail<T>(ErrorCode::DomainError);
         r.value = a[0] < a[1] ? a[1] : a[0] > a[2] ? a[2] : a[0];
