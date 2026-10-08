@@ -1138,3 +1138,24 @@ TEST(Bitwise, OnlyExactWholeNumbers) {
     EXPECT_EQ(evaluate("2^70 | 1", exact).exact->numerator, "1180591620717411303425");
     EXPECT_EQ(evaluate("2^60 | 1").roundingError, "1e+0");  // 2^60 + 1 rounds back to 2^60 in double
 }
+
+TEST(Bitwise, Shifts) {
+    EXPECT_EQ(evaluate("1 << 10").value.digits, "1024");
+    const Result r = evaluate("-5 >> 1");
+    EXPECT_TRUE(r.value.negative);
+    EXPECT_EQ(r.value.digits, "3");
+    EXPECT_EQ(evaluate("3 << 2 + 1").value.digits, "24");  // + first: 3 << 3
+    EXPECT_EQ(evaluate("1 << -1").error->code, ErrorCode::DomainError);
+    EXPECT_EQ(evaluate("3.5 << 1").error->code, ErrorCode::NotAnInteger);
+    EXPECT_EQ(evaluate("1 << 2000").error->code, ErrorCode::Overflow);
+}
+
+TEST(Bitwise, ShiftLimitsReadingAndMessages) {
+    EXPECT_EQ(evaluate("1 << 1048577").error->code, ErrorCode::ArgumentTooLarge);  // at most 2^20 places
+    Options exact;
+    exact.type = NumberType::Exact;
+    EXPECT_FALSE(evaluate("1 << 1048576 >> 1048576", exact).error);
+    EXPECT_EQ(evaluate("1 << 2 >> 1").reading, "((1 << 2) >> 1)");
+    EXPECT_EQ(evaluate("1 << 0.5").error->message, "<< needs a whole-number argument");
+    EXPECT_EQ(evaluate("1 >> 0.5").error->message, ">> needs a whole-number argument");
+}

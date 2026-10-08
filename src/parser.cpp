@@ -237,6 +237,11 @@ Lexed lex(std::string_view s) {
             if (out.error) return out;
             break;
         }
+        if (s.substr(i, 2) == "<<" || s.substr(i, 2) == ">>") {
+            push(c == '<' ? TokenKind::ShiftLeft : TokenKind::ShiftRight, i, i + 2);
+            i += 2;
+            continue;
+        }
         if (s.substr(i, 2) == "**") {  // another spelling of ^
             push(TokenKind::Caret, i, i + 2);
             i += 2;
@@ -342,6 +347,8 @@ int leftPower(TokenKind k) {
     case TokenKind::Pipe: return 4;  // the bitwise operators bind as in C: | below xor below & below + −
     case TokenKind::Xor: return 5;
     case TokenKind::Ampersand: return 6;
+    case TokenKind::ShiftLeft:
+    case TokenKind::ShiftRight: return 8;
     case TokenKind::Plus:
     case TokenKind::Minus: return 10;
     case TokenKind::Star:
@@ -525,6 +532,8 @@ private:
         case FunctionId::BitOr: return infix("|");
         case FunctionId::BitXor: return infix("xor");
         case FunctionId::BitNot: return "~" + arg(0);
+        case FunctionId::ShiftLeft: return infix("<<");
+        case FunctionId::ShiftRight: return infix(">>");
         default: {
             if (tableConstant(n.function)) return std::string(functionInfo(n.function).name);  // catalan, not catalan()
             std::string call = std::string(n.function == FunctionId::Log10 ? "log10" : functionInfo(n.function).name) + "(";
@@ -665,6 +674,8 @@ private:
                                 : op.kind == TokenKind::Ampersand ? FunctionId::BitAnd
                                 : op.kind == TokenKind::Pipe    ? FunctionId::BitOr
                                 : op.kind == TokenKind::Xor     ? FunctionId::BitXor
+                                : op.kind == TokenKind::ShiftLeft ? FunctionId::ShiftLeft
+                                : op.kind == TokenKind::ShiftRight ? FunctionId::ShiftRight
                                                                 : FunctionId::Power;
             left = node(id, {left, right}, {spanOf(left).begin, spanOf(right).end});
         }
