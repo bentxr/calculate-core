@@ -4,6 +4,7 @@
 #include "numbers.hpp"
 
 #include <array>
+#include <atomic>
 #include <cmath>
 #include <optional>
 #include <utility>
@@ -95,6 +96,10 @@ bool isOdd(const T& x) {
     using std::trunc;
     if (abs(x) >= ldexp(T(1), precisionBits<T>())) return false;
     return trunc(x / 2) * 2 != x;
+}
+
+inline bool cancelled(const std::atomic<bool>* cancel) {
+    return cancel && cancel->load(std::memory_order_relaxed);
 }
 
 }  // namespace impl

@@ -4,6 +4,7 @@
 
 #include <calculate-core/calculate-core.hpp>
 
+#include <atomic>
 #include <optional>
 #include <utility>
 #include <vector>
@@ -14,6 +15,8 @@ namespace impl {
 
 template <class T>
 int targetBits() { return 2 * precisionBits<T>() + 4; }  // the rule of negligible()
+
+constexpr int maxIterations = 1 << 20;  // beyond this a series or fraction gives up (ArgumentTooLarge)
 
 // Stirling's series is used from here up, where its terms keep shrinking long past the cut-off.
 template <class T>
@@ -328,6 +331,74 @@ std::pair<DoubleWord<T>, DoubleWord<T>> sinCosPi(const T& x) {
         c = -c;
     }
     return {s, c};
+}
+
+// P(a, x) (lower) or Q(a, x) = 1 - P for a > 0, x > 0: the series (DLMF 8.7.1 form) or Legendre's continued fraction
+// (DLMF 8.9.2, by Lentz), whichever converges fast; the other one is 1 minus it (Step 4: scale + 1).
+template <class T>
+Special<T> gammaPQ(const T& a, const T& x, bool lower, const std::atomic<bool>* cancel) {
+    using std::abs;
+    using std::ldexp;
+    Special<T> r;
+    const Special<T> lg = lgammaPositive(dw(a));
+    const DoubleWord<T> t = logWord(dw(x)) * a;
+    const DoubleWord<T> L = t - x - lg.value;  // ln(x^a e^-x / Gamma(a))
+    const T scaleL = abs(t.hi) + x + lg.scale;
+    const ExpParts<T> e = expParts(L);
+    const DoubleWord<T> front = e.overflow || e.underflow ? dw(T(0)) : expValue(e);
+    // The fraction converges slowly near x ~ a + 1 for small x: there the series also serves, Q being still above
+    // 2^(-p/4) so that 1 - P keeps 7p/4 bits.
+    const bool fraction = x >= a + 1 && x >= T(precisionBits<T>()) * impl::word<T>(ConstantId::Ln2).hi / 4;
+    DoubleWord<T> direct;
+    int n = 1;
+    const auto stop = [&]() -> bool {
+        if (n % 1024 == 0 && impl::cancelled(cancel)) {
+            r.error = ErrorCode::Cancelled;
+            return true;
+        }
+        if (n > impl::maxIterations) {
+            r.error = ErrorCode::ArgumentTooLarge;
+            return true;
+        }
+        return false;
+    };
+    if (!fraction) {  // x^a e^-x / Gamma(a + 1) sum x^k / ((a+1)…(a+k))
+        DoubleWord<T> term = dw(T(1)), sum = dw(T(1)), ak = dw(a);
+        for (;; ++n) {
+            if (stop()) return r;
+            ak = ak + T(1);
+            term = term * x / ak;
+            if (impl::negligible(term, sum)) break;
+            sum = sum + term;
+        }
+        direct = front * sum / a;
+    } else {
+        const DoubleWord<T> tiny = dw((std::numeric_limits<T>::min)());
+        DoubleWord<T> f = dw(x) + (T(1) - a), C = f, D = dw(T(0));
+        for (;; ++n) {
+            if (stop()) return r;
+            const DoubleWord<T> an = -(dw(T(n)) * (T(n) - a));
+            const DoubleWord<T> bn = dw(x) + (T(2 * n + 1) - a);
+            D = bn + an * D;
+            if (D.hi == 0) D = tiny;
+            D = dw(T(1)) / D;
+            C = bn + an / C;
+            if (C.hi == 0) C = tiny;
+            const DoubleWord<T> delta = C * D;
+            f = f * delta;
+            if (abs((delta - T(1)).hi) <= ldexp(T(1), -impl::targetBits<T>())) break;
+        }
+        direct = front / f;
+    }
+    const T s = abs(direct.hi) * (scaleL + T(n));
+    if (fraction != lower) {  // the direct one is the one asked for
+        r.value = direct;
+        r.scale = s;
+    } else {
+        r.value = dw(T(1)) - direct;
+        r.scale = s + 1;
+    }
+    return r;
 }
 
 }  // namespace calculate_core::detail

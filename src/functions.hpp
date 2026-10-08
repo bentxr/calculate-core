@@ -110,6 +110,8 @@ inline const FunctionInfo& functionInfo(FunctionId id) {
         {F::Erfc, "erfc", 1, 1, C::Library, K::Continuous, false},
         {F::Erfinv, "erfinv", 1, 1, C::Library, K::Continuous, false},
         {F::Erfcinv, "erfcinv", 1, 1, C::Library, K::Continuous, false},
+        {F::GammaP, "gammap", 2, 2, C::Library, K::Continuous, false},
+        {F::GammaQ, "gammaq", 2, 2, C::Library, K::Continuous, false},
         {F::Median, "median", 1, -1, C::Checked, K::Continuous, true},
     }};
     return table[static_cast<std::size_t>(id)];
@@ -138,7 +140,7 @@ inline std::string errorMessage(ErrorCode code, std::string_view name) {
     case ErrorCode::NotAvailableInExact: return n + " is not available in exact arithmetic: its result is irrational";
     case ErrorCode::DomainError: return n + " is not defined for this argument";
     case ErrorCode::IrrationalResult: return "The exact result of " + n + " is irrational";
-    case ErrorCode::ArgumentTooLarge: return "The argument of " + n + " is too large to reduce accurately";
+    case ErrorCode::ArgumentTooLarge: return "The arguments of " + n + " are too large to compute accurately";
     case ErrorCode::NotAnInteger: return n + " needs a whole-number argument" + (n == "!" ? "; for other values use gamma(x + 1)" : "");
     case ErrorCode::UncertainDiscreteArgument: return n + " needs an exactly known argument";
     case ErrorCode::ArgumentNearJump: return n + " jumps within the error of its arguments";
@@ -181,9 +183,6 @@ T withSign(const T& v, bool negative) {
     return negative ? T(-v) : v;
 }
 
-inline bool cancelled(const std::atomic<bool>* cancel) {
-    return cancel && cancel->load(std::memory_order_relaxed);
-}
 
 // gcd, lcm, n!, nCr, nPr. gcd and lcm are exact through integers; the products count the
 // multiplications and divisions that may have rounded (those past 2^p) for inexact T.
@@ -517,6 +516,12 @@ Applied<T> specialFunction(FunctionId id, const std::vector<T>& a, [[maybe_unuse
         const DoubleWord<T> c = small ? dw(T(1)) - erfSeries(ax) : erfcFraction(ax);
         return ok<T>(toValue(x < 0 ? dw(T(2)) - c : c));
     }
+    case FunctionId::GammaP:
+    case FunctionId::GammaQ:
+        if (a[0] <= 0 || a[1] < 0) return fail<T>(ErrorCode::DomainError);
+        if (a[1] == 0) return ok<T>(id == FunctionId::GammaP ? T(0) : T(1));
+        s = gammaPQ(a[0], a[1], id == FunctionId::GammaP, cancel);
+        break;
     case FunctionId::Erfinv: {
         using std::abs;
         if (abs(x) >= 1) return fail<T>(ErrorCode::DomainError);

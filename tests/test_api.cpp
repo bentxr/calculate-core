@@ -335,7 +335,7 @@ TEST(Api, AnArgumentTooLargeToReduceIsAnError) {
     const Result r = evaluate("sin(1e4000)", as(NumberType::Binary128));
     ASSERT_TRUE(r.error);
     EXPECT_EQ(r.error->code, ErrorCode::ArgumentTooLarge);
-    EXPECT_EQ(r.error->message, "The argument of sin is too large to reduce accurately");
+    EXPECT_EQ(r.error->message, "The arguments of sin are too large to compute accurately");
 }
 
 TEST(Api, SemicolonsInCalls) {

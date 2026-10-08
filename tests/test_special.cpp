@@ -3,6 +3,8 @@
 
 #include <calculate-core/calculate-core.hpp>
 
+#include <atomic>
+
 using namespace calculate_core;
 using namespace calculate_core::detail;
 using std::ldexp;
@@ -234,4 +236,28 @@ TEST(SpecialPartials, InverseErrorFunctions) {
         const O expected = (test::specialOracle<O>(id, {O(0.3) + h}) - test::specialOracle<O>(id, {O(0.3) - h})) / (2 * h);
         EXPECT_LE(abs(exactCast<O>(d[0]) - expected), ldexp(O(1), -200) * (abs(expected) + 1)) << static_cast<int>(id);
     }
+}
+
+TYPED_TEST(SpecialKernelTest, RegularizedIncompleteGamma) {
+    using T = TypeParam;
+    for (FunctionId id : {FunctionId::GammaP, FunctionId::GammaQ}) {
+        test::expectSpecialWithinClaim<T>(id, [](auto& rng) { return std::vector<T>{uniform<T>(rng, 0.05, 20), uniform<T>(rng, 0, 30)}; });
+        test::expectSpecialWithinClaim<T>(id, [](auto& rng) { return std::vector<T>{logUniform<T>(rng, -20, -10), uniform<T>(rng, 0, 2)}; });
+        test::expectSpecialWithinClaim<T>(id, [](auto& rng) {
+            const T a = uniform<T>(rng, 500, 1500);
+            return std::vector<T>{a, T(a * uniform<T>(rng, 0.9, 1.1))};
+        });
+    }
+    test::expectSpecialWithinClaim<T>(FunctionId::GammaQ, [](auto& rng) { return std::vector<T>{uniform<T>(rng, 1, 3), uniform<T>(rng, 50, 80)}; });
+    EXPECT_EQ(applyFunction<T>(FunctionId::GammaP, {T(2), T(0)}).value, T(0));
+    EXPECT_EQ(applyFunction<T>(FunctionId::GammaQ, {T(2), T(0)}).value, T(1));
+    for (const auto& [a, x] : {std::pair<T, T>{T(0), T(1)}, {T(-1), T(1)}, {T(1), T(-1)}})
+        EXPECT_EQ(applyFunction<T>(FunctionId::GammaP, {a, x}).error.value_or(ErrorCode::Cancelled), ErrorCode::DomainError);
+}
+
+TEST(Special, IncompleteGammaCanBeCancelledAndHasACeiling) {
+    std::atomic<bool> cancel{true};
+    EXPECT_EQ(applyFunction<double>(FunctionId::GammaP, {1e9, 1e9}, &cancel).error.value_or(ErrorCode::Overflow), ErrorCode::Cancelled);
+    EXPECT_EQ(applyFunction<double>(FunctionId::GammaP, {1e15, 1e15}).error.value_or(ErrorCode::Overflow), ErrorCode::ArgumentTooLarge);
+    EXPECT_EQ(evaluate("gammap(1e15, 1e15)").error->message, "The arguments of gammap are too large to compute accurately");
 }
