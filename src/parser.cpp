@@ -19,6 +19,37 @@ namespace {
 
 // Own ASCII classification: <cctype> depends on the locale and misbehaves on negative char.
 bool isDigit(char c) { return c >= '0' && c <= '9'; }
+
+// Where a number in a base that starts at i ends: 0x, 0b or 0o, digits of that base with an optional point, then an
+// optional power of two (p, a sign, decimal digits). i itself when no digit of the base follows the prefix.
+std::size_t baseLiteralEnd(std::string_view s, std::size_t i) {
+    if (i + 1 >= s.size() || s[i] != '0') return i;
+    const char prefix = static_cast<char>(s[i + 1] | 0x20);
+    const int base = prefix == 'x' ? 16 : prefix == 'b' ? 2 : prefix == 'o' ? 8 : 0;
+    const auto digit = [base](std::size_t k, std::string_view t) {
+        if (k >= t.size()) return false;
+        const char c = static_cast<char>(t[k] | 0x20);
+        return base == 16 ? std::isxdigit(static_cast<unsigned char>(t[k])) != 0 : t[k] >= '0' && c < '0' + base;
+    };
+    std::size_t j = i + 2;
+    const std::size_t first = j;
+    while (digit(j, s)) ++j;
+    std::size_t digits = j - first;
+    if (j < s.size() && s[j] == '.') {
+        const std::size_t point = ++j;
+        while (digit(j, s)) ++j;
+        digits += j - point;
+    }
+    if (base == 0 || digits == 0) return i;
+    if (j < s.size() && (s[j] == 'p' || s[j] == 'P')) {  // a power of two only if digits follow
+        std::size_t k = j + 1;
+        if (k < s.size() && (s[k] == '+' || s[k] == '-')) ++k;
+        else if (s.substr(k, 3) == "\xE2\x88\x92") k += 3;  // −, the calculator's minus
+        if (k < s.size() && isDigit(s[k]))
+            for (j = k; j < s.size() && isDigit(s[j]);) ++j;
+    }
+    return j;
+}
 bool isLetter(char c) { return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_'; }
 
 // A part of a whole, written with a postfix sign: %, ‰, ‱.
@@ -162,16 +193,10 @@ Lexed lex(std::string_view s) {
             stop = i;
             break;
         }
-        if (c == '0' && i + 2 < s.size() && (s[i + 1] == 'x' || s[i + 1] == 'X' || s[i + 1] == 'b' || s[i + 1] == 'B')) {
-            // a bit pattern, 0x… or 0b…: one token (fromBits reads it; a plain number it is not)
-            const bool hex = s[i + 1] == 'x' || s[i + 1] == 'X';
-            const auto digit = [hex](char d) { return hex ? std::isxdigit(static_cast<unsigned char>(d)) != 0 : d == '0' || d == '1'; };
-            if (digit(s[i + 2])) {
-                const std::size_t begin = i;
-                for (i += 2; i < s.size() && digit(s[i]);) ++i;
-                push(TokenKind::Number, begin, i);
-                continue;
-            }
+        if (const std::size_t end = baseLiteralEnd(s, i); end != i) {  // 0x…, 0b…, 0o…: one number token
+            push(TokenKind::Number, i, end);
+            i = end;
+            continue;
         }
         if (isDigit(c) || (c == '.' && i + 1 < s.size() && isDigit(s[i + 1]))) {
             const std::size_t begin = i;
@@ -513,7 +538,8 @@ private:
     // Read precision: a typed number (with a point, or any under All) carries half a unit of its last digit, 1.1 → 1.1 ± 0.05.
     int readWithPrecision(int literal, const Token& t) {
         const ReadPrecision mode = options_.readPrecision;
-        if (mode == ReadPrecision::Off || (mode == ReadPrecision::Decimals && t.text.find('.') == std::string_view::npos))
+        if (mode == ReadPrecision::Off || (mode == ReadPrecision::Decimals && t.text.find('.') == std::string_view::npos)
+            || parseBaseLiteral(t.text))  // a number in a base is exact, as its bits are
             return literal;
         const long long e = parseDecimal(t.text)->exponent10;
         const int half = node(FunctionId::Literal, {}, t.span, "5e" + std::to_string(e - 1));
@@ -627,7 +653,7 @@ private:
         const Token t = next();
         switch (t.kind) {
         case TokenKind::Number:
-            if (!parseDecimal(t.text)) return fail(ErrorCode::InvalidNumber, "Invalid number '" + std::string(t.text) + "'", t.span);
+            if (!parseDecimal(t.text) && !parseBaseLiteral(t.text)) return fail(ErrorCode::InvalidNumber, "Invalid number '" + std::string(t.text) + "'", t.span);
             return readWithPrecision(node(FunctionId::Literal, {}, t.span, std::string(t.text)), t);
         case TokenKind::Pi: return node(FunctionId::Pi, {}, t.span);
         case TokenKind::Minus:

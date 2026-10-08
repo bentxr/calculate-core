@@ -1073,3 +1073,27 @@ TEST(Api, TheInspectionFunctionsAreListed) {
         EXPECT_TRUE(found->exact) << name;
     }
 }
+
+TEST(Api, BaseLiteralsInEveryType) {
+    EXPECT_EQ(evaluate("0xFF + 0b1").value.digits, "256");
+    EXPECT_EQ(evaluate("0o17 * 0b10").value.digits, "3");
+    EXPECT_EQ(evaluate("0o17 * 0b10").value.exponent10, 1);
+    EXPECT_EQ(evaluate("0x1p-1074").stored->stored.hex, "0000000000000001");
+    EXPECT_EQ(evaluate("0x20000000000001").inputError, "1e+0");  // 2^53 + 1 is not a double
+    Options exact;
+    exact.type = NumberType::Exact;
+    EXPECT_EQ(evaluate("0x1.8p3", exact).exact->numerator, "12");
+    EXPECT_EQ(evaluate("0x1p99999").error->code, ErrorCode::LiteralOutOfRange);
+}
+
+// A number in a base is exact, as its bits are: read precision leaves it alone, and a format conversion rounds its
+// exact value once (through a double, 1 + 2^-11 + 2^-54 would land on a tie and round down).
+TEST(Api, BaseLiteralsAreExact) {
+    Options o;
+    o.readPrecision = ReadPrecision::Decimals;
+    const Result r = evaluate("0x1.8 * 1.5", o);
+    ASSERT_EQ(r.uncertainInputs.size(), 1u);
+    EXPECT_EQ(r.uncertainInputs[0].name, "1.5");
+    EXPECT_EQ(evaluate("0x1.00200000000001p0 to fp16").conversion->fields[0].value, "0x3C01");
+    EXPECT_EQ(evaluate("0x1p−3").value.digits, "125");  // the calculator's minus
+}

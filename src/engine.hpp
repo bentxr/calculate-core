@@ -171,7 +171,7 @@ std::vector<Ruler> localErrors(const Ast& ast, const Forward<T>& fw) {
         if (node.function == FunctionId::FloatFromBits) {
             locals[i] = rulerDistance(fromBitsValue(node), toRational(fw.values[i]));
         } else if (node.function == FunctionId::Literal) {
-            locals[i] = rulerDistance(toRational(*parseDecimal(node.text)), toRational(fw.values[i]));
+            locals[i] = rulerDistance(literalRational(node.text), toRational(fw.values[i]));
         } else if (const auto c = tableConstant(node.function)) {
             locals[i] = fromRational<Ruler>(abs(constantRational(*c) - toRational(fw.values[i])));
         } else {
@@ -252,12 +252,10 @@ Forward<T> forward(const Ast& ast, const std::atomic<bool>* cancel = nullptr, co
             continue;
         }
         if (node.function == FunctionId::Literal) {
-            // An exact literal beyond 10^±1000000 cannot be materialized in reasonable time or memory.
-            const auto literal = parseDecimal(node.text);
-            const bool outOfRange = !literal || (isExact<T> && (literal->exponent10 > exactDigitsLimit
-                                                                || literal->exponent10 < -exactDigitsLimit));
-            if (!outOfRange) fw.values[i] = decimalTo<T>(*literal);
-            if (outOfRange || !isFinite(fw.values[i])) {
+            // An exact literal beyond 10^±1000000 (2^±1000000) cannot be materialized in reasonable time or memory.
+            const std::optional<T> literal = literalTo<T>(node.text);
+            if (literal) fw.values[i] = *literal;
+            if (!literal || !isFinite(fw.values[i])) {
                 fw.error = impl::nodeError(node, ErrorCode::LiteralOutOfRange,
                                            errorMessage(ErrorCode::LiteralOutOfRange, ""));
                 return fw;

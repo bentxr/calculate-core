@@ -350,7 +350,7 @@ TEST(FloatFunctions, FromBitsRefusesWhatIsNotAFiniteNumber) {
     Options exact;
     exact.type = NumberType::Exact;
     EXPECT_EQ(evaluate("fromBits(0x3DCCCCCD)", exact).error->code, ErrorCode::NotAvailableInExact);
-    EXPECT_EQ(evaluate("0x10").error->code, ErrorCode::InvalidNumber);  // base literals elsewhere: Part D
+    EXPECT_EQ(evaluate("0x10").value.digits, "16");
 }
 
 TEST(FloatFunctions, FromBitsIsReadWhereverItStands) {

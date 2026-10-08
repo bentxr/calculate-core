@@ -51,9 +51,9 @@ Source sourceOf(const TargetInput& in, const Result& result) {
     const bool literal = nodes.size() == 1 && nodes[0].function == FunctionId::Literal;
     const bool negated = nodes.size() == 2 && nodes[0].function == FunctionId::Literal && nodes[1].function == FunctionId::Negate;
     if (literal || negated) {
-        s.literal = parseDecimal(nodes[0].text);
+        s.literal = parseDecimal(nodes[0].text);  // a base literal is exact: rounded from its value
         s.negative = negated;
-        const Rational q = toRational(*s.literal);
+        const Rational q = literalRational(nodes[0].text);
         s.value = negated ? Rational(-q) : q;
         return s;
     }

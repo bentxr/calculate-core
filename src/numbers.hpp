@@ -387,6 +387,45 @@ T decimalTo(const DecimalLiteral& d) {
     }
 }
 
+// Exact. Precondition: |exponent2| <= 10^6, like a decimal literal's exponent.
+inline Rational toRational(const BaseLiteral& b) {
+    const long long e = b.exponent2;
+    const Integer power = Integer(1) << static_cast<unsigned>(e < 0 ? -e : e);
+    return e < 0 ? Rational(b.significand, power) : Rational(b.significand * power);
+}
+
+// The literal correctly rounded into T (exact for Rational): beyond T's largest binary exponent it is infinity,
+// below half its smallest positive value 0, decided without building the number.
+template <class T>
+T baseTo(const BaseLiteral& b) {
+    if constexpr (isExact<T>) {
+        return toRational(b);
+    } else {
+        if (b.significand == 0) return T(0);
+        const long long top = b.exponent2 + static_cast<long long>(msb(b.significand));
+        const long long smallest = hasSubnormals<T>() ? minExponent<T>() - precisionBits<T>() + 1 : minExponent<T>();
+        if (top > maxExponent<T>()) return std::numeric_limits<T>::infinity();
+        if (top < smallest - 1) return T(0);
+        return fromRational<T>(toRational(b));
+    }
+}
+
+// A typed number's text, decimal or in a base, in T; empty when it is no number or too large to build exactly.
+template <class T>
+std::optional<T> literalTo(std::string_view text) {
+    const auto tooLarge = [](long long exponent) { return isExact<T> && (exponent > exactDigitsLimit || exponent < -exactDigitsLimit); };
+    if (const auto b = parseBaseLiteral(text)) {
+        if (tooLarge(b->exponent2)) return std::nullopt;
+        return baseTo<T>(*b);
+    }
+    const auto d = parseDecimal(text);
+    if (!d || tooLarge(d->exponent10)) return std::nullopt;
+    return decimalTo<T>(*d);
+}
+
+// The exact value of a typed number's text. Precondition: literalTo<Rational>(text) is not empty.
+inline Rational literalRational(std::string_view text) { return *literalTo<Rational>(text); }
+
 // 10^n in the ruler, by binary powering.
 inline Ruler powerOfTen(long long n) {
     Ruler result = 1;
