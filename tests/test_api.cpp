@@ -723,3 +723,16 @@ TEST(Api, AnExactPeriodStartsAsEarlyAsItCan) {
     EXPECT_EQ(evaluate("1/13 to sci", as(NumberType::Exact)).conversion->text, "7.(692307)e-2");  // rotated from 0.(076923)
     EXPECT_EQ(evaluate("1/7 to eng", as(NumberType::Exact)).conversion->text, "142.(857142)e-3");
 }
+
+TEST(Api, MixedNumbersAndPercentages) {
+    EXPECT_EQ(evaluate("7/3 to mixed", as(NumberType::Exact)).conversion->text, "2 + 1/3");
+    EXPECT_EQ(evaluate("-7/3 to mixed", as(NumberType::Exact)).conversion->text, "-(2 + 1/3)");
+    EXPECT_EQ(evaluate("1/3 to mixed", as(NumberType::Exact)).conversion->text, "1/3");
+    EXPECT_EQ(evaluate("6 to mixed", as(NumberType::Exact)).conversion->text, "6");
+    EXPECT_EQ(evaluate("2.7 to mixed").conversion->text, "2 + 788129934789837/1125899906842624");  // the stored value
+    EXPECT_EQ(evaluate("0.125 to percent").conversion->text, "12.5%");
+    const Result tenth = evaluate("0.1 to percent");
+    EXPECT_EQ(tenth.conversion->text, "10.00000000000000|055511151231257827021181583404541015625%");
+    EXPECT_EQ(tenth.conversion->parts->suffix, "%");
+    EXPECT_EQ(evaluate("1/3 to percent", as(NumberType::Exact)).conversion->text, "33.(3)%");
+}

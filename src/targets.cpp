@@ -95,6 +95,40 @@ std::optional<Error> notation(const TargetInput& in, Result& result, Notation n)
     return std::nullopt;
 }
 
+// A whole number and a fraction: 2 + 1/3, with the sign outside, -(2 + 1/3).
+std::optional<Error> mixed(const TargetInput& in, Result& result) {
+    const TargetText& target = *in.parsed.target;
+    if (!target.argument.empty())
+        return Error{ErrorCode::UnexpectedToken, "mixed takes nothing after it", target.span.begin, target.span.end};
+    const Rational q = abs(in.value);
+    const Integer whole = numerator(q) / denominator(q);
+    const Rational rest = q - Rational(whole);
+    const std::string fractionText = numerator(rest).str() + "/" + denominator(rest).str();
+    std::string text = rest == 0 ? whole.str() : whole == 0 ? fractionText : whole.str() + " + " + fractionText;
+    if (in.value < 0) text = whole != 0 && rest != 0 ? "-(" + text + ")" : "-" + text;
+    result.conversion = Conversion{"mixed", text, std::nullopt};
+    return std::nullopt;
+}
+
+// The value × 100 with every digit and %: the scaling moves the point, not the trust.
+std::optional<Error> percent(const TargetInput& in, Result& result) {
+    const TargetText& target = *in.parsed.target;
+    if (!target.argument.empty())
+        return Error{ErrorCode::UnexpectedToken, "percent takes nothing after it", target.span.begin, target.span.end};
+    const Rational scaled = in.value * 100;
+    NumberParts parts;
+    if (in.options.type == NumberType::Exact) {
+        const std::optional<NumberParts> exact = exactParts(scaled, Notation::Positional);
+        if (!exact) return Error{ErrorCode::UnexpectedToken, "too many digits to write out: use to fraction", target.span.begin, target.span.end};
+        parts = *exact;
+    } else {
+        parts = formatParts(exactDigits(scaled), result.trustedDigits, Notation::Positional);
+    }
+    parts.suffix = "%";
+    result.conversion = Conversion{"percent", joined(parts), parts};
+    return std::nullopt;
+}
+
 std::optional<Error> scientific(const TargetInput& in, Result& result) { return notation(in, result, Notation::Scientific); }
 std::optional<Error> engineering(const TargetInput& in, Result& result) { return notation(in, result, Notation::Engineering); }
 std::optional<Error> positional(const TargetInput& in, Result& result) { return notation(in, result, Notation::Positional); }
@@ -107,6 +141,8 @@ const std::vector<Target>& targets() {
         {"sci", "every digit, in scientific notation", scientific},
         {"eng", "every digit, with an exponent that is a multiple of 3", engineering},
         {"simple", "every digit, without an exponent", positional},
+        {"mixed", "the stored value as a whole number and a fraction", mixed},
+        {"percent", "the value × 100, every digit, with %", percent},
     };
     return list;
 }
