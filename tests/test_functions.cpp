@@ -685,3 +685,13 @@ TEST(Slopes, HyperbolicCosecantDominatesItsDerivative) {
         expectSlopesDominate(c.id, c.point, c.radius);
     EXPECT_FALSE(isFinite(slopes(FunctionId::Csch, {Ruler(0.1)}, {Ruler(0.2)})[0]));  // the interval reaches 0
 }
+
+TEST(Partials, InverseCotangent) {
+    using O = test::Oracle;
+    for (double point : {1.7, -2.5, 0.3}) {
+        const Ruler x(point);
+        const std::vector<Ruler> d = partials<Ruler>(FunctionId::Acot, {x}, applyFunction<Ruler>(FunctionId::Acot, {x}).value);
+        const O expected = centralDifference(FunctionId::Acot, {O(point)}, 0);
+        EXPECT_LE(abs(exactCast<O>(d[0]) - expected), ldexp(O(1), -200) * (abs(expected) + 1)) << point;
+    }
+}

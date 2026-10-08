@@ -36,6 +36,17 @@ inline Ruler times(const Ruler& a, const Ruler& b) {
     return a == 0 || b == 0 ? Ruler(0) : Ruler(a * b);
 }
 
+// Whether an argument's error could carry x across a place where a one-argument piecewise function jumps.
+// To first order the nearest jump is enough.
+inline bool nearJumpOne(FunctionId id, const Rational& x, const Ruler& bound) {
+    Rational jump;
+    switch (id) {
+    case FunctionId::Acot: jump = 0; break;
+    default: return false;
+    }
+    return fromRational<Ruler>(abs(x - jump)) <= bound;
+}
+
 // The Ruler rounds to nearest, so a bound whose parts are all exact (and so equal to the true error) can come out a
 // few ulps low: a point exactly at the end of the error interval must still count as reached. 2^-900 is far above
 // those ulps and far below anything a bound means (the tests allow the same).
@@ -423,6 +434,18 @@ Evaluation<T> evaluate(const Ast& ast, const Options& options = {}) {
         const FunctionInfo& info = functionInfo(node.function);
         if (info.continuity == Continuity::Continuous) continue;
         const std::string name = nameOf(node);
+        if (info.continuity == Continuity::Piecewise && node.args.size() == 1) {
+            const Ruler& bx = bounds[node.args[0]];
+            if (bx == 0 || !impl::nearJumpOne(node.function, toRational(fw.values[node.args[0]]), bx)) continue;
+            if (!options.allowUncertainDiscreteArguments) {
+                ev.error = impl::nodeError(node, ErrorCode::ArgumentNearJump,
+                                           name + " jumps within the error of its argument; its argument carries an error of up to "
+                                               + formatScientific(bx));
+                return ev;
+            }
+            r.boundComplete = false;
+            continue;
+        }
         if (info.continuity == Continuity::Piecewise) {
             const Ruler& bx = bounds[node.args[0]];
             const Ruler& by = bounds[node.args[1]];

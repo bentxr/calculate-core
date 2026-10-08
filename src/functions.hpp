@@ -89,6 +89,7 @@ inline const FunctionInfo& functionInfo(FunctionId id) {
         {F::Ncr, "nCr", 2, 2, C::Counted, K::Discrete, true},
         {F::Npr, "nPr", 2, 2, C::Counted, K::Discrete, true},
         {F::Csch, "csch", 1, 1, C::Library, K::Continuous, false},
+        {F::Acot, "acot", 1, 1, C::Library, K::Piecewise, false},
         {F::Median, "median", 1, -1, C::Checked, K::Continuous, true},
     }};
     return table[static_cast<std::size_t>(id)];
@@ -422,6 +423,9 @@ Applied<T> kernel(FunctionId id, const std::vector<T>& a) {
         const DoubleWord<T> t = dw(x) - T(1);
         return ok<T>(toValue(logWord(t + sqrt(t * (t + T(2))) + T(1))));
     }
+    case FunctionId::Acot:  // odd, (−π/2, π/2], π/2 at 0 (DLMF 4.23.9 elsewhere)
+        if (x == 0) return ok<T>(toValue(impl::halfPi<T>()));
+        return ok<T>(toValue(atanWord(dw(T(1)) / x)));
     case FunctionId::Csch: {  // 1/sinh would overflow where csch is representable: 2e^-|x| beyond the large branch
         using std::abs;
         if (x == 0) return fail<T>(ErrorCode::DomainError);
@@ -560,6 +564,7 @@ std::vector<R> partials(FunctionId id, const std::vector<R>& a, const R& v) {
     case FunctionId::Acosh: return {x == 1 ? inf : R(R(1) / sqrt(x * x - 1))};
     case FunctionId::Atanh: return {R(1) / (R(1) - x * x)};
     case FunctionId::Csch: return {-v * f(FunctionId::Cosh, x) / f(FunctionId::Sinh, x)};
+    case FunctionId::Acot: return {R(-1) / (R(1) + x * x)};
     case FunctionId::Abs: return {x < 0 ? R(-1) : R(1)};
     case FunctionId::Rem: return {R(1), R(-trunc(a[0] / a[1]))};
     case FunctionId::FloorMod: {
@@ -723,7 +728,8 @@ inline Ruler functionSlope(FunctionId id, const Ruler& x, const Ruler& b) {
     }
     case FunctionId::Asin:
     case FunctionId::Acos: return far < 1 ? Ruler(1 / sqrt(1 - far * far)) : inf;
-    case FunctionId::Atan: return 1 / (1 + near * near);
+    case FunctionId::Atan:
+    case FunctionId::Acot: return 1 / (1 + near * near);  // between the jumps (the jump at 0 is checked apart)
     case FunctionId::Sinh: return f(FunctionId::Cosh, far);
     case FunctionId::Cosh: return f(FunctionId::Sinh, far);
     case FunctionId::Tanh: {  // 1 - tanh^2, written 1 / cosh^2 to keep its precision when it is tiny
@@ -801,7 +807,8 @@ inline std::vector<Ruler> slopes(FunctionId id, const std::vector<Ruler>& a, con
     case FunctionId::Asinh:
     case FunctionId::Acosh:
     case FunctionId::Atanh:
-    case FunctionId::Csch: return {impl::functionSlope(id, a[0], b[0])};
+    case FunctionId::Csch:
+    case FunctionId::Acot: return {impl::functionSlope(id, a[0], b[0])};
     default: return std::vector<Ruler>(a.size(), Ruler(0));  // discrete functions: uncertain arguments are refused
     }
 }

@@ -224,3 +224,32 @@ TYPED_TEST(CatalogueKernelTest, HyperbolicReciprocals) {
     expectBoundCoversOracle<T>("sech", [](const O& x) { return O(1 / cosh(x)); }, sample);
     expectBoundCoversOracle<T>("coth", [](const O& x) { return O(cosh(x) / sinh(x)); }, sample);
 }
+
+TEST(Catalogue, InverseSecantAndCosecantAreWrittenWithTheFunctionsWeHave) {
+    EXPECT_EQ(tree("asec(2)"), "(acos (/ 1 2))");
+    EXPECT_EQ(tree("acsc(2)"), "(asin (/ 1 2))");
+    EXPECT_EQ(tree("asec(2)", AngleUnit::Degrees), "(* (acos (/ 1 2)) (/ 180 pi))");
+    EXPECT_EQ(tree("arcsec(2)"), tree("asec(2)"));
+    EXPECT_EQ(tree("arccsc(2)"), tree("acsc(2)"));
+    EXPECT_EQ(tree("arccot(2)"), "(acot 2)");
+    EXPECT_EQ(evaluate("asec(0.5)").error->message, "asec is not defined for this argument");
+    EXPECT_EQ(evaluate("acsc(0)").error->message, "acsc is not defined for this argument");
+    EXPECT_EQ(evaluate("arcsec(0.5)").error->message, "arcsec is not defined for this argument");
+}
+
+TEST(Catalogue, TheInverseCotangentJumpsAtZero) {
+    EXPECT_EQ(evaluate("acot(0.1+0.2-0.3)").error->code, ErrorCode::ArgumentNearJump);
+    EXPECT_FALSE(evaluate("acot(0)").error);    // exactly 0: π/2
+    EXPECT_FALSE(evaluate("acot(0.3)").error);  // far from it
+}
+
+TYPED_TEST(CatalogueKernelTest, InverseReciprocalTrigonometry) {
+    using T = TypeParam;
+    using O = test::Oracle;
+    test::expectWithinClaim<T>(FunctionId::Acot, [](auto& rng) { return std::pair<T, T>{randomSign(rng, logUniform<T>(rng, -30, 30)), T(0)}; });
+    EXPECT_EQ(applyFunction<T>(FunctionId::Acot, {T(0)}).value, constantValue<T>(ConstantId::Pi) / 2);
+    EXPECT_EQ(applyFunction<T>(FunctionId::Acot, {T(-2)}).value, -applyFunction<T>(FunctionId::Acot, {T(2)}).value);  // odd
+    const auto outside = [](std::mt19937_64& rng) { return randomSign(rng, T(T(1) + logUniform<T>(rng, -40, 30))); };
+    expectBoundCoversOracle<T>("asec", [](const O& x) { return O(acos(1 / x)); }, outside);
+    expectBoundCoversOracle<T>("acsc", [](const O& x) { return O(asin(1 / x)); }, outside);
+}

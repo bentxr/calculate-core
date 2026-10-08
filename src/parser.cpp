@@ -204,12 +204,13 @@ Statistic statisticNamed(std::string_view name) {
 // Spanish names of functions, in lowercase like every other name, and the function each one stands for.
 // Other spellings of functions: Spanish calculator names and common variants. They name the function
 // itself, so a convention that changes what `log` means leaves `log10` alone.
-constexpr std::array<std::pair<std::string_view, FunctionId>, 15> functionAliases{{
+constexpr std::array<std::pair<std::string_view, FunctionId>, 16> functionAliases{{
     {"sen", FunctionId::Sin}, {"arcsen", FunctionId::Asin}, {"arccos", FunctionId::Acos},
     {"arctan", FunctionId::Atan}, {"senh", FunctionId::Sinh}, {"arcsenh", FunctionId::Asinh},
     {"arccosh", FunctionId::Acosh}, {"arctanh", FunctionId::Atanh}, {"mcd", FunctionId::Gcd},
     {"mcm", FunctionId::Lcm}, {"log10", FunctionId::Log10}, {"arcsin", FunctionId::Asin},
     {"arsinh", FunctionId::Asinh}, {"arcosh", FunctionId::Acosh}, {"artanh", FunctionId::Atanh},
+    {"arccot", FunctionId::Acot},
 }};
 
 // The function with this name (pi and e are constants, not functions).
@@ -252,13 +253,15 @@ int leftPower(TokenKind k) {
 // returns -1 and nothing else is parsed.
 // Functions written with nodes the engine already has (a lowering): their error is the composition's.
 bool isLowering(std::string_view name) {
-    for (const char* n : {"log2", "exp2", "exp10", "sq", "sqrtpi", "sec", "csc", "cot", "sech", "coth"})
+    for (const char* n : {"log2", "exp2", "exp10", "sq", "sqrtpi", "sec", "csc", "cot", "sech", "coth", "asec", "acsc"})
         if (name == n) return true;
     return false;
 }
 
 // Other spellings of the lowerings (spelling → lowering name).
-constexpr std::array<std::pair<std::string_view, std::string_view>, 0> loweringAliases{};
+constexpr std::array<std::pair<std::string_view, std::string_view>, 2> loweringAliases{{
+    {"arcsec", "asec"}, {"arccsc", "acsc"},
+}};
 
 std::string loweringNamed(std::string_view name) {
     for (const auto& [alias, lowering] : loweringAliases)
@@ -724,7 +727,7 @@ private:
     // arithmetic through pi: its error stays visible in the report.
     int withAngles(FunctionId id, std::vector<int> args, Span span, const std::string& written) {
         const bool direct = id == FunctionId::Sin || id == FunctionId::Cos || id == FunctionId::Tan;
-        const bool inverse = id == FunctionId::Asin || id == FunctionId::Acos || id == FunctionId::Atan;
+        const bool inverse = id == FunctionId::Asin || id == FunctionId::Acos || id == FunctionId::Atan || id == FunctionId::Acot;
         if (options_.angle == AngleUnit::Radians || (!direct && !inverse)) return named(node(id, std::move(args), span), written);
         const std::string plain = std::string(functionInfo(id).name) + "(" + readings_[static_cast<std::size_t>(args[0])] + ")";  // the conversion stays hidden
         const std::string full = options_.angle == AngleUnit::Degrees ? "180" : "200";
@@ -779,6 +782,10 @@ private:
             const int twice = lowered(FunctionId::Multiply, {literal("2"), a}, span, written);
             const int bottom = lowered(FunctionId::Add, {one, lowered(FunctionId::Exp, {lowered(FunctionId::Negate, {twice}, span, written)}, span, written)}, span, written);
             return read(lowered(FunctionId::Divide, {top, bottom}, span, written), call);
+        }
+        if (name == "asec" || name == "acsc") {  // acos(1/x), asin(1/x): 1/x stays in [−1, 1] over their domain
+            const int reciprocal = lowered(FunctionId::Divide, {literal("1"), x}, span, written);
+            return read(inner(name == "asec" ? FunctionId::Acos : FunctionId::Asin, reciprocal), call);
         }
         if (name == "sec" || name == "csc" || name == "cot") {
             const int one = literal("1");
