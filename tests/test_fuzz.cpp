@@ -221,3 +221,18 @@ TEST(Fuzz, TheHyperbolicCosecantOfAHugeArgument) {
     for (const char* text : {"csch(1e16)", "csch(nPr(20, 20))", "csch(-1e300)"})
         EXPECT_EQ(violation<double>(text, Options()), "") << text;
 }
+
+// The special functions cost tens of milliseconds each in the shadows: a smaller run of their own.
+TEST(Fuzz, SpecialFunctionsNeverBeatTheirBound) {
+    Vocabulary v = vocabulary();
+    v.calls = {{"gamma", 1}, {"lgamma", 1}, {"digamma", 1}, {"beta", 2}, {"erf", 1}, {"erfc", 1}, {"erfinv", 1},
+               {"erfcinv", 1}, {"gammap", 2}, {"gammaq", 2}, {"igamma", 2}, {"gammainc", 2}, {"betainc", 3},
+               {"betaincinv", 3}};
+    v.literals = {"0.5", "1", "2", "2.5", "-2.5", "0.1", "0.3", "0.7", "(0.1+0.2-0.3)", "(0.1*30)", "1e-17", "30"};
+    Generator g(v, 2040);
+    Options options;
+    for (int i = 0; i < samples(25); ++i) {
+        const std::string text = g.expression(2);
+        EXPECT_EQ(violation<double>(text, options), "") << text;
+    }
+}

@@ -351,3 +351,15 @@ TEST(Special, EndToEnd) {
         EXPECT_TRUE(r.boundComplete) << text;
     }
 }
+
+TEST(Special, AnArgumentWhoseErrorReachesAPoleOrAnEdgeIsRefused) {
+    for (const char* text : {"gamma(0.1+0.2-0.3)", "lgamma(0.1+0.2-0.3)", "digamma(0.1+0.2-0.3)", "beta(0.1+0.2-0.3, 2)",
+                             "erfcinv(0.1+0.2-0.3)", "gammap(0.1+0.2-0.3, 1)", "gammap(0.5, 0.1+0.2-0.3)",
+                             "betainc(0.5, 3, 0.1+0.2-0.3)", "betaincinv(2, 3, 0.1*3+0.7)"}) {
+        const Result r = evaluate(text);
+        ASSERT_TRUE(r.error) << text;
+        EXPECT_EQ(r.error->code, ErrorCode::ArgumentNearEdge) << text;
+    }
+    for (const char* text : {"gamma(0.1+0.2)", "gamma(-2.5)", "gammap(2, 0.1+0.2-0.3)", "betainc(2, 3, 0.25)", "erfinv(0.5)"})
+        EXPECT_FALSE(evaluate(text).error) << text;  // far from every edge, or a finite slope there
+}
