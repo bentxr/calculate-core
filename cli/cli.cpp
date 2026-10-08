@@ -53,6 +53,7 @@ std::string usage() {
            "  --info <name>      describe a function\n"
            "  --list-constants   list the named constants\n"
            "  --bits             show how each result is stored: its bits, ulp and neighbours\n"
+           "  --list-formats     describe the formats of the IEEE 754 inspector\n"
            "  --help, --version\n"
            "\n"
            "Lines M+, M- and MC add Ans to, subtract it from, or clear the memory M.\n"
@@ -111,7 +112,21 @@ const char* warningName(WarningCode code) {
     return "";
 }
 
-void printJson(std::ostream& out, const std::string& input, const Result& r) {
+const char* className(FloatClass c) {
+    switch (c) {
+    case FloatClass::Zero: return "zero";
+    case FloatClass::Subnormal: return "subnormal";
+    case FloatClass::Normal: return "normal";
+    case FloatClass::Infinite: return "infinite";
+    case FloatClass::QuietNaN: return "quiet NaN";
+    case FloatClass::SignalingNaN: return "signaling NaN";
+    case FloatClass::Noncanonical: return "noncanonical";
+    }
+    return "";
+}
+
+// `bits`: also how the result is stored.
+void printJson(std::ostream& out, const std::string& input, const Result& r, bool bits = false) {
     const auto flag = [](bool b) { return b ? "true" : "false"; };
     out << "{\"expression\":" << jsonString(input) << ",\"type\":" << jsonString(optionName(r.type));
     if (r.error) {
@@ -172,6 +187,19 @@ void printJson(std::ostream& out, const std::string& input, const Result& r) {
     }
     if (!r.comment.empty()) out << ",\"comment\":" << jsonString(r.comment);
     if (!r.assigned.empty()) out << ",\"assigned\":" << jsonString(r.assigned);
+    if (bits && r.stored) {
+        const FloatInspection& i = *r.stored;
+        std::string name;
+        for (const FloatFormatInfo& f : floatFormats())
+            if (f.format == i.format) name = f.name;
+        out << ",\"stored\":{\"format\":" << jsonString(name) << ",\"class\":" << jsonString(className(i.stored.valueClass))
+            << ",\"sign\":" << jsonString(i.stored.sign) << ",\"exponent\":" << jsonString(i.stored.exponent)
+            << ",\"fraction\":" << jsonString(i.stored.fraction) << ",\"hex\":" << jsonString(i.stored.hex);
+        if (i.hasNeighbours)
+            out << ",\"ulpExponent\":" << i.ulpExponent << ",\"below\":" << jsonString(i.below.hex) << ",\"above\":"
+                << jsonString(i.above.hex);
+        out << "}";
+    }
     out << "}\n";
 }
 
@@ -184,6 +212,23 @@ void listConstants(std::ostream& out) {
         if (!c.limit.empty()) out << " ± " << c.limit;
         if (!c.unit.empty()) out << " " << c.unit;
         out << "  (" << c.title << ")\n";
+    }
+}
+
+// The inspector's formats: name, the type stored this way (or display only), the layout.
+void listFormats(std::ostream& out) {
+    const auto pad = [](std::string text, std::size_t width) {
+        if (text.size() < width) text.append(width - text.size(), ' ');
+        return text;
+    };
+    for (const FloatFormatInfo& f : floatFormats()) {
+        std::string type = "display only";
+        if (f.type)
+            for (const TypeInfo& t : numberTypes())
+                if (t.type == *f.type) type = t.cppName;
+        out << pad(f.name, 14) << pad(type, 14) << f.storageBits << "-bit: 1 + " << f.exponentBits << " + " << f.fractionBits
+            << " bits, bias " << f.bias << (f.explicitLeadingBit ? ", leading bit stored" : "") << (f.subnormals ? "" : ", no subnormals")
+            << "\n";
     }
 }
 
@@ -316,18 +361,6 @@ void printHuman(std::ostream& out, const std::string& input, const Result& r, bo
     printNotes(out, r);
 }
 
-const char* className(FloatClass c) {
-    switch (c) {
-    case FloatClass::Zero: return "zero";
-    case FloatClass::Subnormal: return "subnormal";
-    case FloatClass::Normal: return "normal";
-    case FloatClass::Infinite: return "infinite";
-    case FloatClass::QuietNaN: return "quiet NaN";
-    case FloatClass::SignalingNaN: return "signaling NaN";
-    case FloatClass::Noncanonical: return "noncanonical";
-    }
-    return "";
-}
 
 // A stored value in decimal, or as [-]significand × 2^e when too long to write out.
 std::string number(const FloatBits& b) {
@@ -366,7 +399,7 @@ bool handle(const std::string& line, Session& session, const Settings& s, std::o
         return true;
     }
     const Result r = session.evaluate(line, s.options);
-    if (s.json) printJson(out, line, r);
+    if (s.json) printJson(out, line, r, s.bits);
     else if (r.error) printError(err, line, *r.error);
     else {
         printHuman(out, line, r, s.color);
@@ -467,6 +500,10 @@ int run(const std::vector<std::string>& args, std::istream& in, std::ostream& ou
         }
         if (a == "--list-types") {
             listTypes(out);
+            return 0;
+        }
+        if (a == "--list-formats") {
+            listFormats(out);
             return 0;
         }
         if (a == "--list-constants") {

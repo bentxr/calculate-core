@@ -101,6 +101,8 @@ share `Ans` and the memory `M`, which the lines `M+`, `M-` and `MC` update.
 | `--uncertainty worst\|statistical` | Which combination of uncertain inputs leads (default: the worst case) |
 | `--read-precision off\|decimals\|all` | Typed numbers carry half a unit of their last digit (default off) |
 | `--list-constants` | List the named constants with their values, limits and units |
+| `--bits` | Also show how each result is stored: its bit fields and hexadecimal pattern, its ulp and its two neighbours |
+| `--list-formats` | Describe the binary formats the IEEE 754 inspector knows: layout, bias, which type uses each |
 
 Errors point at their cause:
 

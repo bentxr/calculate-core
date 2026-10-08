@@ -319,3 +319,21 @@ TEST(Cli, BitsShowTheStoredValue) {
     EXPECT_EQ(invoke({"--bits", "--type", "exact", "1/3"}).out, invoke({"--type", "exact", "1/3"}).out);
     EXPECT_EQ(invoke({"0.1 + 0.2"}).out.find("stored"), std::string::npos);  // only when asked
 }
+
+TEST(Cli, BitsInJson) {
+    const Outcome r = invoke({"--json", "--bits", "0.1 + 0.2"});
+    EXPECT_NE(r.out.find(",\"stored\":{\"format\":\"binary64\",\"class\":\"normal\",\"sign\":\"0\","
+                         "\"exponent\":\"01111111101\",\"fraction\":\"0011001100110011001100110011001100110011001100110100\","
+                         "\"hex\":\"3FD3333333333334\",\"ulpExponent\":-54,\"below\":\"3FD3333333333333\","
+                         "\"above\":\"3FD3333333333335\"}}\n"),
+              std::string::npos);
+    EXPECT_EQ(invoke({"--json", "0.1 + 0.2"}).out.find("stored"), std::string::npos);
+}
+
+TEST(Cli, ListsTheInspectorFormats) {
+    const Outcome r = invoke({"--list-formats"});
+    EXPECT_EQ(r.code, 0);
+    EXPECT_NE(r.out.find("binary16      display only  16-bit: 1 + 5 + 10 bits, bias 15\n"), std::string::npos);
+    EXPECT_NE(r.out.find("binary64      double        64-bit: 1 + 11 + 52 bits, bias 1023\n"), std::string::npos);
+    EXPECT_NE(r.out.find("binary128     binary128     128-bit: 1 + 15 + 112 bits, bias 16383, no subnormals\n"), std::string::npos);
+}
