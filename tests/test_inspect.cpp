@@ -356,3 +356,53 @@ TEST(FloatFunctions, FromBitsRefusesWhatIsNotAFiniteNumber) {
 TEST(FloatFunctions, FromBitsIsReadWhereverItStands) {
     EXPECT_EQ(evaluate("sum(x; 1; fromBits(0x40400000, fp32))").value.digits, "6");  // a limit is read while parsing
 }
+
+TEST(BaseTargets, ExactExpansionsOfTheStoredValue) {
+    EXPECT_EQ(evaluate("0.1 to hex").conversion->text, "0x0.1999999999999A");
+    EXPECT_EQ(evaluate("0.1 + 0.2 to hex").conversion->text, "0x0.4CCCCCCCCCCCD");
+    EXPECT_EQ(evaluate("255 to hex").conversion->text, "0xFF");
+    EXPECT_EQ(evaluate("-10 to bin").conversion->text, "-0b1010");
+    EXPECT_EQ(evaluate("0.1 to oct").conversion->text, "0o0.0631463146314631464");
+    EXPECT_EQ(evaluate("0.1 to duo").conversion->text, "0.124972497249724A76232B004276");
+    EXPECT_EQ(evaluate("2.5 to base 32").conversion->text, "2.G");
+    Options exact;
+    exact.type = NumberType::Exact;
+    EXPECT_EQ(evaluate("1/3 to bin", exact).conversion->text, "0b0.(01)");
+    EXPECT_EQ(evaluate("0.5 to base 3", exact).conversion->text, "0.(1)");
+    EXPECT_EQ(evaluate("1 to base 37").error->code, ErrorCode::DomainError);
+}
+
+TEST(BaseTargets, TheBarMarksTheTrustedDigits) {
+    // Library results carry a bound of about 2 ulp, so the last stored bit is often noise. Take the
+    // first candidate whose binary expansion shows the bar.
+    for (const char* x : {"sin(1)", "sin(2)", "sin(3)", "sin(4)", "sin(5)", "exp(0.3)", "ln(3)"}) {
+        const Result r = evaluate(std::string(x) + " to bin");
+        const std::string& text = r.conversion->text;
+        const std::size_t bar = text.find('|');
+        if (bar == std::string::npos) continue;
+        int significant = 0;  // digits before the bar, from the first 1
+        bool started = false;
+        for (std::size_t i = 0; i < bar; ++i) {
+            if (text[i] == '1') started = true;
+            if (started && (text[i] == '0' || text[i] == '1')) ++significant;
+        }
+        EXPECT_EQ(std::to_string(significant), field(r, "trusted")) << x;
+        return;
+    }
+    FAIL() << "no candidate showed the bar: STOP and report";
+}
+
+TEST(BaseTargets, FieldsNotesAndRefusals) {
+    const Result seven = evaluate("100 to base 7");
+    EXPECT_EQ(seven.conversion->text, "202");
+    EXPECT_EQ(field(seven, "base"), "7");
+    EXPECT_EQ(field(seven, "trusted"), "3");
+    EXPECT_EQ(field(seven, "note"), "(none)");
+    Options exact;
+    exact.type = NumberType::Exact;
+    const Result long_ = evaluate("1/997 to hex", exact);  // a period of 83 hexadecimal digits
+    EXPECT_EQ(long_.conversion->text, "0x0");
+    EXPECT_EQ(field(long_, "note"), "period too long");
+    EXPECT_EQ(evaluate("1 to hex 3").error->code, ErrorCode::UnexpectedToken);
+    EXPECT_EQ(evaluate("1 to base").error->code, ErrorCode::DomainError);
+}
