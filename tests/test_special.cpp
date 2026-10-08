@@ -389,7 +389,8 @@ TEST(Special, AnInverseIncompleteBetaBeyondTheTypesReachIsAnEnd) {
         ASSERT_FALSE(r.error) << end;
         EXPECT_EQ(r.value, end);
     }
-    for (const char* text : {"betaincinv(0.001, 3, 0.001)", "betaincinv(3, 0.001, 0.999)", "betaincinv(3, 0.01, 0.999)"}) {
+    for (const char* text : {"betaincinv(0.001, 3, 0.001)", "betaincinv(3, 0.001, 0.999)", "betaincinv(3, 0.01, 0.999)",
+                             "betaincinv(1e-17, 0.3, 0.3)"}) {
         const auto start = std::chrono::steady_clock::now();
         const Result r = evaluate(text);
         EXPECT_LT(std::chrono::steady_clock::now() - start, std::chrono::seconds(20)) << text;

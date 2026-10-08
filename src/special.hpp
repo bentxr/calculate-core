@@ -507,8 +507,9 @@ Special<T> betaincinvWord(const T& y, const T& a, const T& b, const std::atomic<
         }
         if (!newton) {  // bisection, by the exponent of x or of 1 - x while the bracket spans more than a factor 2 of it
             const T dlo = 1 - lo, dhi = 1 - hi, half = std::numeric_limits<T>::epsilon() / 2;  // exact from 0.5 up
+            const T least = (std::max)(lo, (std::numeric_limits<T>::min)());  // below min() halving is short again
             if (hi <= T(0.5) && lo == 0 && hi * hi >= (std::numeric_limits<T>::min)()) next = hi * hi;
-            else if (hi <= T(0.5) && lo > 0 && hi > 2 * lo) next = sqrt(lo) * sqrt(hi);
+            else if (hi <= T(0.5) && hi > 2 * least) next = sqrt(least) * sqrt(hi);
             else if (lo >= T(0.5) && hi == 1 && dlo > half) next = 1 - (std::max)(dlo * dlo, half);  // 1 - half: the last T under 1
             else if (lo >= T(0.5) && hi < 1 && dlo > 2 * dhi) next = 1 - sqrt(dlo) * sqrt(dhi);
             else next = (lo + hi) / 2;
