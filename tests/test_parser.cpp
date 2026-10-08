@@ -690,3 +690,18 @@ TEST(Parser, OtherSpellingsOfPowerAndProduct) {
     EXPECT_EQ(l.tokens[1].span.end - l.tokens[1].span.begin, 2u);
     EXPECT_EQ(tree("2*-3"), "(* 2 (neg 3))");  // a single * stays a product
 }
+
+TEST(Parser, RemaindersBetweenTheirOperands) {
+    EXPECT_EQ(tree("7 mod 3"), "(rem 7 3)");
+    EXPECT_EQ(tree("-7 rem 3 * 2"), "(* (rem (neg 7) 3) 2)");  // binds like ×, after the sign
+    EXPECT_EQ(tree("7 floormod -3"), "(floormod 7 (neg 3))");
+    EXPECT_EQ(tree("2 + 7 mod 3"), "(+ 2 (rem 7 3))");
+    EXPECT_EQ(tree("mod(7, 3)"), "(rem 7 3)");  // the call still works
+    EXPECT_EQ(parse("7 mod 3", AngleUnit::Radians).expanded, "7 rem 3");
+    Options floored;
+    floored.conventions.mod = Conventions::Mod::Floored;
+    EXPECT_EQ(treeWith("-7 mod 3", floored), "(floormod (neg 7) 3)");
+    EXPECT_EQ(parse("-7 mod 3", floored).expanded, "-7 floormod 3");
+    EXPECT_EQ(parseError("7 mod").code, ErrorCode::UnexpectedEnd);
+    EXPECT_EQ(parseError("mod 3").code, ErrorCode::UnexpectedToken);  // a word operator needs a left operand
+}

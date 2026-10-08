@@ -351,6 +351,21 @@ private:
         while (!error_) {
             const Token& t = peek();
             if (t.kind == TokenKind::Assign) return fail(ErrorCode::UnexpectedToken, "':=' can only follow a name at the start", t.span);
+            if (t.kind == TokenKind::Identifier && (t.text == "mod" || t.text == "rem" || t.text == "floormod")) {
+                // A remainder between its operands binds like ×; `mod` is read by the convention, and stored spelled out.
+                if (20 <= minPower) break;
+                const Token word = next();
+                const int right = expression(20);
+                if (error_) return -1;
+                FunctionId id = word.text == "floormod" ? FunctionId::FloorMod : FunctionId::Rem;
+                if (word.text == "mod") {
+                    const bool floored = options_.conventions.mod == Conventions::Mod::Floored;
+                    id = floored ? FunctionId::FloorMod : FunctionId::Rem;
+                    replacements_[word.span.begin] = {word.span.end, floored ? "floormod" : "rem"};
+                }
+                left = named(node(id, {left, right}, {spanOf(left).begin, spanOf(right).end}), std::string(word.text));
+                continue;
+            }
             if (startsOperand(t.kind)) {
                 if (position_ > 0 && tokens_[position_ - 1].kind == TokenKind::Percent) {  // 3%2: a remainder was meant
                     const Span operand = spanOf(ast_.nodes[static_cast<std::size_t>(left)].args[0]);
