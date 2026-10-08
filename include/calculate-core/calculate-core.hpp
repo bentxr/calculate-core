@@ -2,6 +2,8 @@
 
 #include <atomic>
 #include <cstddef>
+#include <functional>
+#include <map>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -137,6 +139,7 @@ struct Result {
     bool commentOnly = false;         // the input was only a comment: a note with no value
     std::optional<Conversion> conversion;  // set when the input ended in "to <target>"
     std::vector<Warning> warnings;         // notes about a result that is not an error
+    std::string assigned;                  // the variable set by "name := …", "" otherwise
 };
 
 Result evaluate(std::string_view expression, const Options& options = {});
@@ -162,7 +165,13 @@ public:
     const std::vector<Entry>& history() const { return history_; }
     void clearHistory() { history_.clear(); }
 
+    using Variables = std::map<std::string, std::string, std::less<>>;
+    const Variables& variables() const { return variables_; }  // name → expression text, names expanded
+    bool forget(std::string_view name);                         // false when there was no such variable
+    void clearVariables() { variables_.clear(); }
+
 private:
+    Variables variables_;
     std::string answer_;
     std::string memory_;
     std::vector<Entry> history_;

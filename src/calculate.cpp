@@ -73,6 +73,7 @@ Result build(const Parsed& parsed, const Options& options) {
     r.expression = parsed.expanded;
     r.comment = parsed.comment;
     r.warnings = parsed.warnings;
+    r.assigned = parsed.assigned;
     if (parsed.target) {
         const Rational value = toRational(ev.value);
         const TargetInput in{parsed, options, value, report};
@@ -122,8 +123,9 @@ Result evaluateWithNames(std::string_view text, const Options& options, const Na
     return r;
 }
 
-Names namesOf(const std::string& answer, const std::string& memory) {
-    Names names;
+// The session's names: its variables, then Ans and M.
+Names namesOf(const Session::Variables& variables, const std::string& answer, const std::string& memory) {
+    Names names(variables.begin(), variables.end());
     if (!answer.empty()) names["Ans"] = answer;
     if (!memory.empty()) names["M"] = memory;
     return names;
@@ -169,16 +171,24 @@ Result evaluate(std::string_view expression, const Options& options) {
 }
 
 Result Session::evaluate(std::string_view expression, const Options& options) {
-    Result r = evaluateWithNames(expression, options, namesOf(answer_, memory_));
+    Result r = evaluateWithNames(expression, options, namesOf(variables_, answer_, memory_));
     if (!r.error) {
         if (!r.commentOnly) answer_ = r.expression;  // a note changes nothing but the history
+        if (!r.assigned.empty()) variables_[r.assigned] = r.expression;
         history_.push_back({std::string(expression), r});
     }
     return r;
 }
 
+bool Session::forget(std::string_view name) {
+    const auto found = variables_.find(name);
+    if (found == variables_.end()) return false;
+    variables_.erase(found);
+    return true;
+}
+
 Result Session::preview(std::string_view expression, const Options& options) const {
-    return evaluateWithNames(expression, options, namesOf(answer_, memory_));
+    return evaluateWithNames(expression, options, namesOf(variables_, answer_, memory_));
 }
 
 bool Session::memoryAdd() {

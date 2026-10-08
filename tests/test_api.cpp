@@ -676,3 +676,29 @@ TEST(Api, AnEmptyRangeIsANote) {
     EXPECT_TRUE(evaluate("1/0").warnings.empty());
     EXPECT_TRUE(evaluate("sum(x; 5; 1)", as(NumberType::Exact)).warnings.size() == 1u);  // in every type
 }
+
+TEST(Session, VariablesHoldExpressions) {
+    Session s;
+    const Result r = s.evaluate("a := 0.1 + 0.2");
+    ASSERT_FALSE(r.error);
+    EXPECT_EQ(r.assigned, "a");
+    EXPECT_EQ(s.variables().at("a"), "0.1 + 0.2");
+    EXPECT_EQ(s.answer(), "0.1 + 0.2");
+    EXPECT_EQ(s.evaluate("a*10").expression, "(0.1 + 0.2)*10");
+    const Result exact = s.evaluate("a", as(NumberType::Exact));  // recomputed in the new type
+    EXPECT_EQ(exact.exact->numerator, "3");
+    EXPECT_EQ(exact.exact->denominator, "10");
+    s.evaluate("b := a*2");
+    EXPECT_EQ(s.variables().at("b"), "(0.1 + 0.2)*2");  // names already expanded
+    s.evaluate("a := 1");
+    EXPECT_EQ(s.evaluate("b").value.digits.substr(0, 4), "6000");  // b keeps its own text: 0.6000000000000000888…
+    EXPECT_TRUE(s.forget("a"));
+    EXPECT_FALSE(s.forget("a"));
+    EXPECT_EQ(s.evaluate("a").error->code, ErrorCode::UnknownName);
+    s.evaluate("x := 100");
+    EXPECT_EQ(s.evaluate("sum(x, 1, 3)").value.digits, "6");  // the bound variable wins inside the sum
+    EXPECT_EQ(s.evaluate("x").value.exponent10, 2);
+    EXPECT_EQ(evaluate("c := 2").assigned, "c");  // without a session nothing is stored
+    s.clearVariables();
+    EXPECT_TRUE(s.variables().empty());
+}
