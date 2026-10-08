@@ -135,7 +135,7 @@ inline std::string errorMessage(ErrorCode code, std::string_view name) {
     case ErrorCode::DomainError: return n + " is not defined for this argument";
     case ErrorCode::IrrationalResult: return "The exact result of " + n + " is irrational";
     case ErrorCode::ArgumentTooLarge: return "The argument of " + n + " is too large to reduce accurately";
-    case ErrorCode::NotAnInteger: return n + " needs a whole-number argument";
+    case ErrorCode::NotAnInteger: return n + " needs a whole-number argument" + (n == "!" ? "; for other values use gamma(x + 1)" : "");
     case ErrorCode::UncertainDiscreteArgument: return n + " needs an exactly known argument";
     case ErrorCode::ArgumentNearJump: return n + " jumps within the error of its arguments";
     case ErrorCode::ArgumentNearEdge: return n + " is not defined or not smooth within the error of its argument";

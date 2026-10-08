@@ -178,3 +178,10 @@ TEST(SpecialPartials, Beta) {
     EXPECT_LE(abs(exactCast<O>(d[0]) - da), ldexp(O(1), -200));
     EXPECT_LE(abs(exactCast<O>(d[1]) - db), ldexp(O(1), -200));
 }
+
+TEST(Special, FactorialOfAFractionPointsToGamma) {
+    const Result r = evaluate("2.5!");
+    ASSERT_TRUE(r.error);
+    EXPECT_EQ(r.error->code, ErrorCode::NotAnInteger);
+    EXPECT_EQ(r.error->message, "! needs a whole-number argument; for other values use gamma(x + 1)");
+}
