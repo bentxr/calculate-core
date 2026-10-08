@@ -146,6 +146,11 @@ Lexed lex(std::string_view s) {
             if (out.error) return out;
             break;
         }
+        if (s.substr(i, 2) == ":=") {
+            push(TokenKind::Assign, i, i + 2);
+            i += 2;
+            continue;
+        }
         if (const TokenKind kind = singleCharacter(c); kind != TokenKind::End) {
             if (kind == TokenKind::LeftParen) ++depth;
             if (kind == TokenKind::RightParen && depth > 0) --depth;

@@ -654,3 +654,12 @@ TEST(Parser, AnEmptyVariableArgumentPointsAtTheCall) {
     EXPECT_EQ(e.begin, 0u);
     EXPECT_EQ(e.end, 14u);
 }
+
+TEST(Lexer, AssignmentIsOneToken) {
+    const Lexed l = lex("a := 1");
+    ASSERT_FALSE(l.error);
+    EXPECT_EQ(kinds(l), (std::vector<TokenKind>{TokenKind::Identifier, TokenKind::Assign, TokenKind::Number, TokenKind::End}));
+    EXPECT_EQ(l.tokens[1].span.begin, 2u);
+    EXPECT_EQ(l.tokens[1].span.end, 4u);
+    EXPECT_TRUE(lex("a : 1").error);  // ':' alone is not part of the language
+}
