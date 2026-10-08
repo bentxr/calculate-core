@@ -173,7 +173,8 @@ const calculate_core::Result r = calculate_core::evaluate("0.1 + 0.2", options);
 ```
 
 `numberTypes()` describes the seven types as built on this platform, `functions()` lists the
-language, and `Session` keeps history, `Ans` and memory.
+language and describes each function (title, description, named arguments, an example, its category),
+and `Session` keeps history, `Ans` and memory.
 
 CMake:
 ```cmake

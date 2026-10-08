@@ -3,6 +3,7 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <cfloat>
 #include <chrono>
 #include <set>
@@ -765,4 +766,34 @@ TEST(Api, MixedNumbersKeepParenthesesForBothParts) {
 // nCr(n, r) takes the shorter product: over 37 factors its partial products pass 2^53, over 19 they never do.
 TEST(Api, ACombinationTakesTheShorterProduct) {
     EXPECT_EQ(evaluate("nCr(56, 37)").bound, "0");
+}
+
+TEST(Api, EveryFunctionIsDescribed) {
+    const std::vector<std::string> categories = functionCategories();
+    for (const FunctionDescription& f : functions()) {
+        EXPECT_FALSE(f.title.empty()) << f.name;
+        ASSERT_FALSE(f.description.empty()) << f.name;
+        EXPECT_EQ(f.description.back(), '.') << f.name;
+        EXPECT_EQ(static_cast<int>(f.arguments.size()), f.maxArgs < 0 ? 1 : f.maxArgs) << f.name;
+        EXPECT_NE(std::find(categories.begin(), categories.end(), f.category), categories.end()) << f.name;
+        EXPECT_EQ(f.example.rfind(f.name, 0), 0u) << f.name << ": " << f.example;  // the example uses the function
+        const Result r = evaluate(f.example);
+        EXPECT_FALSE(r.error) << f.name << ": " << f.example;
+    }
+}
+
+TEST(Api, ArgumentsHaveNamesAndKinds) {
+    auto find = [](const std::string& name) {
+        for (const FunctionDescription& f : functions()) if (f.name == name) return f;
+        return FunctionDescription{"", 0, 0, false};
+    };
+    const FunctionDescription log = find("log");
+    ASSERT_EQ(log.arguments.size(), 2u);
+    EXPECT_EQ(log.arguments[1].name, "base");
+    EXPECT_EQ(log.minArgs, 1);  // so base is optional
+    EXPECT_EQ(find("sin").arguments[0].kind, ArgumentKind::Angle);
+    EXPECT_EQ(find("nCr").arguments[0].kind, ArgumentKind::Integer);
+    EXPECT_EQ(find("atan2").arguments[0].name, "y");
+    EXPECT_EQ(find("mean").arguments.size(), 1u);
+    EXPECT_EQ(find("gamma").category, "Special functions");
 }

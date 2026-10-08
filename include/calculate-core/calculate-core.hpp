@@ -65,15 +65,31 @@ struct TypeInfo {
 
 std::vector<TypeInfo> numberTypes();
 
-// A function of the language, for keypads: its name, arity (-1: any) and Exact availability.
+// What an argument stands for: argument hints and generated keys use it. An Angle follows the angle unit; an
+// Integer must be whole.
+enum class ArgumentKind { Number, Integer, Angle };
+
+struct ArgumentDescription {
+    std::string name;  // "x", "n", "base"
+    ArgumentKind kind;
+};
+
+// A function of the language, for keypads, completion and help. Arguments beyond minArgs are optional.
 struct FunctionDescription {
     std::string name;
     int minArgs;
-    int maxArgs;
-    bool exact;
+    int maxArgs;                                 // -1: any number
+    bool exact;                                  // available in the Exact type
+    std::string title{};                         // "Inverse sine" (English; the app translates it)
+    std::string description{};                   // one sentence, ending with a full stop
+    std::vector<ArgumentDescription> arguments{};  // maxArgs entries; one entry, repeated, when maxArgs is -1
+    std::string example{};                       // "asin(0.5)": evaluates without error in Double
+    std::string category{};                      // one of functionCategories()
+    std::vector<std::string> aliases{};          // other spellings the parser accepts ("arcsin", "arcsen")
 };
 
 std::vector<FunctionDescription> functions();
+std::vector<std::string> functionCategories();  // in display order
 
 enum class WarningCode { EmptyRange };  // grows with each producer
 

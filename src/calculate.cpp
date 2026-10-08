@@ -1,5 +1,6 @@
 #include <calculate-core/calculate-core.hpp>
 
+#include "catalogue.hpp"
 #include "engine.hpp"
 #include "parser.hpp"
 #include "targets.hpp"
@@ -168,8 +169,18 @@ std::vector<FunctionDescription> functions() {
                                      {"sec", false}, {"csc", false}, {"cot", false}, {"sech", false}, {"coth", false},
                                      {"asec", false}, {"acsc", false}, {"asech", false}, {"acsch", false}, {"acoth", false}, {"ceil", true}, {"frac", true}})
         list.push_back({name, 1, 1, exact});
+    for (FunctionDescription& f : list)
+        if (const FunctionText* text = functionText(f.name)) {
+            f.title = text->title;
+            f.description = text->description;
+            f.arguments = text->arguments;
+            f.example = text->example;
+            f.category = text->category;
+        }
     return list;
 }
+
+std::vector<std::string> functionCategories() { return categories(); }
 
 Result evaluate(std::string_view expression, const Options& options) {
     return evaluateWithNames(expression, options, {});
