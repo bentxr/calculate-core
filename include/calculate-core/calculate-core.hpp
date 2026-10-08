@@ -158,11 +158,18 @@ struct NumberParts {
 };
 
 // What "to <target>" made of a result: the same value in another form.
+// A labelled extra of a conversion: the CLI prints "  label value", the app shows a row.
+struct ConversionField {
+    std::string label;  // "hex", "stored", "error"…
+    std::string value;
+};
+
 struct Conversion {
     std::string target;  // the target's name, "fraction"
     std::string text;    // the converted result as plain text, "3602879701896397/36028797018963968"
     std::optional<NumberParts> parts;  // set by targets that show a number
     std::string note;  // "off by 3.3e-2": the stored value minus what the text shows, when they differ
+    std::vector<ConversionField> fields{};  // labelled extras (to fp32: hex, class, stored…)
 };
 
 // A conversion target, for completion and keys.
