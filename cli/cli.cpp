@@ -362,15 +362,6 @@ void printHuman(std::ostream& out, const std::string& input, const Result& r, bo
 }
 
 
-// A stored value in decimal, or as [-]significand × 2^e when too long to write out.
-std::string number(const FloatBits& b) {
-    if (b.valueClass == FloatClass::Infinite) return b.negative ? "-inf" : "inf";
-    if (!b.value.digits.empty()) return formatValue(b.value, static_cast<int>(b.value.digits.size()), false);
-    const std::string sign = b.negative ? "-" : "";
-    if (b.significand.digits == "1" && b.significand.exponent10 == 0) return sign + "2^" + std::to_string(b.exponent2);
-    return sign + formatValue(b.significand, static_cast<int>(b.significand.digits.size()), false) + " \xC3\x97 2^" + std::to_string(b.exponent2);
-}
-
 // --bits: the stored pattern field by field, then the ulp and the neighbours.
 void printBits(std::ostream& out, const Result& r) {
     if (!r.stored) return;
@@ -381,7 +372,7 @@ void printBits(std::ostream& out, const Result& r) {
     out << "  stored " << name << " " << i.stored.sign << " " << i.stored.exponent << " " << i.stored.fraction << " \xC2\xB7 0x"
         << i.stored.hex << " \xC2\xB7 " << className(i.stored.valueClass) << "\n";
     if (i.hasNeighbours)
-        out << "  ulp 2^" << i.ulpExponent << " \xC2\xB7 below " << number(i.below) << " \xC2\xB7 above " << number(i.above) << "\n";
+        out << "  ulp 2^" << i.ulpExponent << " \xC2\xB7 below " << exactText(i.below) << " \xC2\xB7 above " << exactText(i.above) << "\n";
 }
 
 // One expression or memory command. Returns false when it failed.

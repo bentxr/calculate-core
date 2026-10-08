@@ -22,10 +22,24 @@ std::string formatName(FloatFormat format) {
     return "";
 }
 
+std::string languageName(FloatFormat format) {
+    switch (format) {
+    case FloatFormat::Binary16: return "fp16";
+    case FloatFormat::Bfloat16: return "bf16";
+    case FloatFormat::Binary32: return "fp32";
+    case FloatFormat::Binary64: return "fp64";
+    case FloatFormat::X87Extended: return "fp80";
+    case FloatFormat::Binary128: return "fp128";
+    case FloatFormat::Binary256: return "fp256";
+    case FloatFormat::Binary512: return "fp512";
+    }
+    return "";
+}
+
 FloatFormatInfo row(FloatFormat format, std::optional<NumberType> type, bool subnormals) {
     const BinaryFormat& f = binaryFormat(format);
-    return {format, type, formatName(format), f.storageBits(), f.exponentBits, f.fractionBits, f.precision(), f.bias(),
-            f.explicitLeadingBit, subnormals};
+    return {format,         type,       formatName(format), f.storageBits(),      f.exponentBits, f.fractionBits,
+            f.precision(), f.bias(),   f.explicitLeadingBit, subnormals,          languageName(format)};
 }
 
 template <class T>
@@ -104,6 +118,48 @@ FloatInspection inspectValue(const FloatFormatInfo& info, const FloatValue& v) {
         r.ulp = digitsOf(terminatingDigits(scaleByPowerOfTwo(Rational(1), r.ulpExponent)));
     }
     return r;
+}
+
+const char* className(calculate_core::FloatClass c) {
+    using calculate_core::FloatClass;
+    switch (c) {
+    case FloatClass::Zero: return "zero";
+    case FloatClass::Subnormal: return "subnormal";
+    case FloatClass::Normal: return "normal";
+    case FloatClass::Infinite: return "infinite";
+    case FloatClass::QuietNaN: return "quiet NaN";
+    case FloatClass::SignalingNaN: return "signaling NaN";
+    case FloatClass::Noncanonical: return "noncanonical";
+    }
+    return "";
+}
+
+Conversion conversionOf(const FloatFormatInfo& info, const FloatValue& v, const std::optional<Rational>& typed) {
+    using calculate_core::FloatClass;
+    FloatInspection i = inspectValue(info, v);
+    const FloatBits& b = i.stored;
+    Conversion c;
+    c.target = info.languageName;
+    c.text = b.sign + " " + b.exponent + " " + b.fraction;
+    c.fields.push_back({"hex", "0x" + b.hex});
+    c.fields.push_back({"class", className(b.valueClass)});
+    c.fields.push_back({"stored", exactText(b)});
+    const bool finite = b.valueClass == FloatClass::Zero || b.valueClass == FloatClass::Subnormal || b.valueClass == FloatClass::Normal;
+    if (finite && typed) {
+        const Rational stored = v.negative ? Rational(-v.magnitude) : v.magnitude;
+        const Digits error = digitsOf(terminatingDigits(stored - *typed));
+        c.fields.push_back({"error", (error.negative ? "-" : "+") + exactText(Digits{false, error.digits, error.exponent10})});
+    }
+    if (finite) c.fields.push_back({"ulp", "2^" + std::to_string(i.ulpExponent)});
+    if (i.hasNeighbours) {
+        c.fields.push_back({"below", exactText(i.below)});
+        c.fields.push_back({"above", exactText(i.above)});
+    }
+    std::string note;
+    if (typed && *typed != 0 && b.valueClass == FloatClass::Infinite) note = "overflow";
+    if (typed && *typed != 0 && b.valueClass == FloatClass::Zero) note = "underflow";
+    if (!note.empty()) c.fields.push_back({"note", note});
+    return c;
 }
 
 FloatFormatInfo formatInfo(NumberType type) {
@@ -222,6 +278,32 @@ FloatInspection inspectBits(const FloatFormatInfo& format, std::string_view digi
         return r;
     }
     return inspectValue(format, v);
+}
+
+std::string exactText(const Digits& d) {
+    const std::string& sig = d.digits;
+    const long long n = static_cast<long long>(sig.size());
+    const long long e = d.exponent10;
+    std::string text = d.negative ? "-" : "";
+    if (e >= -7 && e < 21) {  // positional
+        if (e < 0) return text + "0." + std::string(static_cast<std::size_t>(-e - 1), '0') + sig;
+        for (long long i = 0; i <= e; ++i) text += i < n ? sig[static_cast<std::size_t>(i)] : '0';
+        if (n > e + 1) text += "." + sig.substr(static_cast<std::size_t>(e) + 1);
+        return text;
+    }
+    text += sig.substr(0, 1);
+    if (n > 1) text += "." + sig.substr(1);
+    return text + "e" + (e < 0 ? "-" : "+") + std::to_string(e < 0 ? -e : e);
+}
+
+std::string exactText(const FloatBits& b) {
+    using calculate_core::FloatClass;
+    if (b.valueClass == FloatClass::Infinite) return b.negative ? "-inf" : "inf";
+    if (b.valueClass == FloatClass::QuietNaN || b.valueClass == FloatClass::SignalingNaN) return "nan";
+    if (!b.value.digits.empty()) return exactText(b.value);
+    const std::string sign = b.negative ? "-" : "";
+    if (b.significand.digits == "1" && b.significand.exponent10 == 0) return sign + "2^" + std::to_string(b.exponent2);
+    return sign + exactText(b.significand) + " \xC3\x97 2^" + std::to_string(b.exponent2);
 }
 
 std::vector<FloatFormatInfo> floatFormats() {

@@ -1,5 +1,8 @@
 #include "targets.hpp"
 
+#include "float_format.hpp"
+#include "inspect.hpp"
+
 namespace calculate_core::detail {
 
 namespace {
@@ -33,6 +36,78 @@ std::optional<Error> uncertain(const TargetInput& in, Result& result, bool conci
 
 std::optional<Error> concise(const TargetInput& in, Result& result) { return uncertain(in, result, true); }
 std::optional<Error> plusMinus(const TargetInput& in, Result& result) { return uncertain(in, result, false); }
+
+// The inspector's row a `to` name stands for: fp16 … fp512 and their IEEE names; fp128 is the Quadruple type's row.
+std::optional<FloatFormatInfo> formatNamed(std::string_view name) {
+    struct Name {
+        std::string_view language, ieee;
+        FloatFormat format;
+    };
+    static const Name names[] = {{"fp16", "binary16", FloatFormat::Binary16},   {"bf16", "bfloat16", FloatFormat::Bfloat16},
+                                 {"fp32", "binary32", FloatFormat::Binary32},   {"fp64", "binary64", FloatFormat::Binary64},
+                                 {"fp80", "x87", FloatFormat::X87Extended},     {"fp128", "binary128", FloatFormat::Binary128},
+                                 {"fp256", "binary256", FloatFormat::Binary256}, {"fp512", "binary512", FloatFormat::Binary512}};
+    for (const Name& n : names) {
+        if (name != n.language && name != n.ieee) continue;
+        std::optional<FloatFormatInfo> found;
+        for (const FloatFormatInfo& f : floatFormats())
+            if (f.format == n.format && (!found || f.type == NumberType::Binary128)) found = f;
+        return found;
+    }
+    return std::nullopt;
+}
+
+// The value a format conversion starts from: a typed number (or its negation) straight from its decimal, anything
+// computed as the stored value; and the exact number it stands for.
+struct Source {
+    bool negative = false;
+    std::optional<DecimalLiteral> literal;
+    Rational value;
+};
+
+Source sourceOf(const TargetInput& in, const Result& result) {
+    Source s;
+    const std::vector<Node>& nodes = in.parsed.ast.nodes;
+    const bool literal = nodes.size() == 1 && nodes[0].function == FunctionId::Literal;
+    const bool negated = nodes.size() == 2 && nodes[0].function == FunctionId::Literal && nodes[1].function == FunctionId::Negate;
+    if (literal || negated) {
+        s.literal = parseDecimal(nodes[0].text);
+        s.negative = negated;
+        const Rational q = toRational(*s.literal);
+        s.value = negated ? Rational(-q) : q;
+        return s;
+    }
+    s.value = in.value;
+    s.negative = in.value < 0 || (in.value == 0 && result.stored && result.stored->stored.negative);
+    return s;
+}
+
+std::optional<Error> convertTo(const TargetInput& in, Result& result, const FloatFormatInfo& info) {
+    const TargetText& target = *in.parsed.target;
+    if (!target.argument.empty())
+        return Error{ErrorCode::UnexpectedToken, target.name + " takes nothing after it", target.span.begin, target.span.end};
+    const Source s = sourceOf(in, result);
+    const BinaryFormat& f = binaryFormat(info.format);
+    const FloatValue v = s.literal ? decimalToFormat(s.negative, *s.literal, f, info.subnormals)
+                                   : roundToFormat(s.negative, abs(s.value), f, info.subnormals);
+    result.conversion = conversionOf(info, v, s.value);
+    return std::nullopt;
+}
+
+std::optional<Error> toFormat(const TargetInput& in, Result& result) {
+    return convertTo(in, result, *formatNamed(in.parsed.target->name));
+}
+
+// to bits: in the result's own type.
+std::optional<Error> toBits(const TargetInput& in, Result& result) {
+    const TargetText& target = *in.parsed.target;
+    if (in.options.type == NumberType::Exact)
+        return Error{ErrorCode::NotAvailableInExact, "Exact has no binary format: name one, e.g. to fp64", target.span.begin,
+                     target.span.end};
+    std::optional<Error> e = convertTo(in, result, formatInfo(in.options.type));
+    if (!e) result.conversion->target = "bits";
+    return e;
+}
 
 // More digits than this are not written out (an exact value's period, or a huge or tiny one's digits).
 constexpr std::size_t maxDigits = 20000;
@@ -184,6 +259,23 @@ const std::vector<Target>& targets() {
         {"mixed", "the stored value as a whole number and a fraction", mixed},
         {"percent", "the value × 100, every digit, with %", percent},
         {"1/n", "the nearest fraction with denominator n, and how far it is", fixedDenominator, fixedDenominatorName},
+        {"fp16", "how the value is stored in binary16", toFormat},
+        {"binary16", "how the value is stored in binary16", toFormat},
+        {"bf16", "how the value is stored in bfloat16", toFormat},
+        {"bfloat16", "how the value is stored in bfloat16", toFormat},
+        {"fp32", "how the value is stored in binary32", toFormat},
+        {"binary32", "how the value is stored in binary32", toFormat},
+        {"fp64", "how the value is stored in binary64", toFormat},
+        {"binary64", "how the value is stored in binary64", toFormat},
+        {"fp80", "how the value is stored in x87 extended", toFormat},
+        {"x87", "how the value is stored in x87 extended", toFormat},
+        {"fp128", "how the value is stored in binary128", toFormat},
+        {"binary128", "how the value is stored in binary128", toFormat},
+        {"fp256", "how the value is stored in binary256", toFormat},
+        {"binary256", "how the value is stored in binary256", toFormat},
+        {"fp512", "how the value is stored in binary512", toFormat},
+        {"binary512", "how the value is stored in binary512", toFormat},
+        {"bits", "how the value is stored in its own type", toBits},
         {"concise", "the value and its error or uncertainty as 1.23(4)", concise},
         {"\xC2\xB1", "the value \xC2\xB1 its error or uncertainty", plusMinus},
         {"pm", "the same as \xC2\xB1", plusMinus},

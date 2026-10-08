@@ -43,4 +43,8 @@ FloatInspection inspectValue(const FloatFormatInfo& info, const FloatValue& v);
 // The inspector's row for a floating number type's own storage.
 FloatFormatInfo formatInfo(NumberType type);
 
+// A datum of a format as a `to fp…` conversion: the bit fields as text, then hex, class, stored, error (when `typed`,
+// the exact number that was converted, is given and the result is finite), ulp, neighbours and a note.
+Conversion conversionOf(const FloatFormatInfo& info, const FloatValue& v, const std::optional<Rational>& typed);
+
 }  // namespace calculate_core::detail

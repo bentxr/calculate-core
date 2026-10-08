@@ -241,3 +241,57 @@ TEST(Inspect, AZeroInBinary512StaysQuick) {
     EXPECT_LT(std::chrono::steady_clock::now() - start, std::chrono::seconds(2));
     EXPECT_EQ(r.stored->above.exponent2, -4194302);
 }
+
+namespace {
+
+std::string field(const Result& r, const std::string& label) {
+    for (const ConversionField& f : r.conversion->fields)
+        if (f.label == label) return f.value;
+    return "(none)";
+}
+
+}  // namespace
+
+TEST(FloatTargets, ToFp32) {
+    const Result r = evaluate("0.1 to fp32");
+    ASSERT_FALSE(r.error);
+    ASSERT_TRUE(r.conversion);
+    EXPECT_EQ(r.conversion->target, "fp32");
+    EXPECT_EQ(r.conversion->text, "0 01111011 10011001100110011001101");
+    EXPECT_EQ(field(r, "hex"), "0x3DCCCCCD");
+    EXPECT_EQ(field(r, "class"), "normal");
+    EXPECT_EQ(field(r, "stored"), "0.100000001490116119384765625");
+    EXPECT_EQ(field(r, "error"), "+1.490116119384765625e-9");
+    EXPECT_EQ(field(r, "ulp"), "2^-27");
+    EXPECT_EQ(field(r, "below"), "0.0999999940395355224609375");
+    EXPECT_EQ(field(r, "above"), "0.10000000894069671630859375");
+    EXPECT_EQ(field(r, "note"), "(none)");
+    EXPECT_EQ(r.value.digits, "1000000000000000055511151231257827021181583404541015625");  // the result itself stays
+}
+
+TEST(FloatTargets, TypedNumbersAreConvertedDirectly) {
+    Options single;
+    single.type = NumberType::Float;
+    EXPECT_EQ(field(evaluate("0.1 to fp64", single), "hex"), "0x3FB999999999999A");
+    EXPECT_EQ(field(evaluate("0.1 + 0 to fp64", single), "hex"), "0x3FB99999A0000000");  // computed in float first
+    EXPECT_EQ(field(evaluate("-0.1 to fp16"), "hex"), "0xAE66");
+}
+
+TEST(FloatTargets, EveryFormatAndTheResultsOwn) {
+    EXPECT_EQ(field(evaluate("1 to fp16"), "hex"), "0x3C00");
+    EXPECT_EQ(field(evaluate("1 to bf16"), "hex"), "0x3F80");
+    EXPECT_EQ(field(evaluate("1 to fp80"), "hex"), "0x3FFF8000000000000000");
+    EXPECT_EQ(field(evaluate("1 to fp128"), "hex"), "0x3FFF0000000000000000000000000000");
+    EXPECT_EQ(field(evaluate("1 to binary32"), "hex"), "0x3F800000");
+    EXPECT_EQ(evaluate("-0 to bits").conversion->text, "1 00000000000 " + std::string(52, '0'));
+    Options exact;
+    exact.type = NumberType::Exact;
+    EXPECT_EQ(field(evaluate("1/3 to fp32", exact), "hex"), "0x3EAAAAAB");  // the exact 1/3, rounded once
+    EXPECT_EQ(evaluate("1/3 to bits", exact).error->code, ErrorCode::NotAvailableInExact);
+    const Result big = evaluate("1e39 to fp32");
+    EXPECT_EQ(field(big, "class"), "infinite");
+    EXPECT_EQ(field(big, "note"), "overflow");
+    bool listed = false;
+    for (const auto& t : conversionTargets()) listed = listed || t.name == "fp32";
+    EXPECT_TRUE(listed);
+}

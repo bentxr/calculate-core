@@ -210,7 +210,7 @@ TEST(Fuzz, CommentsAndConversionsLeaveTheResultAlone) {
     for (int i = 0; i < 40; ++i) {
         const std::string text = g.expression(3);
         const Result plain = evaluate(text);
-        for (const char* suffix : {" # note", " to fraction", " to sci", " to mixed", " to percent", " to 1/3"}) {
+        for (const char* suffix : {" # note", " to fraction", " to sci", " to mixed", " to percent", " to 1/3", " to fp32", " to bits"}) {
             const Result r = evaluate(text + suffix);
             EXPECT_EQ(plain.error.has_value(), r.error.has_value()) << text << suffix;
             EXPECT_EQ(plain.value.digits, r.value.digits) << text << suffix;

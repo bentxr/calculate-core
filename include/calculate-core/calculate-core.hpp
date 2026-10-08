@@ -92,6 +92,7 @@ struct FloatFormatInfo {
     int bias;
     bool explicitLeadingBit;         // x87 only
     bool subnormals;                 // false for the software types: they flush to zero
+    std::string languageName{};      // as the language names it: "fp32", "fp80"
 };
 
 std::vector<FloatFormatInfo> floatFormats();
@@ -218,6 +219,11 @@ struct FloatInspection {
 
 // `text`: a decimal number with an optional sign (- or −) and exponent, or inf, -inf, ∞, nan.
 FloatInspection inspectDecimal(const FloatFormatInfo& format, std::string_view text);
+
+// A value written out exactly in ASCII: positional for -7 <= exponent < 21, else d.ddd…e±N.
+std::string exactText(const Digits& digits);
+// A stored value: its exact decimal, inf, -inf or nan, or [-]s × 2^e when it is too long to write out.
+std::string exactText(const FloatBits& bits);
 
 // `digits`: a bit pattern in base 2 or 16 (spaces, _ and thin spaces ignored; an optional 0b or 0x prefix; either
 // case); leading zeros may be left out.
