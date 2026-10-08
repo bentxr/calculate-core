@@ -174,3 +174,12 @@ TEST(Cli, ConversionsFollowTheValue) {
 TEST(Cli, TooManyTermsIsAnErrorCode) {
     EXPECT_NE(invoke({"--json", "sum(x, 1, 10001)"}).out.find("\"code\":\"TooManyTerms\""), std::string::npos);
 }
+
+TEST(Cli, NotesFollowTheReport) {
+    const Outcome r = invoke({"--color", "never", "sum(x; 5; 1)"});
+    EXPECT_NE(r.out.find("\n  note: sum from 5 to 1 has no terms, so it is 0\n"), std::string::npos);
+    EXPECT_NE(invoke({"--json", "sum(x; 5; 1)"}).out.find(
+                  ",\"warnings\":[{\"code\":\"EmptyRange\",\"message\":\"sum from 5 to 1 has no terms, so it is 0\",\"begin\":0,\"end\":12}]"),
+              std::string::npos);
+    EXPECT_EQ(invoke({"--json", "1+1"}).out.find("warnings"), std::string::npos);  // only when there are some
+}

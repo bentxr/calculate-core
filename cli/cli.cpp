@@ -91,6 +91,13 @@ const char* codeName(ErrorCode c) {
     return "";
 }
 
+const char* warningName(WarningCode code) {
+    switch (code) {
+    case WarningCode::EmptyRange: return "EmptyRange";
+    }
+    return "";
+}
+
 void printJson(std::ostream& out, const std::string& input, const Result& r) {
     const auto flag = [](bool b) { return b ? "true" : "false"; };
     out << "{\"expression\":" << jsonString(input) << ",\"type\":" << jsonString(optionName(r.type));
@@ -122,6 +129,15 @@ void printJson(std::ostream& out, const std::string& input, const Result& r) {
         << ",\"roundingOperations\":" << r.roundingOperations << ",\"expanded\":" << jsonString(r.expression);
     if (r.conversion)
         out << ",\"conversion\":{\"target\":" << jsonString(r.conversion->target) << ",\"text\":" << jsonString(r.conversion->text) << "}";
+    if (!r.warnings.empty()) {
+        out << ",\"warnings\":[";
+        for (std::size_t i = 0; i < r.warnings.size(); ++i) {
+            const Warning& w = r.warnings[i];
+            out << (i ? "," : "") << "{\"code\":" << jsonString(warningName(w.code)) << ",\"message\":" << jsonString(w.message)
+                << ",\"begin\":" << w.begin << ",\"end\":" << w.end << "}";
+        }
+        out << "]";
+    }
     if (!r.comment.empty()) out << ",\"comment\":" << jsonString(r.comment);
     out << "}\n";
 }
@@ -156,6 +172,11 @@ void printError(std::ostream& err, const std::string& input, const Error& e) {
         << std::string(std::max<std::size_t>(1, columns(input, e.begin, e.end)), '^') << " " << e.message << "\n";
 }
 
+// After the report lines: what is worth knowing about the result.
+void printNotes(std::ostream& out, const Result& r) {
+    for (const Warning& w : r.warnings) out << "  note: " << w.message << "\n";
+}
+
 void printHuman(std::ostream& out, const std::string& input, const Result& r, bool color) {
     out << input << "\n";
     if (r.commentOnly) return;  // a note: the line alone
@@ -163,6 +184,7 @@ void printHuman(std::ostream& out, const std::string& input, const Result& r, bo
         out << "= " << formatFraction(*r.exact) << "\n";
         if (r.conversion) out << "→ " << r.conversion->text << "\n";
         out << "  exact, no rounding error · κ " << r.conditionNumber << "\n";
+        printNotes(out, r);
         return;
     }
     out << "= " << formatValue(r.value, r.trustedDigits, color) << "\n";
@@ -177,6 +199,7 @@ void printHuman(std::ostream& out, const std::string& input, const Result& r, bo
     if (r.trustedDigits >= static_cast<int>(r.value.digits.size())) out << "all digits trusted";
     else out << r.trustedDigits << (r.trustedDigits == 1 ? " trusted digit" : " trusted digits");
     out << "\n";
+    printNotes(out, r);
 }
 
 // One expression or memory command. Returns false when it failed.
