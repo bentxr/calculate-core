@@ -813,3 +813,11 @@ TEST(Slopes, IncompleteBetaDominatesItsDerivativeInX) {
     const std::vector<Ruler> centre = partials<Ruler>(FunctionId::Betaincinv, point, impl::rulerValue(FunctionId::Betaincinv, point));
     EXPECT_GE(slopes(FunctionId::Betaincinv, point, {Ruler(0), Ruler(0), Ruler(0.1)})[2], abs(centre[2]));
 }
+
+// Mutation survivor (Checkpoint D): the n-th root's slope in x is |x|^(1/n - 1)/|n| at the end nearest 0 when
+// 1/n < 1: for the square root of 0.01 ± 0.001, 1/(2·sqrt(0.009)) = 5.270…
+TEST(Slopes, RootIsSteepestNearZero) {
+    const Ruler s = slopes(FunctionId::Root, {Ruler(0.01), Ruler(2)}, {Ruler(0.001), Ruler(0)})[0];
+    EXPECT_GE(s, Ruler(5.27));
+    EXPECT_LE(s, Ruler(5.271));
+}
