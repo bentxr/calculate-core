@@ -200,6 +200,7 @@ TYPED_TEST(SpecialKernelTest, ErrorFunctions) {
     EXPECT_EQ(applyFunction<T>(FunctionId::Erfc, {T(0)}).value, T(1));
     EXPECT_EQ(applyFunction<T>(FunctionId::Erf, {T(-1000)}).value, T(-1));
     EXPECT_EQ(applyFunction<T>(FunctionId::Erfc, {ldexp(T(1), maxExponent<T>() / 2)}).value, T(0));
+    EXPECT_EQ(applyFunction<T>(FunctionId::Erfc, {-ldexp(T(1), maxExponent<T>() / 2)}).value, T(2));
 }
 
 TEST(SpecialPartials, ErrorFunctions) {

@@ -666,6 +666,7 @@ TEST(Slopes, FlooredModuloDominatesItsDerivative) {
     }
     using V = std::vector<Ruler>;
     EXPECT_EQ(slopes(F::FloorMod, {Ruler(-7), Ruler(3)}, {Ruler(1), Ruler(1)}), (V{Ruler(1), Ruler(4)}));  // |floor(-8 / 2)|
+    EXPECT_EQ(slopes(F::FloorMod, {Ruler(7), Ruler(2)}, {Ruler(0), Ruler(0.5)}), (V{Ruler(1), Ruler(4)}));  // floor(7 / 1.5)
     EXPECT_FALSE(isFinite(slopes(F::FloorMod, {Ruler(1), Ruler(0.1)}, {Ruler(0), Ruler(0.2)})[1]));
 }
 

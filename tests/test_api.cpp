@@ -783,6 +783,17 @@ TEST(Api, EveryFunctionIsDescribed) {
     }
 }
 
+// The listing's exact flag says what the Exact type does with the function's example.
+TEST(Api, TheExactFlagIsWhatExactArithmeticDoes) {
+    Options o;
+    o.type = NumberType::Exact;
+    for (const FunctionDescription& f : functions()) {
+        const Result r = evaluate(f.example, o);
+        const bool refused = r.error && r.error->code == ErrorCode::NotAvailableInExact;
+        EXPECT_EQ(refused, !f.exact) << f.name << ": " << f.example;
+    }
+}
+
 TEST(Api, ArgumentsHaveNamesAndKinds) {
     auto find = [](const std::string& name) {
         for (const FunctionDescription& f : functions()) if (f.name == name) return f;
