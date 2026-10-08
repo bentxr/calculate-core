@@ -1,0 +1,6 @@
+--color
+never
+0.1 to fp32
+floatBits(0.1)
+fromBits(0x3DCCCCCD, fp32)
+floatError(52.345, fp32)
