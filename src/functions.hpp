@@ -128,6 +128,7 @@ inline const FunctionInfo& functionInfo(FunctionId id) {
         {F::Omega, "omega", 0, 0, C::Input, K::Continuous, false},
         {F::PerMille, "", 1, 1, C::Checked, K::Continuous, true},
         {F::PerMyriad, "", 1, 1, C::Checked, K::Continuous, true},
+        {F::ErrorPart, "errorPart", 1, 1, C::Rounded, K::Continuous, false},  // the ruler's figure, rounded once into T
     }};
     return table[static_cast<std::size_t>(id)];
 }

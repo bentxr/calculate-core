@@ -935,3 +935,11 @@ TEST(PhysicalConstants, DefinitionsGiveTheDigitsNistPrints) {
         EXPECT_EQ((d.digits + std::string(digits.size(), '0')).substr(0, digits.size()), digits) << c.name;  // NIST truncates
     }
 }
+
+TEST(EndToEnd, ErrorPart) {
+    EXPECT_EQ(evaluateText<double>("errorPart(5±0.2)").value, 0.2);
+    EXPECT_EQ(evaluateText<double>("errorPart((5±0.2)*2)").value, 0.4);
+    EXPECT_EQ(evaluateText<double>("errorPart(3)").value, 0.0);
+    EXPECT_TRUE(evaluateText<double>("errorPart(5±0.2)").report.uncertainty.sources.empty());  // a number now
+    EXPECT_EQ(evaluateText<Rational>("errorPart(5±0.2)").error->code, ErrorCode::NotAvailableInExact);
+}

@@ -182,6 +182,8 @@ const std::vector<FunctionText>& table() {
          "betaincinv(2, 5, 0.5)", "Probability", {{"a", ArgumentKind::Number}, {"b", ArgumentKind::Number}, {"y", ArgumentKind::Number}}},
         {"uncertainty", "Value with uncertainty", "x, whose true value lies within u of it.",
          "uncertainty(5, 0.2)", "Uncertainty", {{"x", ArgumentKind::Number}, {"u", ArgumentKind::Number}}},
+        {"errorPart", "Error part", "The worst-case uncertainty x carries from its uncertain inputs, as a number.",
+         "errorPart(5±0.2)", "Uncertainty", {{"x", ArgumentKind::Number}}},
     };
     return rows;
 }

@@ -41,7 +41,8 @@ struct Uncertainty {
     Ruler observed = 0;  // the largest change seen at the corners; +infinity when a corner could not be evaluated
 };
 
-// The nodes the result depends on, without going into an Uncertain node's uncertainty argument.
+// The nodes the result depends on, without going into an Uncertain node's uncertainty argument or an errorPart's
+// argument (errorPart's value is a number: its argument's quantities do not reach the result).
 inline std::vector<bool> reachable(const Ast& ast) {
     std::vector<bool> on(ast.nodes.size(), false);
     if (ast.nodes.empty()) return on;
@@ -50,7 +51,8 @@ inline std::vector<bool> reachable(const Ast& ast) {
         if (!on[i]) continue;
         const Node& node = ast.nodes[i];
         for (std::size_t k = 0; k < node.args.size(); ++k)
-            if (!(node.function == FunctionId::Uncertain && k == 1)) on[static_cast<std::size_t>(node.args[k])] = true;
+            if (!(node.function == FunctionId::Uncertain && k == 1) && node.function != FunctionId::ErrorPart)
+                on[static_cast<std::size_t>(node.args[k])] = true;
     }
     return on;
 }
