@@ -136,6 +136,8 @@ inline const FunctionInfo& functionInfo(FunctionId id) {
         {F::BitNot, "", 1, 1, C::Checked, K::Discrete, true},
         {F::ShiftLeft, "", 2, 2, C::Checked, K::Discrete, true},
         {F::ShiftRight, "", 2, 2, C::Checked, K::Discrete, true},
+        {F::Signed, "signed", 2, 2, C::Checked, K::Discrete, true},  // two's complement in a width
+        {F::Unsigned, "unsigned", 2, 2, C::Checked, K::Discrete, true},
     }};
     return table[static_cast<std::size_t>(id)];
 }
@@ -218,6 +220,9 @@ T withSign(const T& v, bool negative) {
 // The largest shift: 2^20 bits.
 inline constexpr long long maxShift = 1LL << 20;
 
+// The widest two's complement number signed and unsigned (and to bin N) take.
+inline constexpr long long maxWidth = 4096;
+
 // & | xor ~ << >> on integers, as on two's complement numbers of unlimited width (~x = -x - 1, x >> n =
 // floor(x / 2^n)). Shifts: 0 <= n <= maxShift.
 inline Integer bitwise(FunctionId id, const std::vector<Integer>& a) {
@@ -227,13 +232,21 @@ inline Integer bitwise(FunctionId id, const std::vector<Integer>& a) {
     case FunctionId::BitXor: return a[0] ^ a[1];
     case FunctionId::ShiftLeft: return a[0] << static_cast<unsigned>(a[1]);
     case FunctionId::ShiftRight: return floorOf(Rational(a[0], Integer(1) << static_cast<unsigned>(a[1])));
+    case FunctionId::Signed:
+    case FunctionId::Unsigned: {  // the low `width` bits, read without or with a sign; 1 <= width <= maxWidth
+        const unsigned width = static_cast<unsigned>(a[1]);
+        const Integer modulus = Integer(1) << width;
+        Integer low = a[0] % modulus;  // truncated: the sign of a[0]
+        if (low < 0) low += modulus;
+        return id == FunctionId::Signed && bit_test(low, width - 1) ? Integer(low - modulus) : low;
+    }
     default: return -a[0] - 1;  // BitNot
     }
 }
 
 inline bool isBitwise(FunctionId id) {
     return id == FunctionId::BitAnd || id == FunctionId::BitOr || id == FunctionId::BitXor || id == FunctionId::BitNot
-        || id == FunctionId::ShiftLeft || id == FunctionId::ShiftRight;
+        || id == FunctionId::ShiftLeft || id == FunctionId::ShiftRight || id == FunctionId::Signed || id == FunctionId::Unsigned;
 }
 
 // gcd, lcm, n!, nCr, nPr, and the bitwise operators. gcd, lcm and the bitwise ones are exact through integers; the products count the
@@ -249,6 +262,8 @@ Applied<T> integerFunction(FunctionId id, const std::vector<T>& a, const std::at
             if (n[1] < 0) return fail<T>(ErrorCode::DomainError);
             if (n[1] > maxShift) return fail<T>(ErrorCode::ArgumentTooLarge);
         }
+        if ((id == FunctionId::Signed || id == FunctionId::Unsigned) && (n[1] < 1 || n[1] > maxWidth))
+            return fail<T>(ErrorCode::DomainError);
         return ok<T>(fromRational<T>(Rational(bitwise(id, n))));
     }
     if (id == FunctionId::Gcd)
@@ -775,6 +790,8 @@ Applied<T> applyFunction(FunctionId id, const std::vector<T>& a, const std::atom
     case FunctionId::BitNot:
     case FunctionId::ShiftLeft:
     case FunctionId::ShiftRight:
+    case FunctionId::Signed:
+    case FunctionId::Unsigned:
         r = impl::integerFunction<T>(id, a, cancel);
         if (r.error) return r;
         break;
@@ -1300,7 +1317,9 @@ inline std::optional<Rational> exactResult(FunctionId id, const std::vector<Rati
     case FunctionId::BitXor:
     case FunctionId::BitNot:
     case FunctionId::ShiftLeft:
-    case FunctionId::ShiftRight: {
+    case FunctionId::ShiftRight:
+    case FunctionId::Signed:
+    case FunctionId::Unsigned: {
         std::vector<Integer> n;  // whole numbers: the operators refuse anything else first
         for (const Rational& x : a) n.push_back(numerator(x));
         return Rational(bitwise(id, n));

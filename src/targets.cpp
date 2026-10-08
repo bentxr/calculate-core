@@ -126,10 +126,39 @@ std::optional<Error> inBase(const TargetInput& in, Result& result, int base, con
     return std::nullopt;
 }
 
+// A whole number as the two's complement pattern of `width` bits, every digit: -1 to bin 8 = 0b11111111.
+std::optional<Error> inWidth(const TargetInput& in, Result& result, int base, const std::string& prefix) {
+    const TargetText& target = *in.parsed.target;
+    const std::string& w = target.argument;
+    const bool whole = w.size() <= 4 && w.find_first_not_of("0123456789") == std::string::npos;
+    if (!whole || std::stoi(w) < 1 || std::stoi(w) > impl::maxWidth)
+        return Error{ErrorCode::DomainError, "The width must be a whole number of bits from 1 to 4096", target.span.begin,
+                     target.span.end};
+    if (denominator(in.value) != 1)
+        return Error{ErrorCode::NotAnInteger, "Only a whole number has a width of bits", target.span.begin, target.span.end};
+    const unsigned width = static_cast<unsigned>(std::stoi(w));
+    const Integer x = numerator(in.value);
+    const Integer modulus = Integer(1) << width;
+    if (x < -(modulus >> 1) || x >= modulus)
+        return Error{ErrorCode::ArgumentTooLarge, x.str() + " needs more than " + w + " bits", target.span.begin, target.span.end};
+    const unsigned bitsPerDigit = base == 2 ? 1 : base == 8 ? 3 : 4;
+    std::string digits = baseExpansion(Rational(x < 0 ? Integer(x + modulus) : x), base).integerPart;
+    const std::size_t count = (width + bitsPerDigit - 1) / bitsPerDigit;
+    digits.insert(0, count - std::min(count, digits.size()), '0');
+    Conversion c{target.name, prefix + digits, std::nullopt, ""};
+    c.fields.push_back({"base", std::to_string(base)});
+    c.fields.push_back({"width", w});
+    result.conversion = c;
+    return std::nullopt;
+}
+
 std::optional<Error> fixedBase(const TargetInput& in, Result& result, int base, const std::string& prefix) {
     const TargetText& target = *in.parsed.target;
-    if (!target.argument.empty())
-        return Error{ErrorCode::UnexpectedToken, target.name + " takes nothing after it", target.span.begin, target.span.end};
+    if (!target.argument.empty()) {
+        if (base == 12)
+            return Error{ErrorCode::UnexpectedToken, target.name + " takes nothing after it", target.span.begin, target.span.end};
+        return inWidth(in, result, base, prefix);
+    }
     return inBase(in, result, base, prefix);
 }
 

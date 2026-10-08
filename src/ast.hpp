@@ -12,10 +12,10 @@ enum class FunctionId {
     Add, Subtract, Multiply, Divide, Negate, Power, Percent, Square, Cube, Factorial,
     Sqrt, Cbrt, Root, Exp, Ln, Log10, LogBase,
     Sin, Cos, Tan, Asin, Acos, Atan, Sinh, Cosh, Tanh, Asinh, Acosh, Atanh,
-    Abs, Rem, FloorMod, Gcd, Lcm, Ncr, Npr, Csch, Acot, Atan2, Hypot, Sinc, Floor, Trunc, Round, Sgn, Clip, Numerator, Denominator, Lgamma, Gamma, Digamma, Trigamma, Beta, Erf, Erfc, Erfinv, Erfcinv, GammaP, GammaQ, Igamma, GammaInc, Betainc, Betaincinv, Median, Uncertain, Tau, Sqrt2, Phi, EulerGamma, Catalan, Apery, Plastic, Omega, PerMille, PerMyriad, ErrorPart, FloatFromBits, BitAnd, BitOr, BitXor, BitNot, ShiftLeft, ShiftRight
+    Abs, Rem, FloorMod, Gcd, Lcm, Ncr, Npr, Csch, Acot, Atan2, Hypot, Sinc, Floor, Trunc, Round, Sgn, Clip, Numerator, Denominator, Lgamma, Gamma, Digamma, Trigamma, Beta, Erf, Erfc, Erfinv, Erfcinv, GammaP, GammaQ, Igamma, GammaInc, Betainc, Betaincinv, Median, Uncertain, Tau, Sqrt2, Phi, EulerGamma, Catalan, Apery, Plastic, Omega, PerMille, PerMyriad, ErrorPart, FloatFromBits, BitAnd, BitOr, BitXor, BitNot, ShiftLeft, ShiftRight, Signed, Unsigned
 };
 
-inline constexpr int functionCount = static_cast<int>(FunctionId::ShiftRight) + 1;
+inline constexpr int functionCount = static_cast<int>(FunctionId::Unsigned) + 1;
 
 struct Span {
     std::size_t begin = 0;

@@ -244,6 +244,12 @@ TEST(Inspect, AZeroInBinary512StaysQuick) {
 
 namespace {
 
+// The error's code; empty when there is none (reading error->code then would be undefined).
+std::optional<ErrorCode> codeOf(const Result& r) {
+    if (!r.error) return std::nullopt;
+    return r.error->code;
+}
+
 std::string field(const Result& r, const std::string& label) {
     for (const ConversionField& f : r.conversion->fields)
         if (f.label == label) return f.value;
@@ -403,6 +409,42 @@ TEST(BaseTargets, FieldsNotesAndRefusals) {
     const Result long_ = evaluate("1/997 to hex", exact);  // a period of 83 hexadecimal digits
     EXPECT_EQ(long_.conversion->text, "0x0");
     EXPECT_EQ(field(long_, "note"), "period too long");
-    EXPECT_EQ(evaluate("1 to hex 3").error->code, ErrorCode::UnexpectedToken);
+    EXPECT_EQ(evaluate("1 to duo 3").error->code, ErrorCode::UnexpectedToken);  // to hex 3 is a width (4.48)
     EXPECT_EQ(evaluate("1 to base").error->code, ErrorCode::DomainError);
+}
+
+TEST(TwosComplement, SignedUnsignedAndWidths) {
+    EXPECT_EQ(evaluate("unsigned(-1, 8)").value.digits, "255");
+    const Result s = evaluate("signed(255, 8)");
+    EXPECT_TRUE(s.value.negative);
+    EXPECT_EQ(s.value.digits, "1");
+    EXPECT_EQ(evaluate("signed(127, 8)").value.digits, "127");
+    EXPECT_EQ(evaluate("signed(256, 8)").value.digits, "0");  // only the low 8 bits count
+    EXPECT_EQ(evaluate("-1 to bin 16").conversion->text, "0b1111111111111111");
+    EXPECT_EQ(evaluate("-1 to hex 32").conversion->text, "0xFFFFFFFF");
+    EXPECT_EQ(evaluate("5 to bin 8").conversion->text, "0b00000101");
+    EXPECT_EQ(evaluate("300 to bin 8").error->code, ErrorCode::ArgumentTooLarge);
+    EXPECT_EQ(evaluate("2.5 to bin 8").error->code, ErrorCode::NotAnInteger);
+}
+
+TEST(TwosComplement, LimitsDigitsAndMessages) {
+    EXPECT_EQ(codeOf(evaluate("signed(1, 0)")), ErrorCode::DomainError);
+    EXPECT_EQ(codeOf(evaluate("unsigned(1, 4097)")), ErrorCode::DomainError);
+    Options exact;
+    exact.type = NumberType::Exact;
+    EXPECT_EQ(evaluate("unsigned(-1, 4096)", exact).exact->numerator.size(), 1234u);  // 2^4096 - 1
+    EXPECT_EQ(evaluate("signed(1, 1)").value.digits, "1");
+    EXPECT_TRUE(evaluate("signed(1, 1)").value.negative);  // one bit: 1 is the sign
+    EXPECT_EQ(codeOf(evaluate("signed(2.5, 8)")), ErrorCode::NotAnInteger);
+    const Result oct = evaluate("-1 to oct 8");  // ceil(8/3) = 3 digits
+    EXPECT_EQ(oct.conversion->text, "0o377");
+    EXPECT_EQ(field(oct, "width"), "8");
+    EXPECT_EQ(field(oct, "base"), "8");
+    EXPECT_EQ(evaluate("-128 to hex 8").conversion->text, "0x80");
+    EXPECT_EQ(evaluate("1 to oct 8").conversion->text, "0o001");
+    EXPECT_EQ(evaluate("-129 to hex 8").error.value_or(Error{}).message, "-129 needs more than 8 bits");
+    EXPECT_EQ(evaluate("256 to hex 8").error.value_or(Error{}).message, "256 needs more than 8 bits");
+    EXPECT_EQ(codeOf(evaluate("1 to bin 0")), ErrorCode::DomainError);
+    EXPECT_EQ(codeOf(evaluate("1 to bin 4097")), ErrorCode::DomainError);
+    EXPECT_EQ(evaluate("1 to bin 4096").conversion->text.size(), 4098u);
 }
