@@ -667,3 +667,21 @@ TEST(Slopes, FlooredModuloDominatesItsDerivative) {
     EXPECT_EQ(slopes(F::FloorMod, {Ruler(-7), Ruler(3)}, {Ruler(1), Ruler(1)}), (V{Ruler(1), Ruler(4)}));  // |floor(-8 / 2)|
     EXPECT_FALSE(isFinite(slopes(F::FloorMod, {Ruler(1), Ruler(0.1)}, {Ruler(0), Ruler(0.2)})[1]));
 }
+
+TEST(Partials, HyperbolicCosecant) {
+    using O = test::Oracle;
+    for (double point : {0.7, -2.5}) {
+        const Ruler x(point);
+        const std::vector<Ruler> d = partials<Ruler>(FunctionId::Csch, {x}, applyFunction<Ruler>(FunctionId::Csch, {x}).value);
+        const O expected = centralDifference(FunctionId::Csch, {O(point)}, 0);
+        EXPECT_LE(abs(exactCast<O>(d[0]) - expected), ldexp(O(1), -200) * (abs(expected) + 1)) << point;
+    }
+}
+
+// Every kernel carries its argument's error at its steepest slope over the interval (the bound would miss it otherwise).
+TEST(Slopes, HyperbolicCosecantDominatesItsDerivative) {
+    for (const SlopeCase& c : {SlopeCase{FunctionId::Csch, {0.7}, {0.1}}, SlopeCase{FunctionId::Csch, {-2.5}, {0.5}},
+                               SlopeCase{FunctionId::Csch, {1.3}, {0}}})
+        expectSlopesDominate(c.id, c.point, c.radius);
+    EXPECT_FALSE(isFinite(slopes(FunctionId::Csch, {Ruler(0.1)}, {Ruler(0.2)})[0]));  // the interval reaches 0
+}

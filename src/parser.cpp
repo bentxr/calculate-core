@@ -252,7 +252,7 @@ int leftPower(TokenKind k) {
 // returns -1 and nothing else is parsed.
 // Functions written with nodes the engine already has (a lowering): their error is the composition's.
 bool isLowering(std::string_view name) {
-    for (const char* n : {"log2", "exp2", "exp10", "sq", "sqrtpi", "sec", "csc", "cot"})
+    for (const char* n : {"log2", "exp2", "exp10", "sq", "sqrtpi", "sec", "csc", "cot", "sech", "coth"})
         if (name == n) return true;
     return false;
 }
@@ -770,6 +770,16 @@ private:
             }
             return made;
         };
+        if (name == "coth") return read(lowered(FunctionId::Divide, {literal("1"), lowered(FunctionId::Tanh, {x}, span, written)}, span, written), call);
+        if (name == "sech") {  // 2e^-|x| / (1 + e^-2|x|): no overflow where sech is tiny, nothing cancels
+            const int a = lowered(FunctionId::Abs, {x}, span, written);
+            const int two = literal("2");
+            const int top = lowered(FunctionId::Multiply, {two, lowered(FunctionId::Exp, {lowered(FunctionId::Negate, {a}, span, written)}, span, written)}, span, written);
+            const int one = literal("1");
+            const int twice = lowered(FunctionId::Multiply, {literal("2"), a}, span, written);
+            const int bottom = lowered(FunctionId::Add, {one, lowered(FunctionId::Exp, {lowered(FunctionId::Negate, {twice}, span, written)}, span, written)}, span, written);
+            return read(lowered(FunctionId::Divide, {top, bottom}, span, written), call);
+        }
         if (name == "sec" || name == "csc" || name == "cot") {
             const int one = literal("1");
             const FunctionId id = name == "sec" ? FunctionId::Cos : name == "csc" ? FunctionId::Sin : FunctionId::Tan;

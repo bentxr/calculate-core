@@ -203,3 +203,24 @@ TYPED_TEST(CatalogueKernelTest, ReciprocalTrigonometryCoversTheTruth) {
     expectBoundCoversOracle<T>("csc", [](const O& x) { return O(1 / sin(x)); }, sample);
     expectBoundCoversOracle<T>("cot", [](const O& x) { return O(cos(x) / sin(x)); }, sample);
 }
+
+TEST(Catalogue, HyperbolicReciprocalsAreWrittenWithTheFunctionsWeHave) {
+    EXPECT_EQ(tree("coth(2)"), "(/ 1 (tanh 2))");
+    EXPECT_EQ(tree("sech(2)"), "(/ (* 2 (exp (neg (abs 2)))) (+ 1 (exp (neg (* 2 (abs 2))))))");
+    EXPECT_EQ(evaluate("sech(0)").value.digits, "1");
+    EXPECT_FALSE(evaluate("sech(1000)").error);  // tiny, never an overflow
+    EXPECT_EQ(evaluate("coth(0)").error->message, "coth is not defined for this argument");
+}
+
+TYPED_TEST(CatalogueKernelTest, HyperbolicReciprocals) {
+    using T = TypeParam;
+    using O = test::Oracle;
+    const double range = std::min(700.0, 0.69 * maxExponent<T>());
+    test::expectWithinClaim<T>(FunctionId::Csch, [range](auto& rng) { return std::pair<T, T>{uniform<T>(rng, -range, range), T(0)}; });
+    test::expectWithinClaim<T>(FunctionId::Csch, [](auto& rng) { return std::pair<T, T>{randomSign(rng, logUniform<T>(rng, -30, 0)), T(0)}; });
+    EXPECT_EQ(applyFunction<T>(FunctionId::Csch, {T(0)}).error.value_or(ErrorCode::Cancelled), ErrorCode::DomainError);
+    EXPECT_EQ(applyFunction<T>(FunctionId::Csch, {ldexp(T(1), maxExponent<T>() / 2)}).value, T(0));  // underflows
+    const auto sample = [range](std::mt19937_64& rng) { return uniform<T>(rng, -range, range); };
+    expectBoundCoversOracle<T>("sech", [](const O& x) { return O(1 / cosh(x)); }, sample);
+    expectBoundCoversOracle<T>("coth", [](const O& x) { return O(cosh(x) / sinh(x)); }, sample);
+}
