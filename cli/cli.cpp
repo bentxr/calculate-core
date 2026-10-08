@@ -173,9 +173,18 @@ void printJson(std::ostream& out, const std::string& input, const Result& r, boo
         out << "]}";
     }
     out << ",\"expanded\":" << jsonString(r.expression) << ",\"reading\":" << jsonString(r.reading);
-    if (r.conversion)
+    if (r.conversion) {
         out << ",\"conversion\":{\"target\":" << jsonString(r.conversion->target) << ",\"text\":" << jsonString(r.conversion->text)
-            << (r.conversion->note.empty() ? "" : ",\"note\":" + jsonString(r.conversion->note)) << "}";
+            << (r.conversion->note.empty() ? "" : ",\"note\":" + jsonString(r.conversion->note));
+        if (!r.conversion->fields.empty()) {
+            out << ",\"fields\":[";
+            for (std::size_t i = 0; i < r.conversion->fields.size(); ++i)
+                out << (i ? "," : "") << "{\"label\":" << jsonString(r.conversion->fields[i].label) << ",\"value\":"
+                    << jsonString(r.conversion->fields[i].value) << "}";
+            out << "]";
+        }
+        out << "}";
+    }
     if (!r.warnings.empty()) {
         out << ",\"warnings\":[";
         for (std::size_t i = 0; i < r.warnings.size(); ++i) {
@@ -323,6 +332,13 @@ void printUncertainty(std::ostream& out, const Result& r) {
     out << "\n";
 }
 
+// A conversion's line, then one line per labelled field.
+void printConversion(std::ostream& out, const Result& r) {
+    if (!r.conversion) return;
+    out << "→ " << r.conversion->text << (r.conversion->note.empty() ? "" : " (" + r.conversion->note + ")") << "\n";
+    for (const ConversionField& f : r.conversion->fields) out << "  " << f.label << " " << f.value << "\n";
+}
+
 // After the report lines: what is worth knowing about the result.
 void printNotes(std::ostream& out, const Result& r) {
     for (const Warning& w : r.warnings) out << "  note: " << w.message << "\n";
@@ -333,7 +349,7 @@ void printHuman(std::ostream& out, const std::string& input, const Result& r, bo
     if (r.commentOnly) return;  // a note: the line alone
     if (r.exact) {
         out << "= " << formatFraction(*r.exact) << (r.unit.empty() ? "" : " " + r.unit) << "\n";
-        if (r.conversion) out << "→ " << r.conversion->text << (r.conversion->note.empty() ? "" : " (" + r.conversion->note + ")") << "\n";
+        printConversion(out, r);
         out << "  exact, no rounding error · κ " << r.conditionNumber << "\n";
         printUncertainty(out, r);
         printNotes(out, r);
@@ -346,7 +362,7 @@ void printHuman(std::ostream& out, const std::string& input, const Result& r, bo
     } else {
         out << "= " << formatValue(r.value, r.trustedDigitsWithUncertainty, color) << (r.unit.empty() ? "" : " " + r.unit) << "\n";
     }
-    if (r.conversion) out << "→ " << r.conversion->text << (r.conversion->note.empty() ? "" : " (" + r.conversion->note + ")") << "\n";
+    printConversion(out, r);
     out << "  ± " << r.bound << "  input " << r.inputError << " · rounding " << r.roundingError << " · library "
         << r.libraryError;
     if (!r.boundComplete) out << "  (incomplete: an uncertain argument was accepted)";

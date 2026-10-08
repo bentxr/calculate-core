@@ -337,3 +337,11 @@ TEST(Cli, ListsTheInspectorFormats) {
     EXPECT_NE(r.out.find("binary64      double        64-bit: 1 + 11 + 52 bits, bias 1023\n"), std::string::npos);
     EXPECT_NE(r.out.find("binary128     binary128     128-bit: 1 + 15 + 112 bits, bias 16383, no subnormals\n"), std::string::npos);
 }
+
+TEST(Cli, FloatTargetsPrintTheirFields) {
+    const Outcome r = invoke({"0.1 to fp32"});
+    EXPECT_EQ(r.code, 0);
+    EXPECT_NE(r.out.find("\n  hex 0x3DCCCCCD\n"), std::string::npos);
+    EXPECT_NE(r.out.find("\n  stored 0.100000001490116119384765625\n"), std::string::npos);
+    EXPECT_NE(invoke({"--json", "0.1 to fp32"}).out.find("{\"label\":\"hex\",\"value\":\"0x3DCCCCCD\"}"), std::string::npos);
+}
