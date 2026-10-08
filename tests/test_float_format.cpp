@@ -322,6 +322,7 @@ TEST(BinaryForm, ExactlyAsSignificandTimesAPowerOfTwo) {
     EXPECT_EQ(binaryForm(Rational(40)).significand, "5");
     EXPECT_EQ(binaryForm(Rational(40)).exponent2, 3);
     EXPECT_EQ(binaryForm(Rational(0)).significand, "0");
+    EXPECT_EQ(binaryForm(Rational(0)).exponent2, 0);  // zero is 0 × 2^0
 }
 
 TEST(BaseLiteral, Prefixes) {
