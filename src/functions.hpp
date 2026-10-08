@@ -106,6 +106,8 @@ inline const FunctionInfo& functionInfo(FunctionId id) {
         {F::Digamma, "digamma", 1, 1, C::Library, K::Continuous, false},
         {F::Trigamma, "", 1, 1, C::Library, K::Continuous, false},  // internal: digamma's derivative
         {F::Beta, "beta", 2, 2, C::Library, K::Continuous, false},
+        {F::Erf, "erf", 1, 1, C::Library, K::Continuous, false},
+        {F::Erfc, "erfc", 1, 1, C::Library, K::Continuous, false},
         {F::Median, "median", 1, -1, C::Checked, K::Continuous, true},
     }};
     return table[static_cast<std::size_t>(id)];
@@ -496,6 +498,23 @@ Applied<T> specialFunction(FunctionId id, const std::vector<T>& a, [[maybe_unuse
         if (!isFinite(r.scale)) r.scale = (std::numeric_limits<T>::max)();
         return r;
     }
+    case FunctionId::Erf:
+    case FunctionId::Erfc: {
+        using std::abs;
+        using std::sqrt;
+        const T ax = abs(x);
+        if (ax > sqrt((std::numeric_limits<T>::max)()) / 2) {  // x² would overflow; e^-x² underflows long before
+            if (id == FunctionId::Erf) return ok<T>(x < 0 ? T(-1) : T(1));
+            return ok<T>(x < 0 ? T(2) : T(0));
+        }
+        const bool small = ax < erfSwitch<T>();
+        if (id == FunctionId::Erf) {
+            const DoubleWord<T> w = small ? erfSeries(ax) : dw(T(1)) - erfcFraction(ax);
+            return ok<T>(toValue(x < 0 ? -w : w));
+        }
+        const DoubleWord<T> c = small ? dw(T(1)) - erfSeries(ax) : erfcFraction(ax);
+        return ok<T>(toValue(x < 0 ? dw(T(2)) - c : c));
+    }
     case FunctionId::Digamma:
     case FunctionId::Trigamma:
         if (x <= 0 && isInteger(x)) return fail<T>(ErrorCode::DomainError);  // a pole
@@ -682,6 +701,11 @@ std::vector<R> partials(FunctionId id, const std::vector<R>& a, const R& v) {
     case FunctionId::Csch: return {-v / f(FunctionId::Tanh, x)};  // −csch·coth: cosh/sinh would overflow for a huge x
     case FunctionId::Acot: return {R(-1) / (R(1) + x * x)};
     case FunctionId::Gamma: return {v * f(FunctionId::Digamma, x)};
+    case FunctionId::Erf:
+    case FunctionId::Erfc: {  // ±2/sqrt(pi) e^-x²
+        const R d = R(2) / sqrt(constantValue<R>(ConstantId::Pi)) * f(FunctionId::Exp, R(-x * x));
+        return {id == FunctionId::Erf ? d : R(-d)};
+    }
     case FunctionId::Lgamma: return {f(FunctionId::Digamma, x)};
     case FunctionId::Digamma: return {f(FunctionId::Trigamma, x)};
     case FunctionId::Sinc: {  // (cos x − sinc x)/x cancels near 0: there the first Taylor term, −x/3
@@ -875,6 +899,9 @@ inline Ruler functionSlope(FunctionId id, const Ruler& x, const Ruler& b) {
     case FunctionId::Asinh: return 1 / sqrt(near * near + 1);
     case FunctionId::Acosh: return lo > 1 ? Ruler(1 / sqrt(lo * lo - 1)) : inf;
     case FunctionId::Atanh: return far < 1 ? Ruler(1 / (1 - far * far)) : inf;
+    case FunctionId::Erf:
+    case FunctionId::Erfc:  // 2/sqrt(pi) e^-t², largest at the smallest |t|
+        return 2 / sqrt(constantValue<Ruler>(ConstantId::Pi)) * f(FunctionId::Exp, Ruler(-near * near));
     case FunctionId::Lgamma:   // psi, increasing between the poles
     case FunctionId::Gamma:    // Gamma', monotonic between the poles (Gamma'' has the sign of Gamma)
     case FunctionId::Digamma: {  // psi', convex between the poles
@@ -992,7 +1019,9 @@ inline std::vector<Ruler> slopes(FunctionId id, const std::vector<Ruler>& a, con
     case FunctionId::Sinc:
     case FunctionId::Lgamma:
     case FunctionId::Gamma:
-    case FunctionId::Digamma: return {impl::functionSlope(id, a[0], b[0])};
+    case FunctionId::Digamma:
+    case FunctionId::Erf:
+    case FunctionId::Erfc: return {impl::functionSlope(id, a[0], b[0])};
     default: return std::vector<Ruler>(a.size(), Ruler(0));  // discrete functions: uncertain arguments are refused
     }
 }

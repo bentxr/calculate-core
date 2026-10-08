@@ -771,3 +771,9 @@ TEST(Slopes, BetaDominatesItsDerivatives) {
                                SlopeCase{FunctionId::Beta, {1.5, 2.25}, {0, 0}}})
         expectSlopesDominate(c.id, c.point, c.radius);
 }
+
+TEST(Slopes, ErrorFunctionsDominateTheirDerivatives) {
+    for (const SlopeCase& c : {SlopeCase{FunctionId::Erf, {0.7}, {0.1}}, SlopeCase{FunctionId::Erf, {-0.05}, {0.1}},
+                               SlopeCase{FunctionId::Erfc, {2.5}, {0.5}}, SlopeCase{FunctionId::Erfc, {1.2}, {0}}})
+        expectSlopesDominate(c.id, c.point, c.radius);
+}

@@ -61,6 +61,8 @@ O specialOracle(FunctionId id, [[maybe_unused]] const std::vector<O>& a) {
     case FunctionId::Digamma: return boost::math::digamma(a[0]);
     case FunctionId::Trigamma: return boost::math::trigamma(a[0]);
     case FunctionId::Beta: return boost::math::beta(a[0], a[1]);
+    case FunctionId::Erf: return boost::math::erf(a[0]);
+    case FunctionId::Erfc: return boost::math::erfc(a[0]);
     default: return O(0);
     }
 }

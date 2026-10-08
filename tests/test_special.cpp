@@ -185,3 +185,27 @@ TEST(Special, FactorialOfAFractionPointsToGamma) {
     EXPECT_EQ(r.error->code, ErrorCode::NotAnInteger);
     EXPECT_EQ(r.error->message, "! needs a whole-number argument; for other values use gamma(x + 1)");
 }
+
+TYPED_TEST(SpecialKernelTest, ErrorFunctions) {
+    using T = TypeParam;
+    test::expectSpecialWithinClaim<T>(FunctionId::Erf, [](auto& rng) { return std::vector<T>{uniform<T>(rng, -6, 6)}; });
+    test::expectSpecialWithinClaim<T>(FunctionId::Erf, [](auto& rng) { return std::vector<T>{randomSign(rng, logUniform<T>(rng, -60, -1))}; });
+    test::expectSpecialWithinClaim<T>(FunctionId::Erfc, [](auto& rng) { return std::vector<T>{uniform<T>(rng, -3, 30)}; });
+    const double tail = 0.9 * std::sqrt(0.69 * maxExponent<T>());  // erfc still above min() here
+    test::expectSpecialWithinClaim<T>(FunctionId::Erfc, [tail](auto& rng) { return std::vector<T>{uniform<T>(rng, 1, tail)}; });
+    EXPECT_EQ(applyFunction<T>(FunctionId::Erf, {T(0)}).value, T(0));
+    EXPECT_EQ(applyFunction<T>(FunctionId::Erfc, {T(0)}).value, T(1));
+    EXPECT_EQ(applyFunction<T>(FunctionId::Erf, {T(-1000)}).value, T(-1));
+    EXPECT_EQ(applyFunction<T>(FunctionId::Erfc, {ldexp(T(1), maxExponent<T>() / 2)}).value, T(0));
+}
+
+TEST(SpecialPartials, ErrorFunctions) {
+    using O = RulerCheck;
+    const O h = ldexp(O(1), -400);
+    for (FunctionId id : {FunctionId::Erf, FunctionId::Erfc}) {
+        const Ruler x(0.7);
+        const std::vector<Ruler> d = partials<Ruler>(id, {x}, applyFunction<Ruler>(id, {x}).value);
+        const O expected = (test::specialOracle<O>(id, {O(0.7) + h}) - test::specialOracle<O>(id, {O(0.7) - h})) / (2 * h);
+        EXPECT_LE(abs(exactCast<O>(d[0]) - expected), ldexp(O(1), -200)) << static_cast<int>(id);
+    }
+}

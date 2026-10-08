@@ -122,6 +122,50 @@ Special<T> lgammaPositive(DoubleWord<T> z) {
 template <class T>
 std::pair<DoubleWord<T>, DoubleWord<T>> sinCosPi(const T& x);
 
+// x² = p ln2 / 2: erfc(x) is about 2^(-p/2) there (the literal is a reduction boundary, not a precision).
+template <class T>
+T erfSwitch() {
+    using std::sqrt;
+    return sqrt(T(precisionBits<T>()) * T(0.6931471805599453) / 2);
+}
+
+// erf x for 0 <= x < erfSwitch (DLMF 7.6.2): (2/sqrt(pi)) e^-x² sum 2^k x^(2k+1) / (1·3·…·(2k+1)); all terms positive.
+template <class T>
+DoubleWord<T> erfSeries(const T& x) {
+    const DoubleWord<T> x2 = dw(x) * x;
+    const DoubleWord<T> twoX2 = scale(x2, 1);
+    DoubleWord<T> term = dw(x), sum = dw(x);
+    for (int k = 1;; ++k) {
+        term = term * twoX2 / T(2 * k + 1);
+        if (impl::negligible(term, sum)) break;
+        sum = sum + term;
+    }
+    const ExpParts<T> e = expParts(-x2);
+    const DoubleWord<T> ex = e.underflow ? dw(T(1)) : expValue(e);
+    return scale(ex * sum / impl::sqrtPi<T>(), 1);
+}
+
+// erfc x for x >= erfSwitch, the continued fraction DLMF 7.9.2 by Lentz:
+// e^-x² / sqrt(pi) / (x + (1/2)/(x + 1/(x + (3/2)/(x + …)))).
+template <class T>
+DoubleWord<T> erfcFraction(const T& x) {
+    using std::abs;
+    using std::ldexp;
+    const DoubleWord<T> X = dw(x);
+    DoubleWord<T> f = X, C = X, D = dw(T(0));
+    for (int n = 1; n < (1 << 20); ++n) {
+        const T a = T(n) / 2;
+        D = dw(T(1)) / (X + D * a);
+        C = X + dw(a) / C;
+        const DoubleWord<T> delta = C * D;
+        f = f * delta;
+        if (abs((delta - T(1)).hi) <= ldexp(T(1), -impl::targetBits<T>())) break;
+    }
+    const ExpParts<T> e = expParts(-(dw(x) * x));
+    if (e.underflow) return dw(T(0));
+    return expValue(e) / (impl::sqrtPi<T>() * f);
+}
+
 // psi(z) for z > 0: the recurrence (DLMF 5.5.2) up to X, then the asymptotic series (DLMF 5.11.2).
 template <class T>
 Special<T> digammaPositive(DoubleWord<T> z) {
