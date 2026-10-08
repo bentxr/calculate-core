@@ -281,3 +281,25 @@ TEST(SpecialPartials, IncompleteGamma) {
         EXPECT_LE(abs(exactCast<O>(d[1]) - dx), ldexp(O(1), -200) * (abs(dx) + 1)) << static_cast<int>(id);
     }
 }
+
+TYPED_TEST(SpecialKernelTest, RegularizedIncompleteBeta) {
+    using T = TypeParam;
+    test::expectSpecialWithinClaim<T>(FunctionId::Betainc, [](auto& rng) {
+        return std::vector<T>{uniform<T>(rng, 0.1, 10), uniform<T>(rng, 0.1, 10), uniform<T>(rng, 0, 1)};
+    });
+    test::expectSpecialWithinClaim<T>(FunctionId::Betainc, [](auto& rng) {
+        return std::vector<T>{uniform<T>(rng, 1, 200), uniform<T>(rng, 1, 200), uniform<T>(rng, 0, 1)};
+    });
+    EXPECT_EQ(applyFunction<T>(FunctionId::Betainc, {T(2), T(3), T(0)}).value, T(0));
+    EXPECT_EQ(applyFunction<T>(FunctionId::Betainc, {T(2), T(3), T(1)}).value, T(1));
+    EXPECT_EQ(applyFunction<T>(FunctionId::Betainc, {T(1), T(1), T(0.25)}).value, T(0.25));  // I_x(1, 1) = x
+    for (const std::vector<T>& bad : {std::vector<T>{T(2), T(3), T(1.5)}, {T(0), T(3), T(0.5)}, {T(2), T(-1), T(0.5)}})
+        EXPECT_EQ(applyFunction<T>(FunctionId::Betainc, bad).error.value_or(ErrorCode::Cancelled), ErrorCode::DomainError);
+}
+
+TEST(Special, IncompleteBetaOfWholeParametersIsRational) {
+    // I_{3/8}(10, 3) = 108591111/68719476736 (python3 fractions, see 2.22)
+    const Applied<Ruler> r = applyFunction<Ruler>(FunctionId::Betainc, {Ruler(10), Ruler(3), Ruler(0.375)});
+    ASSERT_FALSE(r.error);
+    EXPECT_LE(abs(r.value - Ruler(108591111) / Ruler(68719476736)), ldexp(Ruler(108591111) / Ruler(68719476736), -990));
+}

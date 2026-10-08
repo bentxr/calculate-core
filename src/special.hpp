@@ -401,4 +401,63 @@ Special<T> gammaPQ(const T& a, const T& x, bool lower, const std::atomic<bool>* 
     return r;
 }
 
+// I_x(a, b) for x below (a + 1)/(a + b + 2), X = x and Y = 1 - x as double words: x^a (1-x)^b / (a B(a, b)) over the
+// continued fraction DLMF 8.17.22, by Lentz (every b_n = 1).
+template <class T>
+Special<T> betaincDirect(const T& a, const T& b, const DoubleWord<T>& X, const DoubleWord<T>& Y, const std::atomic<bool>* cancel) {
+    using std::abs;
+    using std::ldexp;
+    Special<T> r;
+    const Special<T> la = lgammaPositive(dw(a)), lb = lgammaPositive(dw(b)), lab = lgammaPositive(dw(a) + b);
+    const DoubleWord<T> t1 = logWord(X) * a, t2 = logWord(Y) * b;
+    const DoubleWord<T> L = t1 + t2 - la.value - lb.value + lab.value - logWord(dw(a));
+    const T scaleL = abs(t1.hi) + abs(t2.hi) + la.scale + lb.scale + lab.scale;
+    const ExpParts<T> e = expParts(L);
+    const DoubleWord<T> front = e.overflow || e.underflow ? dw(T(0)) : expValue(e);
+    const DoubleWord<T> tiny = dw((std::numeric_limits<T>::min)());
+    DoubleWord<T> f = dw(T(1)), C = f, D = dw(T(0));
+    int n = 1;
+    for (;; ++n) {
+        if (n % 1024 == 0 && impl::cancelled(cancel)) {
+            r.error = ErrorCode::Cancelled;
+            return r;
+        }
+        if (n > impl::maxIterations) {
+            r.error = ErrorCode::ArgumentTooLarge;
+            return r;
+        }
+        const int m = n / 2;
+        const DoubleWord<T> d = n % 2 ? -((dw(a) + T(m)) * (dw(a) + b + T(m)) * X / ((dw(a) + T(2 * m)) * (dw(a) + T(2 * m + 1))))
+                                      : dw(T(m)) * (dw(b) - T(m)) * X / ((dw(a) + T(2 * m - 1)) * (dw(a) + T(2 * m)));
+        D = dw(T(1)) + d * D;
+        if (D.hi == 0) D = tiny;
+        D = dw(T(1)) / D;
+        C = dw(T(1)) + d / C;
+        if (C.hi == 0) C = tiny;
+        const DoubleWord<T> delta = C * D;
+        f = f * delta;
+        if (abs((delta - T(1)).hi) <= ldexp(T(1), -impl::targetBits<T>())) break;
+    }
+    r.value = front / f;
+    r.scale = abs(r.value.hi) * (scaleL + T(n));
+    return r;
+}
+
+// I_x(a, b), using I_x(a, b) = 1 - I_{1-x}(b, a) past (a + 1)/(a + b + 2), where the fraction converges fast.
+template <class T>
+Special<T> betaincWord(const T& x, const T& a, const T& b, const std::atomic<bool>* cancel) {
+    Special<T> r;
+    if (x == 0 || x == 1) {
+        r.value = dw(x);
+        return r;
+    }
+    const DoubleWord<T> X = dw(x), Y = dw(T(1)) - x;  // exact
+    if (x < (a + 1) / (a + b + 2)) return betaincDirect(a, b, X, Y, cancel);
+    r = betaincDirect(b, a, Y, X, cancel);
+    if (r.error) return r;
+    r.value = dw(T(1)) - r.value;
+    r.scale = r.scale + 1;
+    return r;
+}
+
 }  // namespace calculate_core::detail

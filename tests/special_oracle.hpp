@@ -69,6 +69,7 @@ O specialOracle(FunctionId id, [[maybe_unused]] const std::vector<O>& a) {
     case FunctionId::GammaQ: return boost::math::gamma_q(a[0], a[1]);
     case FunctionId::Igamma: return boost::math::tgamma(a[0], a[1]);
     case FunctionId::GammaInc: return boost::math::tgamma_lower(a[0], a[1]);
+    case FunctionId::Betainc: return betaincReference(a[0], a[1], a[2]);  // arguments (a, b, x)
     default: return O(0);
     }
 }
