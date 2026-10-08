@@ -51,6 +51,7 @@ std::string usage() {
            "  --list-types       describe the number types of this build\n"
            "  --list-functions   list the functions of the language\n"
            "  --info <name>      describe a function\n"
+           "  --list-constants   list the named constants\n"
            "  --help, --version\n"
            "\n"
            "Lines M+, M- and MC add Ans to, subtract it from, or clear the memory M.\n"
@@ -137,7 +138,21 @@ void printJson(std::ostream& out, const std::string& input, const Result& r) {
         << ",\"measured\":" << jsonString(r.measured) << ",\"conditionNumber\":" << jsonString(r.conditionNumber)
         << ",\"measuredAvailable\":" << flag(r.measuredAvailable)
         << ",\"measurementReliable\":" << flag(r.measurementReliable) << ",\"boundComplete\":" << flag(r.boundComplete)
-        << ",\"roundingOperations\":" << r.roundingOperations << ",\"expanded\":" << jsonString(r.expression) << ",\"reading\":" << jsonString(r.reading);
+        << ",\"roundingOperations\":" << r.roundingOperations;
+    if (!r.uncertainInputs.empty()) {
+        out << ",\"uncertainty\":{\"rule\":" << jsonString(r.uncertaintyRule == UncertaintyRule::Linear ? "worst" : "statistical")
+            << ",\"worst\":" << jsonString(r.uncertaintyLinear) << ",\"statistical\":" << jsonString(r.uncertaintyQuadrature)
+            << ",\"trustedDigits\":" << r.trustedDigitsWithUncertainty << ",\"concise\":" << jsonString(r.concise)
+            << ",\"plusMinus\":" << jsonString(r.plusMinus) << ",\"firstOrderReliable\":" << flag(r.firstOrderReliable)
+            << ",\"firstOrderObserved\":" << jsonString(r.firstOrderObserved) << ",\"inputs\":[";
+        for (std::size_t i = 0; i < r.uncertainInputs.size(); ++i) {
+            const UncertainInput& u = r.uncertainInputs[i];
+            out << (i ? "," : "") << "{\"name\":" << jsonString(u.name) << ",\"uncertainty\":" << jsonString(u.uncertainty)
+                << ",\"sensitivity\":" << jsonString(u.sensitivity) << ",\"contribution\":" << jsonString(u.contribution) << "}";
+        }
+        out << "]}";
+    }
+    out << ",\"expanded\":" << jsonString(r.expression) << ",\"reading\":" << jsonString(r.reading);
     if (r.conversion)
         out << ",\"conversion\":{\"target\":" << jsonString(r.conversion->target) << ",\"text\":" << jsonString(r.conversion->text)
             << (r.conversion->note.empty() ? "" : ",\"note\":" + jsonString(r.conversion->note)) << "}";
@@ -153,6 +168,18 @@ void printJson(std::ostream& out, const std::string& input, const Result& r) {
     if (!r.comment.empty()) out << ",\"comment\":" << jsonString(r.comment);
     if (!r.assigned.empty()) out << ",\"assigned\":" << jsonString(r.assigned);
     out << "}\n";
+}
+
+// The named values: name = value ± limit unit  (title).
+void listConstants(std::ostream& out) {
+    out << "± is the limit the calculator uses: three of CODATA's standard uncertainties\n";
+    for (const ConstantDescription& c : constants()) {
+        out << c.name;
+        if (!c.value.empty()) out << " = " << c.value;
+        if (!c.limit.empty()) out << " ± " << c.limit;
+        if (!c.unit.empty()) out << " " << c.unit;
+        out << "  (" << c.title << ")\n";
+    }
 }
 
 void listTypes(std::ostream& out) {
@@ -391,6 +418,10 @@ int run(const std::vector<std::string>& args, std::istream& in, std::ostream& ou
         }
         if (a == "--list-types") {
             listTypes(out);
+            return 0;
+        }
+        if (a == "--list-constants") {
+            listConstants(out);
             return 0;
         }
         if (a == "--list-functions") {
