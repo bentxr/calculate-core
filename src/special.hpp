@@ -122,6 +122,90 @@ Special<T> lgammaPositive(DoubleWord<T> z) {
 template <class T>
 std::pair<DoubleWord<T>, DoubleWord<T>> sinCosPi(const T& x);
 
+// psi(z) for z > 0: the recurrence (DLMF 5.5.2) up to X, then the asymptotic series (DLMF 5.11.2).
+template <class T>
+Special<T> digammaPositive(DoubleWord<T> z) {
+    using std::abs;
+    const T shift = impl::stirlingShift<T>();
+    DoubleWord<T> sum = dw(T(0));
+    int n = 0;
+    for (; z.hi < shift; ++n) {
+        sum = sum + dw(T(1)) / z;
+        z = z + T(1);
+    }
+    DoubleWord<T> s = logWord(z) - dw(T(0.5)) / z;
+    const DoubleWord<T> z2 = z * z;
+    DoubleWord<T> power = z2;
+    DoubleWord<T> series = dw(T(0));
+    int k = 1;
+    for (const DoubleWord<T>& c : impl::stirlingWords<T>()) {  // B_2k / (2k z^2k) = c_k (2k - 1) / z^2k
+        const DoubleWord<T> term = c * T(2 * k - 1) / power;
+        if (impl::negligible(term, s)) break;
+        series = series + term;
+        power = power * z2;
+        ++k;
+    }
+    s = s - series;
+    Special<T> r;
+    r.value = s - sum;
+    r.scale = abs(s.hi) + abs(sum.hi) + T(n);
+    return r;
+}
+
+// psi(x) for any x that is not a pole: the reflection psi(1 - x) - psi(x) = pi cot(pi x) (DLMF 5.5.4).
+template <class T>
+Special<T> digammaWord(const T& x) {
+    using std::abs;
+    if (x > 0) return digammaPositive(dw(x));
+    const auto [s, c] = sinCosPi(x);
+    const DoubleWord<T> cot = impl::word<T>(ConstantId::Pi) * c / s;
+    const Special<T> g = digammaPositive(dw(T(1)) - x);
+    Special<T> r;
+    r.value = g.value - cot;
+    r.scale = g.scale + abs(cot.hi);
+    return r;
+}
+
+// psi'(z) for z > 0: every term positive (the recurrence, then B_2k / z^(2k+1)).
+template <class T>
+Special<T> trigammaPositive(DoubleWord<T> z) {
+    const T shift = impl::stirlingShift<T>();
+    DoubleWord<T> sum = dw(T(0));
+    while (z.hi < shift) {
+        sum = sum + dw(T(1)) / (z * z);
+        z = z + T(1);
+    }
+    const DoubleWord<T> z2 = z * z;
+    DoubleWord<T> s = dw(T(1)) / z + dw(T(0.5)) / z2;
+    DoubleWord<T> power = z * z2;
+    int k = 1;
+    for (const DoubleWord<T>& c : impl::stirlingWords<T>()) {  // B_2k / z^(2k+1) = c_k 2k (2k - 1) / z^(2k+1)
+        const DoubleWord<T> term = c * T((2 * k) * (2 * k - 1)) / power;
+        if (impl::negligible(term, s)) break;
+        s = s + term;
+        power = power * z2;
+        ++k;
+    }
+    Special<T> r;
+    r.value = s + sum;
+    return r;
+}
+
+// psi'(x) for any x that is not a pole: psi'(x) + psi'(1 - x) = pi^2 / sin^2(pi x).
+template <class T>
+Special<T> trigammaWord(const T& x) {
+    using std::abs;
+    if (x > 0) return trigammaPositive(dw(x));
+    const DoubleWord<T> s = sinCosPi(x).first;
+    const DoubleWord<T>& pi = impl::word<T>(ConstantId::Pi);
+    const DoubleWord<T> first = (pi * pi) / (s * s);
+    const DoubleWord<T> second = trigammaPositive(dw(T(1)) - x).value;
+    Special<T> r;
+    r.value = first - second;
+    r.scale = abs(first.hi) + abs(second.hi);
+    return r;
+}
+
 // ln|Gamma(x)| for any x that is not a pole: the reflection Gamma(x) Gamma(1-x) = pi / sin(pi x) (DLMF 5.5.3) for x < 0.
 template <class T>
 Special<T> lgammaWord(const T& x) {

@@ -135,3 +135,27 @@ TEST(Special, GammaOfWholeNumbersIsExact) {
     EXPECT_EQ(r.bound, "0");
     EXPECT_NE(evaluate("gamma(0.5)").libraryError, "0");
 }
+
+TYPED_TEST(SpecialKernelTest, Digamma) {
+    using T = TypeParam;
+    test::expectSpecialWithinClaim<T>(FunctionId::Digamma, [](auto& rng) { return std::vector<T>{uniform<T>(rng, 0.01, 30)}; });
+    test::expectSpecialWithinClaim<T>(FunctionId::Digamma, [](auto& rng) { return std::vector<T>{uniform<T>(rng, -20, -0.01)}; });
+    test::expectSpecialWithinClaim<T>(FunctionId::Digamma, [](auto& rng) {  // near the positive root 1.4616...
+        return std::vector<T>{T(T(1.4616321449683622) + randomSign(rng, ldexp(T(1 + static_cast<int>(rng() % 8)), 1 - precisionBits<T>())))};
+    });
+    test::expectSpecialWithinClaim<T>(FunctionId::Trigamma, [](auto& rng) { return std::vector<T>{uniform<T>(rng, -20, 30)}; });
+    EXPECT_EQ(applyFunction<T>(FunctionId::Digamma, {T(-2)}).error.value_or(ErrorCode::Cancelled), ErrorCode::DomainError);
+}
+
+TEST(SpecialPartials, GammaFamily) {
+    using O = RulerCheck;
+    const O h = ldexp(O(1), -400);
+    for (FunctionId id : {FunctionId::Gamma, FunctionId::Lgamma, FunctionId::Digamma}) {
+        for (double p : {0.7, -1.3, 4.25}) {
+            const Ruler x(p);
+            const std::vector<Ruler> d = partials<Ruler>(id, {x}, applyFunction<Ruler>(id, {x}).value);
+            const O expected = (test::specialOracle<O>(id, {O(p) + h}) - test::specialOracle<O>(id, {O(p) - h})) / (2 * h);
+            EXPECT_LE(abs(exactCast<O>(d[0]) - expected), ldexp(O(1), -200) * (abs(expected) + 1)) << static_cast<int>(id) << " at " << p;
+        }
+    }
+}

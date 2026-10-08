@@ -755,3 +755,13 @@ TEST(LocalError, KernelsThatSubtractClaimAnAbsoluteFloor) {
     r.scale = 0;
     EXPECT_EQ(localError<double>(FunctionId::Exp, {0.5}, r), claim * u * exactCast<Ruler>(1e-20));
 }
+
+TEST(Slopes, GammaFamilyDominatesItsDerivatives) {
+    for (const SlopeCase& c : {SlopeCase{FunctionId::Gamma, {0.7}, {0.1}}, SlopeCase{FunctionId::Gamma, {-1.3}, {0.1}},
+                               SlopeCase{FunctionId::Gamma, {2.5}, {0}}, SlopeCase{FunctionId::Lgamma, {4.25}, {0.5}},
+                               SlopeCase{FunctionId::Lgamma, {-2.6}, {0.2}}, SlopeCase{FunctionId::Digamma, {-1.3}, {0.1}},
+                               SlopeCase{FunctionId::Digamma, {0.3}, {0.05}}})
+        expectSlopesDominate(c.id, c.point, c.radius);
+    for (const FunctionId id : {FunctionId::Gamma, FunctionId::Lgamma, FunctionId::Digamma})
+        EXPECT_FALSE(isFinite(slopes(id, {Ruler(-0.05)}, {Ruler(0.1)})[0]));  // the interval holds the pole at 0
+}
