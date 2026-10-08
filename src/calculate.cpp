@@ -164,7 +164,8 @@ std::vector<FunctionDescription> functions() {
     for (const char* name : {"var", "stdev"}) list.push_back({name, 2, -1, true});
     list.push_back({"mod", 2, 2, true});  // the word exists under every convention
     for (const char* name : {"sum", "product"}) list.push_back({name, 3, 4, true});
-    for (const auto& [name, exact] : {std::pair<const char*, bool>{"log2", false}, {"exp2", true}, {"exp10", true}, {"sq", true}, {"sqrtpi", false}})
+    for (const auto& [name, exact] : {std::pair<const char*, bool>{"log2", false}, {"exp2", true}, {"exp10", true}, {"sq", true}, {"sqrtpi", false},
+                                     {"sec", false}, {"csc", false}, {"cot", false}})
         list.push_back({name, 1, 1, exact});
     return list;
 }

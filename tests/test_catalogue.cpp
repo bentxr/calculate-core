@@ -178,3 +178,28 @@ TYPED_TEST(CatalogueKernelTest, DoubleWordSineCosineAndHyperbolic) {
     }
     EXPECT_FALSE(sinCosWord(ldexp(T(1), std::min(1024, maxExponent<T>()))).has_value() && maxExponent<T>() >= 1024);
 }
+
+TEST(Catalogue, ReciprocalTrigonometryIsWrittenWithTheFunctionsWeHave) {
+    EXPECT_EQ(tree("sec(2)"), "(/ 1 (cos 2))");
+    EXPECT_EQ(tree("csc(2)"), "(/ 1 (sin 2))");
+    EXPECT_EQ(tree("cot(2)"), "(/ 1 (tan 2))");
+    EXPECT_EQ(tree("sec(60)", AngleUnit::Degrees), "(/ 1 (cos (* 60 (/ pi 180))))");  // the angle unit applies inside
+    EXPECT_EQ(evaluate("sec(0)").value.digits, "1");
+    EXPECT_EQ(evaluate("csc(0)").error->code, ErrorCode::DomainError);
+    EXPECT_EQ(evaluate("csc(0)").error->message, "csc is not defined for this argument");
+    EXPECT_EQ(evaluate("cot(0)").error->message, "cot is not defined for this argument");
+    const Result pole = inType("sec(90)", NumberType::Double, AngleUnit::Degrees);
+    ASSERT_TRUE(pole.error);
+    EXPECT_EQ(pole.error->code, ErrorCode::ArgumentNearEdge);  // cos(90°) is 0 within its error
+    EXPECT_EQ(pole.error->message.rfind("sec ", 0), 0u);
+    EXPECT_EQ(inType("cot(1)", NumberType::Exact).error->code, ErrorCode::NotAvailableInExact);
+}
+
+TYPED_TEST(CatalogueKernelTest, ReciprocalTrigonometryCoversTheTruth) {
+    using T = TypeParam;
+    using O = test::Oracle;
+    const auto sample = [](std::mt19937_64& rng) { return randomSign(rng, logUniform<T>(rng, -20, 20)); };
+    expectBoundCoversOracle<T>("sec", [](const O& x) { return O(1 / cos(x)); }, sample);
+    expectBoundCoversOracle<T>("csc", [](const O& x) { return O(1 / sin(x)); }, sample);
+    expectBoundCoversOracle<T>("cot", [](const O& x) { return O(cos(x) / sin(x)); }, sample);
+}

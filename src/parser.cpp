@@ -252,7 +252,7 @@ int leftPower(TokenKind k) {
 // returns -1 and nothing else is parsed.
 // Functions written with nodes the engine already has (a lowering): their error is the composition's.
 bool isLowering(std::string_view name) {
-    for (const char* n : {"log2", "exp2", "exp10", "sq", "sqrtpi"})
+    for (const char* n : {"log2", "exp2", "exp10", "sq", "sqrtpi", "sec", "csc", "cot"})
         if (name == n) return true;
     return false;
 }
@@ -760,6 +760,21 @@ private:
             return read(lowered(FunctionId::Power, {base, x}, span, written), call);
         }
         if (name == "sq") return read(lowered(FunctionId::Square, {x}, span, written), call);
+        // A call through withAngles, every node it makes marked as the lowering's.
+        const auto inner = [&](FunctionId id, int argument) {
+            const std::size_t first = ast_.nodes.size();
+            const int made = withAngles(id, {argument}, span, written);
+            for (std::size_t i = first; i < ast_.nodes.size(); ++i) {
+                ast_.nodes[i].lowered = true;
+                ast_.nodes[i].written = written;
+            }
+            return made;
+        };
+        if (name == "sec" || name == "csc" || name == "cot") {
+            const int one = literal("1");
+            const FunctionId id = name == "sec" ? FunctionId::Cos : name == "csc" ? FunctionId::Sin : FunctionId::Tan;
+            return read(lowered(FunctionId::Divide, {one, inner(id, x)}, span, written), call);
+        }
         const int pi = lowered(FunctionId::Pi, {}, span, written);
         return read(lowered(FunctionId::Sqrt, {lowered(FunctionId::Multiply, {x, pi}, span, written)}, span, written), call);
     }
