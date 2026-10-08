@@ -100,3 +100,17 @@ TYPED_TEST(SpecialKernelTest, LogGammaOfNegativeArguments) {
     for (const T& pole : {T(0), T(-1), T(-7)})
         EXPECT_EQ(applyFunction<T>(FunctionId::Lgamma, {pole}).error.value_or(ErrorCode::Cancelled), ErrorCode::DomainError);
 }
+
+// x − n must be exact: for a tiny negative x, n = floor(x) = −1 would make it 1 + x, which rounds.
+TYPED_TEST(SpecialKernelTest, SineOfPiTimesATinyArgument) {
+    using T = TypeParam;
+    using O = test::SpecialOracleFor<T>;
+    std::mt19937_64 rng(37);
+    for (int i = 0; i < test::samplesFor<T>(); ++i) {
+        const T x = randomSign(rng, logUniform<T>(rng, -60, -4));
+        const O pix = acos(O(-1)) * exactCast<O>(x);
+        EXPECT_LE(test::errorInUScaled(toValue(sinCosPi(x).first), O(sin(pix)), T(0)), 1.0) << i;
+    }
+    const T large = ldexp(T(3), precisionBits<T>() - 1);  // an odd multiple of a large power of 2: an integer
+    EXPECT_EQ(toValue(sinCosPi(large).first), T(0));
+}

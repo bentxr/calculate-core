@@ -136,18 +136,16 @@ Special<T> lgammaWord(const T& x) {
     return r;
 }
 
-// sin(pi x) and cos(pi x) as double words. x = n + r with r = x - n exact and |r| <= 1/2, so sin(pi x) is accurate
-// relative to itself even next to an integer (what the reflection formulas need).
+// sin(pi x) and cos(pi x) as double words. x = n + r with n the nearest integer and r = x - n exact, |r| <= 1/2, so
+// sin(pi x) is accurate relative to itself even next to an integer (what the reflection formulas need).
 template <class T>
 std::pair<DoubleWord<T>, DoubleWord<T>> sinCosPi(const T& x) {
     using std::abs;
     using std::floor;
-    T n = floor(x);
-    T r = x - n;  // in [0, 1): exact
-    if (r > T(0.5)) {
-        n = n + 1;
-        r = r - 1;
-    }
+    using std::ldexp;
+    // x + 1/2 is exact below 2^(p-1); beyond, every x is a whole number.
+    const T n = abs(x) < ldexp(T(1), precisionBits<T>() - 1) ? T(floor(x + T(0.5))) : x;
+    const T r = x - n;
     const DoubleWord<T>& pi = impl::word<T>(ConstantId::Pi);
     const T ar = abs(r);
     DoubleWord<T> s, c;
