@@ -400,3 +400,54 @@ TEST(Catalogue, ALoweringIsExactlyItsExpansion) {
             EXPECT_EQ(a.trustedDigits, b.trustedDigits) << t.label << ": " << lowered;
         }
 }
+
+template <class T>
+class RoundingTest : public ::testing::Test {};
+TYPED_TEST_SUITE(RoundingTest, test::AllTypes, test::TypeNames);
+
+template <class T>
+T applied(FunctionId id, std::vector<T> args) {
+    const Applied<T> r = applyFunction<T>(id, args);
+    EXPECT_FALSE(r.error) << static_cast<int>(id);
+    return r.value;
+}
+
+TYPED_TEST(RoundingTest, Floor) {
+    using T = TypeParam;
+    EXPECT_EQ(applied<T>(FunctionId::Floor, {T(7) / T(4)}), T(1));
+    EXPECT_EQ(applied<T>(FunctionId::Floor, {T(-7) / T(4)}), T(-2));
+    EXPECT_EQ(applied<T>(FunctionId::Floor, {T(-3)}), T(-3));
+    EXPECT_EQ(applied<T>(FunctionId::Floor, {T(0)}), T(0));
+    EXPECT_EQ(applied<T>(FunctionId::Floor, {T(-1) / T(1024)}), T(-1));
+}
+
+TEST(Catalogue, CeilingIsMinusTheFloorOfMinusX) {
+    EXPECT_EQ(tree("ceil(2.5)"), "(neg (floor (neg 2.5)))");
+    for (const TypeInfo& t : numberTypes()) {
+        EXPECT_EQ(inType("ceil(7/4)", t.type).error.has_value(), false) << t.label;
+        const Result up = inType("ceil(-7/4)", t.type);
+        EXPECT_TRUE(t.type == NumberType::Exact ? up.exact->numerator == "1" && up.exact->negative
+                                                : up.value.digits == "1" && up.value.negative) << t.label;
+    }
+    EXPECT_EQ(evaluate("ceil(0.1*30)").error->message.rfind("ceil jumps", 0), 0u);
+}
+
+TEST(Catalogue, FloorRefusesAnArgumentWhoseErrorReachesAJump) {
+    for (const char* text : {"floor((1 - 0.9)*10)", "floor(4.35*100)", "ceil(0.1*30)"}) {
+        const Result r = evaluate(text);
+        ASSERT_TRUE(r.error) << text;
+        EXPECT_EQ(r.error->code, ErrorCode::ArgumentNearJump) << text;
+        EXPECT_NE(r.error->message.find("its argument carries an error of up to"), std::string::npos);
+    }
+    Options allow;
+    allow.allowUncertainDiscreteArguments = true;
+    const Result anyway = evaluate("floor((1 - 0.9)*10)", allow);
+    ASSERT_FALSE(anyway.error);
+    EXPECT_EQ(anyway.value.digits, "0");
+    EXPECT_FALSE(anyway.boundComplete);
+    const Result far = evaluate("floor(0.1 + 0.2)");  // uncertain, but nowhere near 0 or 1
+    ASSERT_FALSE(far.error);
+    EXPECT_EQ(far.bound, "0");
+    EXPECT_TRUE(far.boundComplete);
+    EXPECT_EQ(inType("floor((1 - 9/10)*10)", NumberType::Exact).exact->numerator, "1");
+}

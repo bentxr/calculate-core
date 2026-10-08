@@ -42,6 +42,7 @@ inline bool nearJumpOne(FunctionId id, const Rational& x, const Ruler& bound) {
     Rational jump;
     switch (id) {
     case FunctionId::Acot: jump = 0; break;
+    case FunctionId::Floor: jump = Rational(floorOf(x + Rational(1, 2))); break;  // the nearest integer
     default: return false;
     }
     return fromRational<Ruler>(abs(x - jump)) <= bound;

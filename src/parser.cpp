@@ -253,7 +253,7 @@ int leftPower(TokenKind k) {
 // returns -1 and nothing else is parsed.
 // Functions written with nodes the engine already has (a lowering): their error is the composition's.
 bool isLowering(std::string_view name) {
-    for (const char* n : {"log2", "exp2", "exp10", "sq", "sqrtpi", "sec", "csc", "cot", "sech", "coth", "asec", "acsc", "asech", "acsch", "acoth"})
+    for (const char* n : {"log2", "exp2", "exp10", "sq", "sqrtpi", "sec", "csc", "cot", "sech", "coth", "asec", "acsc", "asech", "acsch", "acoth", "ceil"})
         if (name == n) return true;
     return false;
 }
@@ -774,6 +774,8 @@ private:
             }
             return made;
         };
+        if (name == "ceil")  // −floor(−x)
+            return read(lowered(FunctionId::Negate, {lowered(FunctionId::Floor, {lowered(FunctionId::Negate, {x}, span, written)}, span, written)}, span, written), call);
         if (name == "coth") return read(lowered(FunctionId::Divide, {literal("1"), lowered(FunctionId::Tanh, {x}, span, written)}, span, written), call);
         if (name == "sech") {  // 2e^-|x| / (1 + e^-2|x|): no overflow where sech is tiny, nothing cancels
             const int a = lowered(FunctionId::Abs, {x}, span, written);
