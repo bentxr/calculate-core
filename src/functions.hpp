@@ -766,6 +766,23 @@ std::vector<R> partials(FunctionId id, const std::vector<R>& a, const R& v) {
     }
     case FunctionId::Abs: return {x < 0 ? R(-1) : R(1)};
     case FunctionId::Rem: return {R(1), R(-trunc(a[0] / a[1]))};
+    case FunctionId::GammaP:
+    case FunctionId::GammaQ:
+    case FunctionId::Igamma:
+    case FunctionId::GammaInc: {  // (a, x)
+        using std::ldexp;
+        const R s = a[0], t = a[1];
+        const bool regularized = id == FunctionId::GammaP || id == FunctionId::GammaQ;
+        const bool lower = id == FunctionId::GammaP || id == FunctionId::GammaInc;
+        // d/dx: the density x^(a-1) e^-x (over Gamma(a) when regularized), with its limit at x = 0
+        R dx;
+        if (t == 0) dx = s > 1 ? R(0) : s < 1 ? inf : R(regularized ? R(1) / f(FunctionId::Gamma, s) : R(1));
+        else dx = f(FunctionId::Exp, R((s - 1) * f(FunctionId::Ln, t) - t - (regularized ? f(FunctionId::Lgamma, s) : R(0))));
+        // d/da has no short closed form: a central difference of the kernel itself, h near the optimum 2^(-p/3)
+        const R h = abs(s) * ldexp(R(1), -precisionBits<R>() / 3);
+        const R da = (applyFunction<R>(id, {R(s + h), t}).value - applyFunction<R>(id, {R(s - h), t}).value) / (2 * h);
+        return {da, lower ? dx : R(-dx)};
+    }
     case FunctionId::Beta: {
         const R both = f(FunctionId::Digamma, R(a[0] + a[1]));
         return {v * (f(FunctionId::Digamma, a[0]) - both), v * (f(FunctionId::Digamma, a[1]) - both)};
@@ -1008,6 +1025,25 @@ inline std::vector<Ruler> slopes(FunctionId id, const std::vector<Ruler>& a, con
     case FunctionId::Square: return {2 * (abs(a[0]) + b[0])};
     case FunctionId::Cube: return {3 * (abs(a[0]) + b[0]) * (abs(a[0]) + b[0])};
     case FunctionId::Power: return impl::powerSlopes(a, b);
+    case FunctionId::GammaP:
+    case FunctionId::GammaQ:
+    case FunctionId::Igamma:
+    case FunctionId::GammaInc: {
+        // In x: the density t^(a-1) e^-t (over Gamma(a) when regularized), whose only interior critical point is the
+        // mode a - 1, so its largest value over the interval is at an end or there. An uncertain a has no bound here.
+        if (b[0] > 0) return {inf, inf};
+        const Ruler s = a[0];
+        const bool regularized = id == FunctionId::GammaP || id == FunctionId::GammaQ;
+        const auto density = [&](const Ruler& t) -> Ruler {
+            if (t <= 0) return s > 1 ? Ruler(0) : s < 1 ? inf : Ruler(regularized ? Ruler(1) / impl::rulerValue(FunctionId::Gamma, {s}) : Ruler(1));
+            return impl::rulerValue(FunctionId::Exp, {Ruler((s - 1) * impl::rulerValue(FunctionId::Ln, {t}) - t
+                                                            - (regularized ? impl::rulerValue(FunctionId::Lgamma, {s}) : Ruler(0)))});
+        };
+        const Ruler lo = std::max(Ruler(0), Ruler(a[1] - b[1])), hi = a[1] + b[1];
+        Ruler most = std::max(density(lo), density(hi));
+        if (s - 1 > lo && s - 1 < hi) most = std::max(most, density(Ruler(s - 1)));
+        return {abs(partials<Ruler>(id, a, impl::rulerValue(id, a))[0]), most};
+    }
     case FunctionId::Beta: {  // B falls in each argument; psi(a + b) - psi(a) falls in a and grows in b
         const Ruler loA = a[0] - b[0], loB = a[1] - b[1];
         if (loA <= 0 || loB <= 0) return {inf, inf};

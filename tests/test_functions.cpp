@@ -784,3 +784,10 @@ TEST(Slopes, InverseErrorFunctionsDominateTheirDerivatives) {
         expectSlopesDominate(c.id, c.point, c.radius);
     EXPECT_FALSE(isFinite(slopes(FunctionId::Erfinv, {Ruler(0.95)}, {Ruler(0.1)})[0]));  // reaches 1
 }
+
+TEST(Slopes, IncompleteGammaDominatesItsDerivativeInX) {
+    for (const SlopeCase& c : {SlopeCase{FunctionId::GammaP, {2.5, 1.75}, {0, 0.25}}, SlopeCase{FunctionId::GammaQ, {0.5, 1}, {0, 0.5}},
+                               SlopeCase{FunctionId::Igamma, {3, 2}, {0, 1.5}}, SlopeCase{FunctionId::GammaInc, {2.5, 1.75}, {0, 0}}})
+        expectSlopesDominate(c.id, c.point, c.radius);
+    EXPECT_FALSE(isFinite(slopes(FunctionId::GammaP, {Ruler(2.5), Ruler(1)}, {Ruler(0.1), Ruler(0)})[0]));  // an uncertain a
+}

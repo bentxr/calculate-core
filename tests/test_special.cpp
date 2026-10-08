@@ -268,3 +268,16 @@ TYPED_TEST(SpecialKernelTest, IncompleteGamma) {
         test::expectSpecialWithinClaim<T>(id, [](auto& rng) { return std::vector<T>{uniform<T>(rng, 0.05, 20), uniform<T>(rng, 0, 30)}; });
     EXPECT_EQ(applyFunction<T>(FunctionId::Igamma, {T(1), T(0)}).value, T(1));  // Gamma(1, 0) = Gamma(1)
 }
+
+TEST(SpecialPartials, IncompleteGamma) {
+    using O = RulerCheck;
+    const O h = ldexp(O(1), -400);
+    for (FunctionId id : {FunctionId::GammaP, FunctionId::GammaQ, FunctionId::Igamma, FunctionId::GammaInc}) {
+        const std::vector<Ruler> args{Ruler(2.5), Ruler(1.75)};
+        const std::vector<Ruler> d = partials<Ruler>(id, args, applyFunction<Ruler>(id, args).value);
+        const O da = (test::specialOracle<O>(id, {O(2.5) + h, O(1.75)}) - test::specialOracle<O>(id, {O(2.5) - h, O(1.75)})) / (2 * h);
+        const O dx = (test::specialOracle<O>(id, {O(2.5), O(1.75) + h}) - test::specialOracle<O>(id, {O(2.5), O(1.75) - h})) / (2 * h);
+        EXPECT_LE(abs(exactCast<O>(d[0]) - da), ldexp(O(1), -200) * (abs(da) + 1)) << static_cast<int>(id);
+        EXPECT_LE(abs(exactCast<O>(d[1]) - dx), ldexp(O(1), -200) * (abs(dx) + 1)) << static_cast<int>(id);
+    }
+}
