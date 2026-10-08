@@ -197,4 +197,70 @@ FloatValue valueOf(const T& x) {
     return v;
 }
 
+// The exponent of the spacing between v and the next value away from zero (v finite): ulp = 2^ulpExponent.
+inline long long ulpExponent(const BinaryFormat& f, bool subnormals, const FloatValue& v) {
+    const long long p = f.precision();
+    const long long emin = f.minExponent();
+    if (v.kind == calculate_core::FloatClass::Zero) return subnormals ? emin - p + 1 : emin;
+    return std::max(impl::floorLog2(v.magnitude), emin) - (p - 1);
+}
+
+namespace impl {
+
+// The largest finite magnitude of f, and the smallest positive one.
+inline Rational largest(const BinaryFormat& f) {
+    const Integer one = 1;
+    const long long p = f.precision();
+    return scaleByPowerOfTwo(Rational((one << static_cast<unsigned>(p)) - 1), f.maxExponent() - p + 1);
+}
+inline Rational smallest(const BinaryFormat& f, bool subnormals) {
+    return scaleByPowerOfTwo(Rational(1), subnormals ? f.minExponent() - f.precision() + 1 : f.minExponent());
+}
+
+// A finite datum with this sign and magnitude, classed by its magnitude.
+inline FloatValue finiteValue(const BinaryFormat& f, bool negative, const Rational& magnitude) {
+    using calculate_core::FloatClass;
+    FloatValue v;
+    v.negative = negative;
+    v.magnitude = magnitude;
+    v.kind = magnitude == 0                                                   ? FloatClass::Zero
+             : magnitude < scaleByPowerOfTwo(Rational(1), f.minExponent()) ? FloatClass::Subnormal
+                                                                            : FloatClass::Normal;
+    return v;
+}
+
+}  // namespace impl
+
+// The next value of f above v (IEEE 754 §5.3.1); v is Zero, Subnormal, Normal or Infinite.
+inline FloatValue nextUp(const BinaryFormat& f, bool subnormals, const FloatValue& v) {
+    using calculate_core::FloatClass;
+    if (v.kind == FloatClass::Infinite) return v.negative ? impl::finiteValue(f, true, impl::largest(f)) : v;
+    if (v.kind == FloatClass::Zero) return impl::finiteValue(f, false, impl::smallest(f, subnormals));
+    const Rational ulp = scaleByPowerOfTwo(Rational(1), ulpExponent(f, subnormals, v));
+    if (!v.negative) {
+        if (v.magnitude == impl::largest(f)) {
+            FloatValue infinity;
+            infinity.kind = FloatClass::Infinite;
+            return infinity;
+        }
+        return impl::finiteValue(f, false, v.magnitude + ulp);
+    }
+    // Towards zero: below an exact power of two above 2^emin, the binade is twice as dense.
+    const long long e = impl::floorLog2(v.magnitude);
+    const bool power = v.magnitude == scaleByPowerOfTwo(Rational(1), e);
+    const Rational step = power && e > f.minExponent() ? Rational(ulp / 2) : ulp;
+    const Rational m = v.magnitude - step;
+    if (m == 0 || (!subnormals && m < scaleByPowerOfTwo(Rational(1), f.minExponent()))) return impl::finiteValue(f, true, Rational(0));
+    return impl::finiteValue(f, true, m);
+}
+
+// The next value of f below v: the negation of nextUp of the negation.
+inline FloatValue nextDown(const BinaryFormat& f, bool subnormals, const FloatValue& v) {
+    FloatValue flipped = v;
+    flipped.negative = !flipped.negative;
+    FloatValue r = nextUp(f, subnormals, flipped);
+    r.negative = !r.negative;
+    return r;
+}
+
 }  // namespace calculate_core::detail

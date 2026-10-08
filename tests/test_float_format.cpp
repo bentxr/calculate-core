@@ -246,3 +246,34 @@ TEST(ValueOf, SoftwareTypesKeepTheSignOfZero) {
     EXPECT_EQ(valueOf((std::numeric_limits<Binary256>::min)()).kind, FloatClass::Normal);
     EXPECT_EQ(valueOf(std::numeric_limits<Binary512>::infinity()).kind, FloatClass::Infinite);
 }
+
+TYPED_TEST(HardwareBitsTest, NeighboursAgreeWithNextafter) {
+    using T = TypeParam;
+    using L = std::numeric_limits<T>;
+    const BinaryFormat f = formatOf<T>();
+    std::mt19937_64 rng(6);
+    std::vector<T> values{T(0), -T(0), T(1), -T(1), T(0.1), L::denorm_min(), (L::min)(), -(L::min)(),
+                          (L::max)(), -(L::max)(), L::infinity(), -L::infinity()};
+    for (int i = 0; i < 200; ++i) values.push_back(test::randomFinite<T>(rng, 100));
+    for (const T& x : values) {
+        EXPECT_EQ(encode(f, nextUp(f, true, valueOf(x))), memoryBits(std::nextafter(x, L::infinity())));
+        EXPECT_EQ(encode(f, nextDown(f, true, valueOf(x))), memoryBits(std::nextafter(x, -L::infinity())));
+    }
+}
+
+TEST(Neighbours, SoftwareTypesSkipTheSubnormalRange) {
+    const FloatValue minNormal = valueOf((std::numeric_limits<Binary128>::min)());
+    EXPECT_EQ(nextDown(binary128, false, minNormal).kind, FloatClass::Zero);
+    EXPECT_EQ(encode(binary128, nextDown(binary128, true, minNormal)), bits("0000FFFFFFFFFFFFFFFFFFFFFFFFFFFF"));  // IEEE binary128 has subnormals
+    EXPECT_EQ(encode(binary128, nextUp(binary128, false, valueOf(Binary128(0)))), bits("00010000000000000000000000000000"));
+    EXPECT_EQ(encode(binary128, nextDown(binary128, false, valueOf(Binary128(1)))), bits("3FFEFFFFFFFFFFFFFFFFFFFFFFFFFFFF"));
+    EXPECT_EQ(nextUp(binary128, false, valueOf((std::numeric_limits<Binary128>::max)())).kind, FloatClass::Infinite);
+}
+
+TEST(Neighbours, UlpIsTheSpacingAtTheValue) {
+    EXPECT_EQ(ulpExponent(binary64, true, finite(Rational(1, 10), binary64)), -56);
+    EXPECT_EQ(ulpExponent(binary64, true, finite(Rational(1), binary64)), -52);
+    EXPECT_EQ(ulpExponent(binary64, true, special(FloatClass::Zero)), -1074);
+    EXPECT_EQ(ulpExponent(binary128, false, special(FloatClass::Zero)), -16382);  // no subnormals: the gap above 0
+    EXPECT_EQ(ulpExponent(binary32, true, finite(pow2(-149), binary32)), -149);
+}
