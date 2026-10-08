@@ -155,7 +155,8 @@ inline bool zeroPowerNearJump(const std::vector<Rational>& x, const std::vector<
 
 // Evaluates every node in T. The first error stops the pass and carries the failing node's span.
 template <class T>
-Forward<T> forward(const Ast& ast, const std::atomic<bool>* cancel = nullptr) {
+// `shifts` (when given) moves nodes' values by that much as they are computed (an uncertain quantity at a corner).
+Forward<T> forward(const Ast& ast, const std::atomic<bool>* cancel = nullptr, const std::vector<Rational>* shifts = nullptr) {
     Forward<T> fw;
     fw.values.resize(ast.nodes.size());
     fw.roundings.assign(ast.nodes.size(), 0);
@@ -189,6 +190,7 @@ Forward<T> forward(const Ast& ast, const std::atomic<bool>* cancel = nullptr) {
             return fw;
         }
         fw.values[i] = r.value;
+        if (shifts && (*shifts)[i] != 0) fw.values[i] = fromRational<T>(toRational(r.value) + (*shifts)[i]);
         fw.roundings[i] = r.roundings;
         fw.scales[i] = r.scale;
     }
@@ -540,6 +542,28 @@ Evaluation<T> evaluate(const Ast& ast, const Options& options = {}) {
         }
     }
     r.bound = r.input + r.rounding + r.library;
+
+    // Is first order good enough? Every quantity at its worst-case corner, both ways, in the ruler.
+    Uncertainty& u = r.uncertainty;
+    if (!u.sources.empty() && r.boundComplete && isFinite(u.linear)) {
+        std::vector<Rational> plus(ast.nodes.size(), Rational(0));
+        for (const UncertainSource& s : u.sources)
+            for (const int n : s.nodes) plus[static_cast<std::size_t>(n)] = Rational(s.direction) * toRational(s.uncertainty);
+        std::vector<Rational> minus = plus;
+        for (Rational& shift : minus) shift = -shift;
+        const Forward<Ruler> centre = forward<Ruler>(ast, options.cancel);
+        const Forward<Ruler> up = forward<Ruler>(ast, options.cancel, &plus);
+        const Forward<Ruler> down = forward<Ruler>(ast, options.cancel, &minus);
+        u.checked = true;
+        if (centre.error || up.error || down.error) {
+            u.reliable = false;
+            u.observed = std::numeric_limits<Ruler>::infinity();
+        } else {
+            using std::max;
+            u.observed = max(abs(up.values.back() - centre.values.back()), abs(down.values.back() - centre.values.back()));
+            u.reliable = u.observed * 10 <= u.linear * 11;
+        }
+    }
 
     Rational reference = toRational(ev.value);
     if constexpr (isExact<T>) {

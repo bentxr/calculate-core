@@ -616,3 +616,47 @@ TEST(UncertaintySources, NoneWithoutUncertainInputs) {
     EXPECT_EQ(u.linear, 0);
     EXPECT_EQ(u.quadrature, 0);
 }
+
+TEST(FirstOrder, ASmallUncertaintyPassesTheCheck) {
+    AstBuilder b;
+    const auto five = b.literal("5");
+    const auto spread = b.literal("0.2");
+    const auto x = b.uncertain(five, spread);
+    b.apply(FunctionId::Square, {x});
+    const Uncertainty& u = evaluate<double>(b.ast()).report.uncertainty;
+    EXPECT_TRUE(u.checked);
+    EXPECT_TRUE(u.reliable);
+    EXPECT_EQ(formatScientific(u.linear), "2e+0");    // 2 * 5 * 0.2
+    EXPECT_EQ(formatScientific(u.observed), "2e+0");  // 5.2^2 - 25 = 2.04
+}
+
+TEST(FirstOrder, AZeroSlopeIsCaught) {
+    AstBuilder b;
+    const auto zero = b.literal("0");
+    const auto one = b.literal("1");
+    const auto x = b.uncertain(zero, one);
+    b.apply(FunctionId::Square, {x});
+    const Uncertainty& u = evaluate<double>(b.ast()).report.uncertainty;
+    EXPECT_EQ(u.linear, 0);  // the tangent is flat at 0
+    EXPECT_EQ(u.observed, 1);
+    EXPECT_TRUE(u.checked);
+    EXPECT_FALSE(u.reliable);
+}
+
+TEST(FirstOrder, LeavingTheDomainIsCaught) {
+    AstBuilder b;
+    const auto small = b.literal("0.05");
+    const auto spread = b.literal("0.1");
+    const auto x = b.uncertain(small, spread);
+    b.apply(FunctionId::Sqrt, {x});
+    // sqrt(0.05 - 0.1) does not exist: the edge check (the limit reaches below 0) refuses it before any corner.
+    const Evaluation<double> ev = evaluate<double>(b.ast());
+    ASSERT_TRUE(ev.error);
+    EXPECT_EQ(ev.error->code, ErrorCode::ArgumentNearEdge);
+}
+
+TEST(FirstOrder, NothingToCheckWithoutUncertainInputs) {
+    const Uncertainty& u = evaluate<double>(sum("0.1", "0.2")).report.uncertainty;
+    EXPECT_FALSE(u.checked);
+    EXPECT_TRUE(u.reliable);
+}

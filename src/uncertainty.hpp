@@ -36,6 +36,9 @@ struct Uncertainty {
     std::vector<UncertainSource> sources;  // largest contribution first; ties keep tree order
     Ruler linear = 0;                      // worst case: the sum of the contributions
     Ruler quadrature = 0;                  // statistical: the square root of the sum of their squares
+    bool checked = false;                  // the corners were evaluated (there are uncertain inputs)
+    bool reliable = true;                  // what the corners show stays within 1.1 times the worst case
+    Ruler observed = 0;  // the largest change seen at the corners; +infinity when a corner could not be evaluated
 };
 
 // The nodes the result depends on, without going into an Uncertain node's uncertainty argument.
