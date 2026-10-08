@@ -40,3 +40,33 @@ TEST(SpecialOracle, IncompleteBetaSeriesMatchesExactValues) {
     const O y = test::betaincReference(O(10), O(3), O(0.375));
     EXPECT_LE(abs(test::betaincinvReference(O(10), O(3), y, O(0.4)) - O(0.375)), tolerance);
 }
+
+TEST(Stirling, CoefficientsAreBernoulliNumbersOverTwoKTimesTwoKMinusOne) {
+    const std::vector<Rational>& c = impl::stirlingRationals();
+    // python3: Bernoulli numbers by the recurrence sum_{j<=m} C(m+1, j) B_j = 0, then B_2k / (2k (2k-1))
+    const Rational expected[] = {Rational(1, 12),     Rational(-1, 360),         Rational(1, 1260),     Rational(-1, 1680),
+                                 Rational(1, 1188),   Rational(-691, 360360),    Rational(1, 156),      Rational(-3617, 122400),
+                                 Rational(43867, 244188), Rational(-174611, 125400)};
+    ASSERT_EQ(c.size(), static_cast<std::size_t>(impl::targetBits<RulerCheck>() / 6 + 4));
+    for (std::size_t k = 0; k < 10; ++k) EXPECT_EQ(c[k], expected[k]) << k;
+}
+
+template <class T>
+class SpecialKernelTest : public ::testing::Test {};
+TYPED_TEST_SUITE(SpecialKernelTest, test::FloatingTypes, test::TypeNames);
+
+TYPED_TEST(SpecialKernelTest, SineAndCosineOfPiTimesX) {
+    using T = TypeParam;
+    using O = test::SpecialOracleFor<T>;
+    std::mt19937_64 rng(31);
+    for (int i = 0; i < test::samplesFor<T>(); ++i) {
+        const T x = uniform<T>(rng, -40, 40);
+        const auto [s, c] = sinCosPi(x);
+        const O pix = acos(O(-1)) * exactCast<O>(x);
+        EXPECT_LE(test::errorInUScaled(toValue(s), O(sin(pix)), T(0)), 1.0) << i;
+        EXPECT_LE(test::errorInUScaled(toValue(c), O(cos(pix)), T(0)), 1.0) << i;
+    }
+    EXPECT_EQ(toValue(sinCosPi(T(3)).first), T(0));
+    EXPECT_EQ(toValue(sinCosPi(T(2.5)).first), T(1));
+    EXPECT_EQ(toValue(sinCosPi(T(-0.5)).first), T(-1));
+}

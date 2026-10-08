@@ -77,6 +77,26 @@ const std::vector<T>& ln2Pieces() {
     return pieces;
 }
 
+template <class T>
+bool isInteger(const T& x) {
+    if constexpr (isExact<T>) {
+        return denominator(x) == 1;
+    } else {
+        using std::trunc;
+        return trunc(x) == x;
+    }
+}
+
+// x must be an integer of an inexact type (the kernels' only use). Values of at least 2^p are all even.
+template <class T>
+bool isOdd(const T& x) {
+    using std::abs;
+    using std::ldexp;
+    using std::trunc;
+    if (abs(x) >= ldexp(T(1), precisionBits<T>())) return false;
+    return trunc(x / 2) * 2 != x;
+}
+
 }  // namespace impl
 
 // expm1 of a small double word, |r| <= 0.35: halve, Taylor series, then undo the halvings with

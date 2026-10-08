@@ -2,6 +2,7 @@
 
 #include "ast.hpp"
 #include "kernels.hpp"
+#include "special.hpp"
 #include "numbers.hpp"
 
 #include <calculate-core/calculate-core.hpp>
@@ -169,26 +170,6 @@ Applied<T> ok(const T& value, int roundings = 0) {
 template <class T>
 T withSign(const T& v, bool negative) {
     return negative ? T(-v) : v;
-}
-
-template <class T>
-bool isInteger(const T& x) {
-    if constexpr (isExact<T>) {
-        return denominator(x) == 1;
-    } else {
-        using std::trunc;
-        return trunc(x) == x;
-    }
-}
-
-// x must be an integer of an inexact type (the kernels' only use). Values of at least 2^p are all even.
-template <class T>
-bool isOdd(const T& x) {
-    using std::abs;
-    using std::ldexp;
-    using std::trunc;
-    if (abs(x) >= ldexp(T(1), precisionBits<T>())) return false;
-    return trunc(x / 2) * 2 != x;
 }
 
 inline bool cancelled(const std::atomic<bool>* cancel) {
