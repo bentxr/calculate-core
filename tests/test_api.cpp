@@ -702,3 +702,24 @@ TEST(Session, VariablesHoldExpressions) {
     s.clearVariables();
     EXPECT_TRUE(s.variables().empty());
 }
+
+TEST(Api, NotationTargetsShowEveryDigitWithTheBar) {
+    const Result sci = evaluate("0.1 to sci");
+    ASSERT_TRUE(sci.conversion && sci.conversion->parts);
+    EXPECT_EQ(sci.conversion->text, "1.000000000000000|055511151231257827021181583404541015625e-1");
+    EXPECT_EQ(sci.conversion->parts->trusted, "1.000000000000000");
+    EXPECT_EQ(evaluate("123456.789 to eng").conversion->text, "123.4567890000000|04307366907596588134765625e+3");
+    EXPECT_EQ(evaluate("1e25 to simple").conversion->text, "1000000000000000|0905969664");
+    EXPECT_EQ(evaluate("0.125 to sci").conversion->text, "1.25e-1");  // exact: no bar
+    EXPECT_EQ(evaluate("7/3 to sci", as(NumberType::Exact)).conversion->text, "2.(3)e+0");
+    EXPECT_EQ(evaluate("1/7 to sci", as(NumberType::Exact)).conversion->text, "1.(428571)e-1");
+    EXPECT_EQ(evaluate("1/30 to eng", as(NumberType::Exact)).conversion->text, "33.(3)e-3");
+    EXPECT_EQ(evaluate("1/8 to simple", as(NumberType::Exact)).conversion->text, "0.125");
+    EXPECT_EQ(evaluate("0.1 to sci 3").error->code, ErrorCode::UnexpectedToken);
+}
+
+TEST(Api, AnExactPeriodStartsAsEarlyAsItCan) {
+    EXPECT_EQ(evaluate("100/3 to sci", as(NumberType::Exact)).conversion->text, "3.(3)e+1");
+    EXPECT_EQ(evaluate("1/13 to sci", as(NumberType::Exact)).conversion->text, "7.(692307)e-2");  // rotated from 0.(076923)
+    EXPECT_EQ(evaluate("1/7 to eng", as(NumberType::Exact)).conversion->text, "142.(857142)e-3");
+}
