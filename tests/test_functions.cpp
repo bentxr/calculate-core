@@ -3,6 +3,7 @@
 #include "test_support.hpp"
 
 #include <set>
+#include <tuple>
 
 using namespace calculate_core;
 using namespace calculate_core::detail;
@@ -666,4 +667,149 @@ TEST(Slopes, FlooredModuloDominatesItsDerivative) {
     using V = std::vector<Ruler>;
     EXPECT_EQ(slopes(F::FloorMod, {Ruler(-7), Ruler(3)}, {Ruler(1), Ruler(1)}), (V{Ruler(1), Ruler(4)}));  // |floor(-8 / 2)|
     EXPECT_FALSE(isFinite(slopes(F::FloorMod, {Ruler(1), Ruler(0.1)}, {Ruler(0), Ruler(0.2)})[1]));
+}
+
+TEST(Partials, HyperbolicCosecant) {
+    using O = test::Oracle;
+    for (double point : {0.7, -2.5}) {
+        const Ruler x(point);
+        const std::vector<Ruler> d = partials<Ruler>(FunctionId::Csch, {x}, applyFunction<Ruler>(FunctionId::Csch, {x}).value);
+        const O expected = centralDifference(FunctionId::Csch, {O(point)}, 0);
+        EXPECT_LE(abs(exactCast<O>(d[0]) - expected), ldexp(O(1), -200) * (abs(expected) + 1)) << point;
+    }
+}
+
+// Every kernel carries its argument's error at its steepest slope over the interval (the bound would miss it otherwise).
+TEST(Slopes, HyperbolicCosecantDominatesItsDerivative) {
+    for (const SlopeCase& c : {SlopeCase{FunctionId::Csch, {0.7}, {0.1}}, SlopeCase{FunctionId::Csch, {-2.5}, {0.5}},
+                               SlopeCase{FunctionId::Csch, {1.3}, {0}}})
+        expectSlopesDominate(c.id, c.point, c.radius);
+    EXPECT_FALSE(isFinite(slopes(FunctionId::Csch, {Ruler(0.1)}, {Ruler(0.2)})[0]));  // the interval reaches 0
+}
+
+TEST(Partials, InverseCotangent) {
+    using O = test::Oracle;
+    for (double point : {1.7, -2.5, 0.3}) {
+        const Ruler x(point);
+        const std::vector<Ruler> d = partials<Ruler>(FunctionId::Acot, {x}, applyFunction<Ruler>(FunctionId::Acot, {x}).value);
+        const O expected = centralDifference(FunctionId::Acot, {O(point)}, 0);
+        EXPECT_LE(abs(exactCast<O>(d[0]) - expected), ldexp(O(1), -200) * (abs(expected) + 1)) << point;
+    }
+}
+
+TEST(Partials, FourQuadrantArctangent) {
+    using O = test::Oracle;
+    const std::vector<Ruler> args{Ruler(0.7), Ruler(-1.3)};
+    const std::vector<Ruler> d = partials<Ruler>(FunctionId::Atan2, args, applyFunction<Ruler>(FunctionId::Atan2, args).value);
+    for (std::size_t k = 0; k < 2; ++k) {
+        const O expected = centralDifference(FunctionId::Atan2, {O(0.7), O(-1.3)}, k);
+        EXPECT_LE(abs(exactCast<O>(d[k]) - expected), ldexp(O(1), -200) * (abs(expected) + 1)) << k;
+    }
+}
+
+TEST(Slopes, FourQuadrantArctangentDominatesItsDerivatives) {
+    for (const SlopeCase& c : {SlopeCase{FunctionId::Atan2, {0.7, -1.3}, {0.1, 0.2}}, SlopeCase{FunctionId::Atan2, {-2, 0.5}, {0.5, 0.25}},
+                               SlopeCase{FunctionId::Atan2, {0.7, -1.3}, {0, 0}}})
+        expectSlopesDominate(c.id, c.point, c.radius);
+    EXPECT_FALSE(isFinite(slopes(FunctionId::Atan2, {Ruler(0.1), Ruler(0.1)}, {Ruler(0.2), Ruler(0.2)})[0]));  // the box holds the origin
+}
+
+TEST(Partials, Hypotenuse) {
+    using O = test::Oracle;
+    const std::vector<Ruler> args{Ruler(0.7), Ruler(-1.3)};
+    const std::vector<Ruler> d = partials<Ruler>(FunctionId::Hypot, args, applyFunction<Ruler>(FunctionId::Hypot, args).value);
+    for (std::size_t k = 0; k < 2; ++k) {
+        const O expected = centralDifference(FunctionId::Hypot, {O(0.7), O(-1.3)}, k);
+        EXPECT_LE(abs(exactCast<O>(d[k]) - expected), ldexp(O(1), -200) * (abs(expected) + 1)) << k;
+    }
+    EXPECT_EQ(partials<Ruler>(FunctionId::Hypot, {Ruler(0), Ruler(0)}, Ruler(0)), (std::vector<Ruler>{Ruler(1), Ruler(1)}));
+}
+
+TEST(Slopes, HypotenuseDominatesItsDerivatives) {
+    for (const SlopeCase& c : {SlopeCase{FunctionId::Hypot, {0.7, -1.3}, {0.1, 0.2}}, SlopeCase{FunctionId::Hypot, {3, 4}, {0, 0}},
+                               SlopeCase{FunctionId::Hypot, {-2, 0.5}, {0.5, 0.25}}})
+        expectSlopesDominate(c.id, c.point, c.radius);
+}
+
+TEST(Partials, CardinalSine) {
+    using O = test::Oracle;
+    const std::vector<Ruler> d = partials<Ruler>(FunctionId::Sinc, {Ruler(0.7)}, applyFunction<Ruler>(FunctionId::Sinc, {Ruler(0.7)}).value);
+    const O expected = centralDifference(FunctionId::Sinc, {O(0.7)}, 0);
+    EXPECT_LE(abs(exactCast<O>(d[0]) - expected), ldexp(O(1), -200) * (abs(expected) + 1));
+    EXPECT_EQ(partials<Ruler>(FunctionId::Sinc, {Ruler(0)}, Ruler(1)), (std::vector<Ruler>{Ruler(0)}));
+}
+
+TEST(Slopes, CardinalSineDominatesItsDerivative) {
+    for (const SlopeCase& c : {SlopeCase{FunctionId::Sinc, {0.7}, {0.1}}, SlopeCase{FunctionId::Sinc, {10}, {1}},
+                               SlopeCase{FunctionId::Sinc, {2.08}, {0}}, SlopeCase{FunctionId::Sinc, {0}, {0.5}}})
+        expectSlopesDominate(c.id, c.point, c.radius);
+}
+
+TEST(LocalError, KernelsThatSubtractClaimAnAbsoluteFloor) {
+    const Ruler u = exactCast<Ruler>(unitRoundoff<double>());
+    const Ruler claim(claimedFactor(FunctionId::Exp));
+    Applied<double> r;
+    r.value = 1e-20;
+    r.scale = 1000;  // the result came from cancelling terms of total size 1000
+    // 0.5, not 0: exp(0) = 1 is an exact point, checked before the claim.
+    EXPECT_EQ(localError<double>(FunctionId::Exp, {0.5}, r), claim * u * (u * Ruler(1000)));
+    r.scale = 0;
+    EXPECT_EQ(localError<double>(FunctionId::Exp, {0.5}, r), claim * u * exactCast<Ruler>(1e-20));
+}
+
+TEST(Slopes, GammaFamilyDominatesItsDerivatives) {
+    for (const SlopeCase& c : {SlopeCase{FunctionId::Gamma, {0.7}, {0.1}}, SlopeCase{FunctionId::Gamma, {-1.3}, {0.1}},
+                               SlopeCase{FunctionId::Gamma, {2.5}, {0}}, SlopeCase{FunctionId::Lgamma, {4.25}, {0.5}},
+                               SlopeCase{FunctionId::Lgamma, {-2.6}, {0.2}}, SlopeCase{FunctionId::Digamma, {-1.3}, {0.1}},
+                               SlopeCase{FunctionId::Digamma, {0.3}, {0.05}}})
+        expectSlopesDominate(c.id, c.point, c.radius);
+    for (const FunctionId id : {FunctionId::Gamma, FunctionId::Lgamma, FunctionId::Digamma})
+        EXPECT_FALSE(isFinite(slopes(id, {Ruler(-0.05)}, {Ruler(0.1)})[0]));  // the interval holds the pole at 0
+}
+
+TEST(Slopes, BetaDominatesItsDerivatives) {
+    for (const SlopeCase& c : {SlopeCase{FunctionId::Beta, {1.5, 2.25}, {0.1, 0.2}}, SlopeCase{FunctionId::Beta, {0.7, 3}, {0.05, 0.5}},
+                               SlopeCase{FunctionId::Beta, {1.5, 2.25}, {0, 0}}})
+        expectSlopesDominate(c.id, c.point, c.radius);
+}
+
+TEST(Slopes, ErrorFunctionsDominateTheirDerivatives) {
+    for (const SlopeCase& c : {SlopeCase{FunctionId::Erf, {0.7}, {0.1}}, SlopeCase{FunctionId::Erf, {-0.05}, {0.1}},
+                               SlopeCase{FunctionId::Erfc, {2.5}, {0.5}}, SlopeCase{FunctionId::Erfc, {1.2}, {0}}})
+        expectSlopesDominate(c.id, c.point, c.radius);
+}
+
+TEST(Slopes, InverseErrorFunctionsDominateTheirDerivatives) {
+    for (const SlopeCase& c : {SlopeCase{FunctionId::Erfinv, {0.7}, {0.1}}, SlopeCase{FunctionId::Erfinv, {-0.3}, {0.2}},
+                               SlopeCase{FunctionId::Erfcinv, {0.3}, {0.1}}, SlopeCase{FunctionId::Erfcinv, {1.4}, {0}}})
+        expectSlopesDominate(c.id, c.point, c.radius);
+    EXPECT_FALSE(isFinite(slopes(FunctionId::Erfinv, {Ruler(0.95)}, {Ruler(0.1)})[0]));  // reaches 1
+}
+
+TEST(Slopes, IncompleteGammaDominatesItsDerivativeInX) {
+    for (const SlopeCase& c : {SlopeCase{FunctionId::GammaP, {2.5, 1.75}, {0, 0.25}}, SlopeCase{FunctionId::GammaQ, {0.5, 1}, {0, 0.5}},
+                               SlopeCase{FunctionId::Igamma, {3, 2}, {0, 1.5}}, SlopeCase{FunctionId::GammaInc, {2.5, 1.75}, {0, 0}}})
+        expectSlopesDominate(c.id, c.point, c.radius);
+    EXPECT_FALSE(isFinite(slopes(FunctionId::GammaP, {Ruler(2.5), Ruler(1)}, {Ruler(0.1), Ruler(0)})[0]));  // an uncertain a
+}
+
+TEST(Slopes, IncompleteBetaDominatesItsDerivativeInX) {
+    // Its partials hold central differences in a and b, too slow for the box walk: the slope in x is checked against
+    // the density at the interval's ends, its centre and (for a, b < 1) its U-shaped middle.
+    const auto densityAt = [](Ruler p, Ruler q, Ruler x) {
+        return abs(partials<Ruler>(FunctionId::Betainc, {p, q, x}, impl::rulerValue(FunctionId::Betainc, {p, q, x}))[2]);
+    };
+    for (const auto& [p, q, x, r] : {std::tuple<double, double, double, double>{2.5, 4.25, 0.375, 0.1}, {0.5, 0.7, 0.5, 0.2},
+                                     {3, 3, 0.45, 0.1}}) {
+        const Ruler slope = slopes(FunctionId::Betainc, {Ruler(p), Ruler(q), Ruler(x)}, {Ruler(0), Ruler(0), Ruler(r)})[2];
+        for (const double t : {x - r, x, x + r}) EXPECT_GE(slope, densityAt(Ruler(p), Ruler(q), Ruler(t))) << p << " " << q << " " << t;
+    }
+    EXPECT_GE(slopes(FunctionId::Betainc, {Ruler(3), Ruler(3), Ruler(0.45)}, {Ruler(0), Ruler(0), Ruler(0.1)})[2],
+              densityAt(Ruler(3), Ruler(3), Ruler(0.5)));  // the mode, inside the interval
+    const Ruler exact = slopes(FunctionId::Betainc, {Ruler(2.5), Ruler(4.25), Ruler(0.375)}, {Ruler(0), Ruler(0), Ruler(0)})[2];
+    EXPECT_LE(abs(exact - densityAt(Ruler(2.5), Ruler(4.25), Ruler(0.375))), ldexp(exact, -900));  // exact arguments: sharp
+    EXPECT_FALSE(isFinite(slopes(FunctionId::Betainc, {Ruler(2), Ruler(3), Ruler(0.5)}, {Ruler(0.1), Ruler(0), Ruler(0)})[0]));
+    const std::vector<Ruler> point{Ruler(2.5), Ruler(4.25), Ruler(0.4)};
+    const std::vector<Ruler> centre = partials<Ruler>(FunctionId::Betaincinv, point, impl::rulerValue(FunctionId::Betaincinv, point));
+    EXPECT_GE(slopes(FunctionId::Betaincinv, point, {Ruler(0), Ruler(0), Ruler(0.1)})[2], abs(centre[2]));
 }

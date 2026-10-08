@@ -49,6 +49,9 @@ The value is the exact number stored, digit for digit. The `|` marks where the t
 | **κ** | The condition number: how much the problem itself magnifies small changes in its inputs |
 | **trusted digits** | How many digits the bound guarantees |
 
+Near a zero of a function computed as a difference (such as lgamma near 1), the library error is absolute rather
+than relative.
+
 ## Build and test
 
 Requires CMake ≥ 3.25, Ninja and a C++17 compiler. Boost.Multiprecision and GoogleTest are
@@ -93,6 +96,8 @@ share `Ans` and the memory `M`, which the lines `M+`, `M-` and `MC` update.
 | `--color <when>` | `auto` (default), `always` or `never` |
 | `--allow-uncertain` | Let `!`, `nCr`, `gcd`… take arguments that carry an error |
 | `--list-types` | Describe the number types of this build |
+| `--list-functions` | List the functions of the language, with their titles |
+| `--info <name>` | Describe a function: its arguments, what it computes, its other spellings, an example |
 
 Errors point at their cause:
 
@@ -124,9 +129,12 @@ transcendental functions are unavailable.
 |---|---|
 | Operators | `+  -  *  /  ^` and postfix `!  %  ²  ³`, prefix `√  ∛` (also `×  ÷  −`) |
 | Constants | `pi` (or `π`), `e`, `Ans`, `M` |
-| Roots, powers and logarithms | `sqrt  cbrt  root(x, n)  exp  ln  log(x)  log10(x)  log(x, b)  abs` |
-| Trigonometry | `sin  cos  tan  asin  acos  atan` and `sinh  cosh  tanh  asinh  acosh  atanh` |
+| Roots, powers and logarithms | `sqrt  cbrt  root(x, n)  exp  ln  log(x)  log10(x)  log(x, b)  abs  log2  exp2  exp10  sq  sqrtpi  hypot(x, y)` |
+| Trigonometry | `sin  cos  tan  asin  acos  atan  sec  csc  cot  asec  acsc  acot  atan2(y, x)  sinc` |
+| Hyperbolic | `sinh  cosh  tanh  asinh  acosh  atanh  sech  csch  coth  asech  acsch  acoth` |
 | Integers | `mod(a, b)  rem(a, b)  floormod(a, b)  gcd  lcm  nCr  nPr` |
+| Rounding and parts | `floor  ceil  round  trunc (int)  frac  sgn  clip(x, lo, hi)  numerator  denominator` |
+| Special functions | `gamma  lgamma  digamma  beta(a, b)  erf  erfc  erfinv  erfcinv  gammap(a, x)  gammaq(a, x)  igamma(a, x)  gammainc(a, x)  betainc(a, b, x)  betaincinv(a, b, y)` |
 | Statistics | `mean  median  var  stdev  varp  stdevp` of any number of values |
 | Sums and products | `sum(f; from; to)`, `sum(f; from; to; k)`, `product(…)`, also `Σ  ∑  Π  ∏`: the variable is `x` unless named, the limits exact whole numbers |
 | Conversions | `… to fraction` (also `->` and `→`): the same result in another form; `to fraction` alone converts Ans |
@@ -142,7 +150,11 @@ Arguments are separated by `,` or `;`.
 of a) and `floormod` (sign of b) never change. Results and stored texts (Ans, M) are written with these explicit
 names, so changing a setting never changes what an earlier result means.
 The Spanish names work too: `sen  arcsen  arccos  arctan`, `senh  arcsenh  arccosh  arctanh`,
-`mcd` (gcd) and `mcm` (lcm).
+`cosec  cotg  cosech  cotgh  arccosec  arccotg  arccosech  arccotgh`, `mcd` (gcd) and `mcm` (lcm); and other common
+spellings: `arcsin  arsinh  arcosh  artanh  arcsec  arccsc  arccot  arsech  arcsch  arcoth`.
+Functions written with others (`sec x = 1/cos x`, `log2 x = log(x, 2)`…) report the error of that composition.
+The rounding functions jump, so when an argument's error could reach a jump the calculator says so and offers to
+proceed anyway. Their Spanish names: `redondeo  suelo  techo  ent  signo`.
 
 ## Using the library
 
@@ -162,7 +174,8 @@ const calculate_core::Result r = calculate_core::evaluate("0.1 + 0.2", options);
 ```
 
 `numberTypes()` describes the seven types as built on this platform, `functions()` lists the
-language, and `Session` keeps history, `Ans` and memory.
+language and describes each function (title, description, named arguments, an example, its category),
+and `Session` keeps history, `Ans` and memory.
 
 CMake:
 ```cmake

@@ -1,5 +1,6 @@
 #include <calculate-core/calculate-core.hpp>
 
+#include "catalogue.hpp"
 #include "engine.hpp"
 #include "parser.hpp"
 #include "targets.hpp"
@@ -159,13 +160,30 @@ std::vector<FunctionDescription> functions() {
         const FunctionInfo& info = functionInfo(static_cast<FunctionId>(i));
         if (info.name.empty() || info.id == FunctionId::LogBase) continue;  // log covers both arities
         list.push_back({std::string(info.name), info.minArgs, info.id == FunctionId::Log10 ? 2 : info.maxArgs, info.exact});
+        list.back().aliases = otherSpellings(info.id);
     }
     for (const char* name : {"mean", "varp", "stdevp"}) list.push_back({name, 1, -1, true});
     for (const char* name : {"var", "stdev"}) list.push_back({name, 2, -1, true});
     list.push_back({"mod", 2, 2, true});  // the word exists under every convention
     for (const char* name : {"sum", "product"}) list.push_back({name, 3, 4, true});
+    for (const auto& [name, exact] : {std::pair<const char*, bool>{"log2", false}, {"exp2", true}, {"exp10", true}, {"sq", true}, {"sqrtpi", false},
+                                     {"sec", false}, {"csc", false}, {"cot", false}, {"sech", false}, {"coth", false},
+                                     {"asec", false}, {"acsc", false}, {"asech", false}, {"acsch", false}, {"acoth", false}, {"ceil", true}, {"frac", true}})
+        list.push_back({name, 1, 1, exact});
+    for (FunctionDescription& f : list)
+        if (const FunctionText* text = functionText(f.name)) {
+            f.title = text->title;
+            f.description = text->description;
+            f.arguments = text->arguments;
+            f.example = text->example;
+            f.category = text->category;
+        }
+    for (FunctionDescription& f : list)
+        for (std::string& alias : otherSpellings(std::string_view(f.name))) f.aliases.push_back(std::move(alias));  // a lowering's
     return list;
 }
+
+std::vector<std::string> functionCategories() { return categories(); }
 
 Result evaluate(std::string_view expression, const Options& options) {
     return evaluateWithNames(expression, options, {});

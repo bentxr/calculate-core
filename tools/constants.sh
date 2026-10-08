@@ -1,24 +1,102 @@
 #!/usr/bin/env bash
-# Regenerates src/constants.hpp: pi, 2/pi, ln 2, ln 10 and e with 3584 fraction
-# bits (896 hex digits), truncated. Requires bc.
+# Regenerates src/constants.hpp: pi, 2/pi, ln 2, ln 10, e and other mathematical constants with 3584
+# fraction bits (896 hex digits), truncated. Requires bc; takes a few seconds.
 set -euo pipefail
 
 digits=896
 out="$(dirname "$0")/../src/constants.hpp"
 
-hex() {  # $1: bc expression -> integer part and the first $digits fraction hex digits
+hex() {  # $1: a bc program whose last line prints the value -> integer part and $digits fraction hex digits
     local v int frac
-    v=$(echo "obase=16; scale=1200; $1" | BC_LINE_LENGTH=0 bc -l)
+    v=$(printf 'obase=16\nscale=1200\n%s\n' "$1" | BC_LINE_LENGTH=0 bc -l)
     int=${v%%.*}
     frac=${v#*.}
     printf '%s%s' "$int" "${frac:0:$digits}"
 }
 
-emit() {  # $1: C++ name, $2: bc expression
+emit() {  # $1: C++ name, $2: bc program
     printf 'inline constexpr const char* %s =\n' "$1"
     hex "$2" | fold -w 64 | sed 's/.*/    "&"/'
     printf ';\n\n'
 }
+
+# The real root of x^3 = x + 1, by Newton's method.
+plastic=$(cat <<'BC'
+define p() {
+    auto x, i
+    x = 1.3
+    for (i = 0; i < 12; i++) x = x - (x^3 - x - 1) / (3*x^2 - 1)
+    return (x)
+}
+p()
+BC
+)
+
+# Euler-Mascheroni, Brent-McMillan with n = 2^10: gamma = U/V - ln n, error about e^(-4n).
+egamma=$(cat <<'BC'
+define g() {
+    auto n, a, b, u, v, k, ln
+    n = 1024
+    ln = 10 * l(2)
+    a = -ln; b = 1; u = a; v = b
+    for (k = 1; k <= 4 * n; k++) {
+        b = b * n * n / (k * k)
+        a = (a * n * n / k + b) / k
+        u = u + a; v = v + b
+    }
+    return (u / v)
+}
+g()
+BC
+)
+
+# Catalan: pi/8 ln(2 + sqrt 3) + 3/8 sum 1/((2n+1)^2 C(2n,n)) (Ramanujan).
+catalan=$(cat <<'BC'
+define c() {
+    auto s, t, n, eps
+    eps = 10^-1210
+    s = 0; t = 1
+    for (n = 0; t > eps; n++) {
+        s = s + t / (2*n + 1)^2
+        t = t * (n + 1) / (2 * (2*n + 1))
+    }
+    return (a(1) / 2 * l(2 + sqrt(3)) + 3/8 * s)
+}
+c()
+BC
+)
+
+# Apery: zeta(3) = 5/2 sum (-1)^(n+1) / (n^3 C(2n,n)) (Markov).
+apery=$(cat <<'BC'
+define z() {
+    auto s, t, n, sign, eps
+    eps = 10^-1210
+    s = 0; t = 1/2; sign = 1
+    for (n = 1; t > eps; n++) {
+        s = s + sign * t / n^3
+        sign = -sign
+        t = t * (n + 1) / (2 * (2*n + 1))
+    }
+    return (5/2 * s)
+}
+z()
+BC
+)
+
+# Omega: the root of x = e^(-x), by Newton's method.
+omega=$(cat <<'BC'
+define w() {
+    auto x, i, y
+    x = 0.5
+    for (i = 0; i < 11; i++) {
+        y = e(-x)
+        x = x - (x - y) / (1 + y)
+    }
+    return (x)
+}
+w()
+BC
+)
 
 {
     printf '#pragma once\n\n'
@@ -31,5 +109,12 @@ emit() {  # $1: C++ name, $2: bc expression
     emit ln2Hex 'l(2)'
     emit ln10Hex 'l(10)'
     emit eHex 'e(1)'
+    emit sqrt2Hex 'sqrt(2)'
+    emit phiHex '(1+sqrt(5))/2'
+    emit plasticHex "$plastic"
+    emit egammaHex "$egamma"
+    emit catalanHex "$catalan"
+    emit aperyHex "$apery"
+    emit omegaHex "$omega"
     printf '}  // namespace calculate_core::detail\n'
 } > "$out"

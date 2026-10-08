@@ -42,8 +42,12 @@ Vocabulary vocabulary() {
                {"cosh", 1}, {"tanh", 1}, {"asinh", 1}, {"mean", -1}, {"varp", -1}, {"mod", 2},
                {"sqrt", 1}, {"cbrt", 1}, {"root", 2}, {"ln", 1}, {"log", 1}, {"log", 2}, {"tan", 1},
                {"asin", 1}, {"acos", 1}, {"acosh", 1}, {"atanh", 1}, {"var", -2}, {"stdev", -2}, {"stdevp", -1},
-               {"median", -1}, {"log10", 1}, {"sen", 1}, {"arcsen", 1}, {"rem", 2}, {"floormod", 2}};
-    v.discrete = {{"gcd", 2}, {"lcm", 2}, {"nCr", 2}, {"nPr", 2}};
+               {"median", -1}, {"log10", 1}, {"sen", 1}, {"arcsen", 1}, {"rem", 2}, {"floormod", 2}, {"arcsin", 1}, {"arsinh", 1}, {"log2", 1}, {"exp2", 1}, {"exp10", 1},
+               {"sq", 1}, {"sqrtpi", 1}, {"sec", 1}, {"csc", 1}, {"cot", 1}, {"sech", 1}, {"csch", 1},
+               {"coth", 1}, {"asec", 1}, {"acsc", 1}, {"acot", 1}, {"arcsec", 1}, {"asech", 1}, {"acsch", 1},
+               {"acoth", 1}, {"atan2", 2}, {"hypot", 2}, {"sinc", 1}, {"floor", 1}, {"ceil", 1}, {"trunc", 1}, {"int", 1}, {"round", 1}, {"frac", 1}, {"sgn", 1}, {"signo", 1}};
+    v.discrete = {{"gcd", 2}, {"lcm", 2}, {"nCr", 2}, {"nPr", 2}, {"numerator", 1}, {"denominator", 1}};
+    v.calls.push_back({"clip", 3});
     return v;
 }
 
@@ -209,5 +213,26 @@ TEST(Fuzz, CommentsAndConversionsLeaveTheResultAlone) {
             EXPECT_EQ(plain.value.digits, r.value.digits) << text << suffix;
             EXPECT_EQ(plain.bound, r.bound) << text << suffix;
         }
+    }
+}
+
+// Found by the long run: csch's derivative was written cosh/sinh, which overflows (inf/inf) for a huge argument.
+TEST(Fuzz, TheHyperbolicCosecantOfAHugeArgument) {
+    for (const char* text : {"csch(1e16)", "csch(nPr(20, 20))", "csch(-1e300)"})
+        EXPECT_EQ(violation<double>(text, Options()), "") << text;
+}
+
+// The special functions cost tens of milliseconds each in the shadows: a smaller run of their own.
+TEST(Fuzz, SpecialFunctionsNeverBeatTheirBound) {
+    Vocabulary v = vocabulary();
+    v.calls = {{"gamma", 1}, {"lgamma", 1}, {"digamma", 1}, {"beta", 2}, {"erf", 1}, {"erfc", 1}, {"erfinv", 1},
+               {"erfcinv", 1}, {"gammap", 2}, {"gammaq", 2}, {"igamma", 2}, {"gammainc", 2}, {"betainc", 3},
+               {"betaincinv", 3}};
+    v.literals = {"0.5", "1", "2", "2.5", "-2.5", "0.1", "0.3", "0.7", "(0.1+0.2-0.3)", "(0.1*30)", "1e-17", "30"};
+    Generator g(v, 2040);
+    Options options;
+    for (int i = 0; i < samples(25); ++i) {
+        const std::string text = g.expression(2);
+        EXPECT_EQ(violation<double>(text, options), "") << text;
     }
 }

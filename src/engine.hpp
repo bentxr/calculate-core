@@ -3,6 +3,7 @@
 #include "ast.hpp"
 #include "functions.hpp"
 #include "numbers.hpp"
+#include "uncertainty.hpp"
 
 #include <calculate-core/calculate-core.hpp>
 
@@ -22,6 +23,7 @@ struct Forward {
     std::optional<Error> error;
     std::vector<T> values;
     std::vector<int> roundings;  // per node, for Counted functions
+    std::vector<T> scales;       // per node, for kernels that subtract large terms (Applied::scale)
 };
 
 namespace impl {
@@ -34,6 +36,24 @@ inline Error nodeError(const Node& node, ErrorCode code, std::string message) {
 // (an infinite derivative times an exactly known input contributes nothing).
 inline Ruler times(const Ruler& a, const Ruler& b) {
     return a == 0 || b == 0 ? Ruler(0) : Ruler(a * b);
+}
+
+// Whether an argument's error could carry x across a place where a one-argument piecewise function jumps.
+// To first order the nearest jump is enough.
+inline bool nearJumpOne(FunctionId id, const Rational& x, const Ruler& bound) {
+    Rational jump;
+    switch (id) {
+    case FunctionId::Acot:
+    case FunctionId::Sgn: jump = 0; break;
+    case FunctionId::Floor: jump = Rational(floorOf(x + Rational(1, 2))); break;  // the nearest integer
+    case FunctionId::Round: jump = Rational(floorOf(x)) + Rational(1, 2); break;  // the nearest half-integer
+    case FunctionId::Trunc:  // the nearest integer, except 0, where trunc is continuous
+        jump = Rational(floorOf(x + Rational(1, 2)));
+        if (jump == 0) return false;
+        break;
+    default: return false;
+    }
+    return fromRational<Ruler>(abs(x - jump)) <= bound;
 }
 
 // The Ruler rounds to nearest, so a bound whose parts are all exact (and so equal to the true error) can come out a
@@ -70,7 +90,8 @@ inline int edgeReached(FunctionId id, const std::vector<Rational>& x, const std:
     case FunctionId::Sqrt:
     case FunctionId::Cbrt:
     case FunctionId::Ln:
-    case FunctionId::Log10: return near(x[0], 0, b[0]) ? 0 : -1;
+    case FunctionId::Log10:
+    case FunctionId::Csch: return near(x[0], 0, b[0]) ? 0 : -1;
     case FunctionId::Root: {
         const bool linear = b[1] == 0 && abs(x[1]) == 1;
         return !linear && near(x[0], 0, b[0]) ? 0 : -1;
@@ -93,6 +114,34 @@ inline int edgeReached(FunctionId id, const std::vector<Rational>& x, const std:
     }
     case FunctionId::Rem:
     case FunctionId::FloorMod: return near(x[1], 0, b[1]) ? 1 : -1;
+    case FunctionId::Gamma:
+    case FunctionId::Lgamma:
+    case FunctionId::Digamma: {  // the poles: the nearest non-positive integer
+        const Rational k = x[0] < Rational(1, 2) ? Rational(floorOf(x[0] + Rational(1, 2))) : Rational(0);
+        return near(x[0], k, b[0]) ? 0 : -1;
+    }
+    case FunctionId::Beta: return near(x[0], 0, b[0]) ? 0 : near(x[1], 0, b[1]) ? 1 : -1;
+    case FunctionId::Erfinv: return near(x[0], 1, b[0]) || near(x[0], -1, b[0]) ? 0 : -1;
+    case FunctionId::Erfcinv: return near(x[0], 0, b[0]) || near(x[0], 2, b[0]) ? 0 : -1;
+    case FunctionId::GammaP:
+    case FunctionId::GammaQ:
+    case FunctionId::Igamma:
+    case FunctionId::GammaInc:  // a at 0; x at 0, the end of its domain
+        if (near(x[0], 0, b[0])) return 0;
+        return near(x[1], 0, b[1]) ? 1 : -1;
+    case FunctionId::Betainc:  // a, b at 0; x at 0 and 1, the ends of its domain
+        if (near(x[0], 0, b[0])) return 0;
+        if (near(x[1], 0, b[1])) return 1;
+        return near(x[2], 0, b[2]) || near(x[2], 1, b[2]) ? 2 : -1;
+    case FunctionId::Betaincinv:  // a, b at 0; y at 0 and 1
+        if (near(x[0], 0, b[0])) return 0;
+        if (near(x[1], 0, b[1])) return 1;
+        return near(x[2], 0, b[2]) || near(x[2], 1, b[2]) ? 2 : -1;
+    case FunctionId::Atan2: {  // the origin, where the angle is undefined: both coordinates 0 within their errors
+        const bool y0 = x[0] == 0 || near(x[0], 0, b[0]);
+        const bool x0 = x[1] == 0 || near(x[1], 0, b[1]);
+        return y0 && x0 && (b[0] > 0 || b[1] > 0) ? (b[0] > 0 ? 0 : 1) : -1;
+    }
     default: return -1;
     }
 }
@@ -106,10 +155,12 @@ inline bool zeroPowerNearJump(const std::vector<Rational>& x, const std::vector<
 
 // Evaluates every node in T. The first error stops the pass and carries the failing node's span.
 template <class T>
-Forward<T> forward(const Ast& ast, const std::atomic<bool>* cancel = nullptr) {
+// `shifts` (when given) moves nodes' values by that much as they are computed (an uncertain quantity at a corner).
+Forward<T> forward(const Ast& ast, const std::atomic<bool>* cancel = nullptr, const std::vector<Rational>* shifts = nullptr) {
     Forward<T> fw;
     fw.values.resize(ast.nodes.size());
     fw.roundings.assign(ast.nodes.size(), 0);
+    fw.scales.assign(ast.nodes.size(), T(0));
     for (std::size_t i = 0; i < ast.nodes.size(); ++i) {
         const Node& node = ast.nodes[i];
         if (cancel && cancel->load(std::memory_order_relaxed)) {
@@ -133,11 +184,15 @@ Forward<T> forward(const Ast& ast, const std::atomic<bool>* cancel = nullptr) {
         for (const int a : node.args) args.push_back(fw.values[a]);
         const Applied<T> r = applyFunction<T>(node.function, args, cancel);
         if (r.error) {
-            fw.error = impl::nodeError(node, *r.error, errorMessage(*r.error, nameOf(node)));
+            // A lowering's division by zero is a point where the written function is not defined.
+            const ErrorCode code = node.lowered && *r.error == ErrorCode::DivisionByZero ? ErrorCode::DomainError : *r.error;
+            fw.error = impl::nodeError(node, code, errorMessage(code, nameOf(node)));
             return fw;
         }
         fw.values[i] = r.value;
+        if (shifts && (*shifts)[i] != 0) fw.values[i] = fromRational<T>(toRational(r.value) + (*shifts)[i]);
         fw.roundings[i] = r.roundings;
+        fw.scales[i] = r.scale;
     }
     return fw;
 }
@@ -160,6 +215,7 @@ std::vector<Ruler> localErrors(const Ast& ast, const Forward<T>& fw) {
             Applied<T> applied;
             applied.value = fw.values[i];
             applied.roundings = fw.roundings[i];
+            applied.scale = fw.scales[i];
             locals[i] = localError<T>(node.function, args, applied);
         }
     }
@@ -213,12 +269,13 @@ inline Adjoints adjoints(const Ast& ast, const std::vector<std::vector<Ruler>>& 
 }
 
 // First-order error bound of every node's value, computed forwards (Higham's running error bound).
+// The user's uncertainties (when given) add to their nodes' bounds.
 inline std::vector<Ruler> forwardBounds(const Ast& ast, const std::vector<std::vector<Ruler>>& partials,
-                                        const std::vector<Ruler>& locals) {
+                                        const std::vector<Ruler>& locals, const std::vector<Ruler>& uncertainties = {}) {
     using std::abs;
     std::vector<Ruler> bounds(ast.nodes.size(), Ruler(0));
     for (std::size_t i = 0; i < ast.nodes.size(); ++i) {
-        bounds[i] = locals[i];
+        bounds[i] = locals[i] + (uncertainties.empty() ? Ruler(0) : uncertainties[i]);
         for (std::size_t k = 0; k < ast.nodes[i].args.size(); ++k)
             bounds[i] += impl::times(abs(partials[i][k]), bounds[ast.nodes[i].args[k]]);
     }
@@ -233,9 +290,11 @@ struct Propagation {
 };
 
 template <class T>
-Propagation propagate(const Ast& ast, const Forward<T>& fw, const std::vector<Ruler>& locals) {
+Propagation propagate(const Ast& ast, const Forward<T>& fw, const std::vector<Ruler>& locals,
+                      const std::vector<Ruler>& uncertainties = {}) {
     Propagation p;
     p.bounds = locals;
+    for (std::size_t i = 0; i < uncertainties.size(); ++i) p.bounds[i] += uncertainties[i];
     p.slopes.resize(ast.nodes.size());
     for (std::size_t i = 0; i < ast.nodes.size(); ++i) {
         const Node& node = ast.nodes[i];
@@ -342,6 +401,7 @@ inline int trustedDigits(const Ruler& absValue, const Ruler& error, int digitCou
 }
 
 struct Report {
+    Uncertainty uncertainty;  // the user's uncertain inputs: apart from the bound, which stays computational
     Ruler input = 0;
     Ruler rounding = 0;
     Ruler library = 0;
@@ -379,7 +439,8 @@ Evaluation<T> evaluate(const Ast& ast, const Options& options = {}) {
 
     // Discrete functions jump, so derivatives cannot carry their arguments' uncertainty:
     // refuse arguments that are not exactly known, unless the caller accepts an incomplete bound.
-    const Propagation propagation = propagate<T>(ast, fw, locals);
+    const std::vector<Ruler> uncertainties = userUncertainties(ast, fw.values);
+    const Propagation propagation = propagate<T>(ast, fw, locals, uncertainties);
     const std::vector<Ruler>& bounds = propagation.bounds;
     for (const Node& node : ast.nodes) {
         if (!node.args.empty()) {
@@ -420,12 +481,28 @@ Evaluation<T> evaluate(const Ast& ast, const Options& options = {}) {
         const FunctionInfo& info = functionInfo(node.function);
         if (info.continuity == Continuity::Continuous) continue;
         const std::string name = nameOf(node);
+        if (info.continuity == Continuity::Piecewise && node.args.size() == 1) {
+            const Ruler& bx = bounds[node.args[0]];
+            if (bx == 0 || !impl::nearJumpOne(node.function, toRational(fw.values[node.args[0]]), bx)) continue;
+            if (!options.allowUncertainDiscreteArguments) {
+                ev.error = impl::nodeError(node, ErrorCode::ArgumentNearJump,
+                                           name + " jumps within the error of its argument; its argument carries an error of up to "
+                                               + formatScientific(bx));
+                return ev;
+            }
+            r.boundComplete = false;
+            continue;
+        }
         if (info.continuity == Continuity::Piecewise) {
             const Ruler& bx = bounds[node.args[0]];
             const Ruler& by = bounds[node.args[1]];
             const Rational x = toRational(fw.values[node.args[0]]);
             const Rational y = toRational(fw.values[node.args[1]]);
-            if ((bx == 0 && by == 0) || !impl::nearJump(x, y, bx, by, node.function == FunctionId::FloorMod)) continue;
+            // atan2(y, x) jumps from π to −π across the negative x axis; the remainders at whole quotients.
+            const bool reached = node.function == FunctionId::Atan2
+                                     ? fromRational<Ruler>(abs(x)) <= bx && fromRational<Ruler>(y) - by < 0  // (y, x)
+                                     : impl::nearJump(x, y, bx, by, node.function == FunctionId::FloorMod);
+            if ((bx == 0 && by == 0) || !reached) continue;
             if (!options.allowUncertainDiscreteArguments) {
                 ev.error = impl::nodeError(node, ErrorCode::ArgumentNearJump,
                                            errorMessage(ErrorCode::ArgumentNearJump, name) + "; they carry errors of up to "
@@ -448,6 +525,7 @@ Evaluation<T> evaluate(const Ast& ast, const Options& options = {}) {
     }
 
     const Adjoints adj = adjoints(ast, parts, propagation.slopes);
+    r.uncertainty = combine(ast, adj.signedAdj, uncertainties);
     Ruler weighted = 0;  // sum over the inputs of |d root / d input| * |input|
     for (std::size_t i = 0; i < ast.nodes.size(); ++i) {
         const Ruler term = impl::times(adj.absoluteAdj[i], locals[i]);
@@ -464,6 +542,28 @@ Evaluation<T> evaluate(const Ast& ast, const Options& options = {}) {
         }
     }
     r.bound = r.input + r.rounding + r.library;
+
+    // Is first order good enough? Every quantity at its worst-case corner, both ways, in the ruler.
+    Uncertainty& u = r.uncertainty;
+    if (!u.sources.empty() && r.boundComplete && isFinite(u.linear)) {
+        std::vector<Rational> plus(ast.nodes.size(), Rational(0));
+        for (const UncertainSource& s : u.sources)
+            for (const int n : s.nodes) plus[static_cast<std::size_t>(n)] = Rational(s.direction) * toRational(s.uncertainty);
+        std::vector<Rational> minus = plus;
+        for (Rational& shift : minus) shift = -shift;
+        const Forward<Ruler> centre = forward<Ruler>(ast, options.cancel);
+        const Forward<Ruler> up = forward<Ruler>(ast, options.cancel, &plus);
+        const Forward<Ruler> down = forward<Ruler>(ast, options.cancel, &minus);
+        u.checked = true;
+        if (centre.error || up.error || down.error) {
+            u.reliable = false;
+            u.observed = std::numeric_limits<Ruler>::infinity();
+        } else {
+            using std::max;
+            u.observed = max(abs(up.values.back() - centre.values.back()), abs(down.values.back() - centre.values.back()));
+            u.reliable = u.observed * 10 <= u.linear * 11;
+        }
+    }
 
     Rational reference = toRational(ev.value);
     if constexpr (isExact<T>) {

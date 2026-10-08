@@ -74,6 +74,11 @@ inline Oracle oracle(FunctionId id, const Oracle& x, const Oracle& y) {
     case FunctionId::Root: return x < 0 ? Oracle(-exp(log(-x) / y)) : Oracle(exp(log(x) / y));
     case FunctionId::Sqrt: return sqrt(x);
     case FunctionId::Abs: return abs(x);
+    case FunctionId::Csch: return 1 / sinh(x);
+    case FunctionId::Acot: return x == 0 ? Oracle(acos(Oracle(-1)) / 2) : Oracle(atan(1 / x));
+    case FunctionId::Atan2: return atan2(x, y);  // arguments (y, x): the first one is the ordinate
+    case FunctionId::Hypot: return sqrt(x * x + y * y);
+    case FunctionId::Sinc: return x == 0 ? Oracle(1) : Oracle(sin(x) / x);
     default: return Oracle(0);
     }
 }

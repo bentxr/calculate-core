@@ -2,6 +2,7 @@
 
 #include "ast.hpp"
 #include "kernels.hpp"
+#include "special.hpp"
 #include "numbers.hpp"
 
 #include <calculate-core/calculate-core.hpp>
@@ -88,7 +89,35 @@ inline const FunctionInfo& functionInfo(FunctionId id) {
         {F::Lcm, "lcm", 2, 2, C::Checked, K::Discrete, true},
         {F::Ncr, "nCr", 2, 2, C::Counted, K::Discrete, true},
         {F::Npr, "nPr", 2, 2, C::Counted, K::Discrete, true},
+        {F::Csch, "csch", 1, 1, C::Library, K::Continuous, false},
+        {F::Acot, "acot", 1, 1, C::Library, K::Piecewise, false},
+        {F::Atan2, "atan2", 2, 2, C::Library, K::Piecewise, false},
+        {F::Hypot, "hypot", 2, 2, C::Library, K::Continuous, true},  // exact: rational results
+        {F::Sinc, "sinc", 1, 1, C::Library, K::Continuous, false},  // always in radians
+        {F::Floor, "floor", 1, 1, C::Exact, K::Piecewise, true},
+        {F::Trunc, "trunc", 1, 1, C::Exact, K::Piecewise, true},
+        {F::Round, "round", 1, 1, C::Exact, K::Piecewise, true},
+        {F::Sgn, "sgn", 1, 1, C::Exact, K::Piecewise, true},
+        {F::Clip, "clip", 3, 3, C::Exact, K::Continuous, true},
+        {F::Numerator, "numerator", 1, 1, C::Exact, K::Discrete, true},
+        {F::Denominator, "denominator", 1, 1, C::Exact, K::Discrete, true},
+        {F::Lgamma, "lgamma", 1, 1, C::Library, K::Continuous, false},
+        {F::Gamma, "gamma", 1, 1, C::Library, K::Continuous, false},
+        {F::Digamma, "digamma", 1, 1, C::Library, K::Continuous, false},
+        {F::Trigamma, "", 1, 1, C::Library, K::Continuous, false},  // internal: digamma's derivative
+        {F::Beta, "beta", 2, 2, C::Library, K::Continuous, false},
+        {F::Erf, "erf", 1, 1, C::Library, K::Continuous, false},
+        {F::Erfc, "erfc", 1, 1, C::Library, K::Continuous, false},
+        {F::Erfinv, "erfinv", 1, 1, C::Library, K::Continuous, false},
+        {F::Erfcinv, "erfcinv", 1, 1, C::Library, K::Continuous, false},
+        {F::GammaP, "gammap", 2, 2, C::Library, K::Continuous, false},
+        {F::GammaQ, "gammaq", 2, 2, C::Library, K::Continuous, false},
+        {F::Igamma, "igamma", 2, 2, C::Library, K::Continuous, false},
+        {F::GammaInc, "gammainc", 2, 2, C::Library, K::Continuous, false},
+        {F::Betainc, "betainc", 3, 3, C::Library, K::Continuous, false},
+        {F::Betaincinv, "betaincinv", 3, 3, C::Library, K::Continuous, false},
         {F::Median, "median", 1, -1, C::Checked, K::Continuous, true},
+        {F::Uncertain, "uncertainty", 2, 2, C::Exact, K::Continuous, true},  // the value; the uncertainty is information
     }};
     return table[static_cast<std::size_t>(id)];
 }
@@ -116,8 +145,8 @@ inline std::string errorMessage(ErrorCode code, std::string_view name) {
     case ErrorCode::NotAvailableInExact: return n + " is not available in exact arithmetic: its result is irrational";
     case ErrorCode::DomainError: return n + " is not defined for this argument";
     case ErrorCode::IrrationalResult: return "The exact result of " + n + " is irrational";
-    case ErrorCode::ArgumentTooLarge: return "The argument of " + n + " is too large to reduce accurately";
-    case ErrorCode::NotAnInteger: return n + " needs a whole-number argument";
+    case ErrorCode::ArgumentTooLarge: return "The arguments of " + n + " are too large to compute accurately";
+    case ErrorCode::NotAnInteger: return n + " needs a whole-number argument" + (n == "!" ? "; for other values use gamma(x + 1)" : "");
     case ErrorCode::UncertainDiscreteArgument: return n + " needs an exactly known argument";
     case ErrorCode::ArgumentNearJump: return n + " jumps within the error of its arguments";
     case ErrorCode::ArgumentNearEdge: return n + " is not defined or not smooth within the error of its argument";
@@ -131,6 +160,7 @@ struct Applied {
     T value{};
     std::optional<ErrorCode> error;
     int roundings = 0;  // Counted functions only
+    T scale = 0;  // kernels whose result is a difference of larger terms: their size (claim floor u * scale)
 };
 
 // Every Library function claims |computed - exact| <= claim * u * max(|v|, min()) (in units of u).
@@ -158,29 +188,6 @@ T withSign(const T& v, bool negative) {
     return negative ? T(-v) : v;
 }
 
-template <class T>
-bool isInteger(const T& x) {
-    if constexpr (isExact<T>) {
-        return denominator(x) == 1;
-    } else {
-        using std::trunc;
-        return trunc(x) == x;
-    }
-}
-
-// x must be an integer of an inexact type (the kernels' only use). Values of at least 2^p are all even.
-template <class T>
-bool isOdd(const T& x) {
-    using std::abs;
-    using std::ldexp;
-    using std::trunc;
-    if (abs(x) >= ldexp(T(1), precisionBits<T>())) return false;
-    return trunc(x / 2) * 2 != x;
-}
-
-inline bool cancelled(const std::atomic<bool>* cancel) {
-    return cancel && cancel->load(std::memory_order_relaxed);
-}
 
 // gcd, lcm, n!, nCr, nPr. gcd and lcm are exact through integers; the products count the
 // multiplications and divisions that may have rounded (those past 2^p) for inexact T.
@@ -295,6 +302,7 @@ Applied<T> exactFunction(FunctionId id, const std::vector<Rational>& a) {
     case FunctionId::Power: e = exactPower(a[0], a[1], out); break;
     case FunctionId::Sqrt: e = exactRoot(a[0], Integer(2), out); break;
     case FunctionId::Cbrt: e = exactRoot(a[0], Integer(3), out); break;
+    case FunctionId::Hypot: e = exactRoot(a[0] * a[0] + a[1] * a[1], Integer(2), out); break;
     case FunctionId::Root:
         if (a[1] == 0) return fail<T>(ErrorCode::DomainError);
         e = exactPower(a[0], 1 / a[1], out);
@@ -307,7 +315,10 @@ Applied<T> exactFunction(FunctionId id, const std::vector<Rational>& a) {
 
 // The elementary functions, for inexact T: every result computed in T through double words.
 template <class T>
-Applied<T> kernel(FunctionId id, const std::vector<T>& a) {
+Applied<T> specialFunction(FunctionId id, const std::vector<T>& a, const std::atomic<bool>* cancel);
+
+template <class T>
+Applied<T> kernel(FunctionId id, const std::vector<T>& a, const std::atomic<bool>* cancel) {
     const T x = a[0];
     const auto fromExp = [](const ExpParts<T>& e, bool negative) -> Applied<T> {
         if (e.overflow) return fail<T>(ErrorCode::Overflow);
@@ -372,15 +383,11 @@ Applied<T> kernel(FunctionId id, const std::vector<T>& a) {
     case FunctionId::Sin:
     case FunctionId::Cos:
     case FunctionId::Tan: {
-        using std::abs;
-        const auto reduced = reduceHalfPi(abs(x));
-        if (!reduced) return fail<T>(ErrorCode::ArgumentTooLarge);
-        const int q = reduced->quadrant;
-        const DoubleWord<T> s = sinSmall(reduced->r);
-        const DoubleWord<T> c = cosSmall(reduced->r);
-        if (id == FunctionId::Sin) return ok<T>(withSign(toValue(q == 0 ? s : q == 1 ? c : q == 2 ? -s : -c), x < 0));
-        if (id == FunctionId::Cos) return ok<T>(toValue(q == 0 ? c : q == 1 ? -s : q == 2 ? -c : s));
-        return ok<T>(withSign(toValue(q % 2 == 0 ? s / c : -(c / s)), x < 0));
+        const auto sc = sinCosWord(x);
+        if (!sc) return fail<T>(ErrorCode::ArgumentTooLarge);
+        if (id == FunctionId::Sin) return ok<T>(toValue(sc->first));
+        if (id == FunctionId::Cos) return ok<T>(toValue(sc->second));
+        return ok<T>(toValue(sc->first / sc->second));
     }
     case FunctionId::Asin:
     case FunctionId::Acos: {
@@ -397,16 +404,7 @@ Applied<T> kernel(FunctionId id, const std::vector<T>& a) {
         const DoubleWord<T>& ln2 = impl::word<T>(ConstantId::Ln2);
         if (ax > T(precisionBits<T>() + 2) * ln2.hi / 2)  // e^-|x| is negligible: the result is e^|x| / 2
             return fromExp(expParts(dw(ax) - ln2), sinh && x < 0);
-        if (ax < 1) {
-            DoubleWord<T> m = expm1Small(dw(ax / 4));  // expm1(|x|) by two doublings
-            m = m * (m + T(2));
-            m = m * (m + T(2));
-            if (sinh) return ok<T>(withSign(toValue(scale(m + m / (m + T(1)), -1)), x < 0));
-            return ok<T>(toValue(scale(m * m / (m + T(1)), -1) + T(1)));
-        }
-        const DoubleWord<T> y = expValue(expParts(dw(ax)));
-        const DoubleWord<T> inverse = dw(T(1)) / y;
-        return ok<T>(withSign(toValue(scale(sinh ? y - inverse : y + inverse, -1)), sinh && x < 0));
+        return ok<T>(withSign(toValue(sinhCoshWord(ax, sinh)), sinh && x < 0));
     }
     case FunctionId::Tanh: {
         using std::abs;
@@ -434,6 +432,44 @@ Applied<T> kernel(FunctionId id, const std::vector<T>& a) {
         const DoubleWord<T> t = dw(x) - T(1);
         return ok<T>(toValue(logWord(t + sqrt(t * (t + T(2))) + T(1))));
     }
+    case FunctionId::Sinc: {
+        if (x == 0) return ok<T>(T(1));
+        const auto w = sinCosWord(x);
+        if (!w) return fail<T>(ErrorCode::ArgumentTooLarge);
+        return ok<T>(toValue(w->first / x));
+    }
+    case FunctionId::Hypot: {  // scaled by the larger one's binade, so the squares neither overflow nor underflow
+        using std::abs;
+        using std::frexp;
+        using std::ldexp;
+        const T t = std::max(abs(a[0]), abs(a[1])), s = std::min(abs(a[0]), abs(a[1]));
+        if (t == 0) return ok<T>(T(0));
+        int e;
+        frexp(t, &e);
+        const T big = ldexp(t, -e), small = ldexp(s, -e);  // exact; small may flush to 0 only where it is negligible
+        const DoubleWord<T> r = sqrt(dw(big) * big + dw(small) * small);
+        return ok<T>(ldexp(toValue(r), e));  // an overflow is infinity: applyFunction reports it
+    }
+    case FunctionId::Atan2: {  // (y, x): the angle of the point, in (−π, π]
+        using std::abs;
+        const T y = a[0], ax = abs(a[1]), ay = abs(y);
+        if (a[1] == 0 && y == 0) return fail<T>(ErrorCode::DomainError);
+        DoubleWord<T> r = ay <= ax ? atanWord(dw(ay) / ax)                                // in [0, π/4]
+                                   : impl::halfPi<T>() - atanWord(dw(ax) / ay);          // in (π/4, π/2]
+        if (a[1] < 0) r = impl::word<T>(ConstantId::Pi) - r;  // never below π/2 there: no cancellation
+        return ok<T>(toValue(y < 0 ? -r : r));                // y == 0 and x < 0 gives +π
+    }
+    case FunctionId::Acot:  // odd, (−π/2, π/2], π/2 at 0 (DLMF 4.23.9 elsewhere)
+        if (x == 0) return ok<T>(toValue(impl::halfPi<T>()));
+        return ok<T>(toValue(atanWord(dw(T(1)) / x)));
+    case FunctionId::Csch: {  // 1/sinh would overflow where csch is representable: 2e^-|x| beyond the large branch
+        using std::abs;
+        if (x == 0) return fail<T>(ErrorCode::DomainError);
+        const T ax = abs(x);
+        const DoubleWord<T>& ln2 = impl::word<T>(ConstantId::Ln2);
+        if (ax > T(precisionBits<T>() + 2) * ln2.hi / 2) return fromExp(expParts(dw(-ax) + ln2), x < 0);
+        return ok<T>(withSign(toValue(dw(T(1)) / sinhCoshWord(ax, true)), x < 0));
+    }
     case FunctionId::Atanh: {
         using std::abs;
         const T ax = abs(x);
@@ -441,8 +477,125 @@ Applied<T> kernel(FunctionId id, const std::vector<T>& a) {
         const DoubleWord<T> w = scale(dw(ax), 1) / (dw(T(1)) - ax);  // atanh = log1p(w) / 2
         return ok<T>(withSign(toValue(scale(logWord(w + T(1)), -1)), x < 0));
     }
+    default: return specialFunction<T>(id, a, cancel);
+    }
+}
+
+// The special functions (special.hpp): each kernel gives a double word, rounded once here, and the size of the terms
+// it subtracted (the claim's floor).
+template <class T>
+Applied<T> specialFunction(FunctionId id, const std::vector<T>& a, [[maybe_unused]] const std::atomic<bool>* cancel) {
+    const T x = a[0];
+    Special<T> s;
+    switch (id) {
+    case FunctionId::Lgamma:
+        if (x <= 0 && isInteger(x)) return fail<T>(ErrorCode::DomainError);  // a pole
+        if (x == 1 || x == 2) return ok<T>(T(0));                            // the exact zeros
+        s = lgammaWord(x);
+        break;
+    case FunctionId::Beta: {  // e^(lgamma a + lgamma b - lgamma(a + b)), a, b > 0
+        if (a[0] <= 0 || a[1] <= 0) return fail<T>(ErrorCode::DomainError);
+        const Special<T> la = lgammaPositive(dw(a[0])), lb = lgammaPositive(dw(a[1])), lab = lgammaPositive(dw(a[0]) + a[1]);
+        const ExpParts<T> e = expParts(la.value + lb.value - lab.value);
+        if (e.overflow) return fail<T>(ErrorCode::Overflow);
+        if (e.underflow) return ok<T>(T(0));
+        Applied<T> r = ok<T>(toValue(expValue(e)));
+        r.scale = r.value * (la.scale + lb.scale + lab.scale);  // Step 5: the terms of the exponent can be enormous
+        if (!isFinite(r.scale)) r.scale = (std::numeric_limits<T>::max)();
+        return r;
+    }
+    case FunctionId::Erf:
+    case FunctionId::Erfc: {
+        using std::abs;
+        using std::sqrt;
+        const T ax = abs(x);
+        if (ax > sqrt((std::numeric_limits<T>::max)()) / 2) {  // x² would overflow; e^-x² underflows long before
+            if (id == FunctionId::Erf) return ok<T>(x < 0 ? T(-1) : T(1));
+            return ok<T>(x < 0 ? T(2) : T(0));
+        }
+        const bool small = ax < erfSwitch<T>();
+        if (id == FunctionId::Erf) {
+            const DoubleWord<T> w = small ? erfSeries(ax) : dw(T(1)) - erfcFraction(ax);
+            return ok<T>(toValue(x < 0 ? -w : w));
+        }
+        const DoubleWord<T> c = small ? dw(T(1)) - erfSeries(ax) : erfcFraction(ax);
+        return ok<T>(toValue(x < 0 ? dw(T(2)) - c : c));
+    }
+    case FunctionId::GammaP:
+    case FunctionId::GammaQ:
+        if (a[0] <= 0 || a[1] < 0) return fail<T>(ErrorCode::DomainError);
+        if (a[1] == 0) return ok<T>(id == FunctionId::GammaP ? T(0) : T(1));
+        s = gammaPQ(a[0], a[1], id == FunctionId::GammaP, cancel);
+        break;
+    case FunctionId::Betainc:  // (a, b, x)
+        if (a[0] <= 0 || a[1] <= 0 || a[2] < 0 || a[2] > 1) return fail<T>(ErrorCode::DomainError);
+        s = betaincWord(a[2], a[0], a[1], cancel);
+        break;
+    case FunctionId::Betaincinv:  // (a, b, y)
+        if (a[0] <= 0 || a[1] <= 0 || a[2] < 0 || a[2] > 1) return fail<T>(ErrorCode::DomainError);
+        if (a[2] == 0 || a[2] == 1) return ok<T>(a[2]);
+        s = betaincinvWord(a[2], a[0], a[1], cancel);
+        break;
+    case FunctionId::Igamma:     // Gamma(a, x) = Q Gamma(a)
+    case FunctionId::GammaInc: {  // gamma(a, x) = P Gamma(a): in the log domain, so a tiny ratio times a huge Gamma(a) is fine
+        if (a[0] <= 0 || a[1] < 0) return fail<T>(ErrorCode::DomainError);
+        if (a[1] == 0) return id == FunctionId::GammaInc ? ok<T>(T(0)) : specialFunction<T>(FunctionId::Gamma, {a[0]}, cancel);
+        const Special<T> ratio = gammaPQ(a[0], a[1], id == FunctionId::GammaInc, cancel);
+        if (ratio.error) return fail<T>(*ratio.error);
+        if (ratio.value.hi == 0) return ok<T>(T(0));
+        const Special<T> lg = lgammaPositive(dw(a[0]));
+        const ExpParts<T> e = expParts(logWord(ratio.value) + lg.value);
+        if (e.overflow) return fail<T>(ErrorCode::Overflow);
+        if (e.underflow) return ok<T>(T(0));
+        Applied<T> r = ok<T>(toValue(expValue(e)));
+        using std::abs;
+        r.scale = r.value * (ratio.scale / abs(ratio.value.hi) + lg.scale);
+        if (!isFinite(r.scale)) r.scale = (std::numeric_limits<T>::max)();
+        return r;
+    }
+    case FunctionId::Erfinv: {
+        using std::abs;
+        if (abs(x) >= 1) return fail<T>(ErrorCode::DomainError);
+        if (x == 0) return ok<T>(T(0));
+        const T ax = abs(x);
+        s = ax <= T(0.5) ? erfInverse(ax, T(0), false) : erfInverse(ax, T(T(1) - ax), true);  // 1 - |y| is exact
+        if (x < 0) s.value = -s.value;
+        break;
+    }
+    case FunctionId::Erfcinv:
+        if (x <= 0 || x >= 2) return fail<T>(ErrorCode::DomainError);
+        if (x == 1) return ok<T>(T(0));
+        if (x > 1) {  // erfcinv(2 - z) = -erfcinv(z); 2 - z is exact
+            s = erfcinvWord(T(T(2) - x));
+            s.value = -s.value;
+        } else {
+            s = erfcinvWord(x);
+        }
+        break;
+    case FunctionId::Digamma:
+    case FunctionId::Trigamma:
+        if (x <= 0 && isInteger(x)) return fail<T>(ErrorCode::DomainError);  // a pole
+        s = id == FunctionId::Digamma ? digammaWord(x) : trigammaWord(x);
+        break;
+    case FunctionId::Gamma: {
+        if (x <= 0 && isInteger(x)) return fail<T>(ErrorCode::DomainError);  // a pole
+        if (isInteger(x) && x <= 1024) {                                     // (n-1)! exactly, as 5! is
+            const Applied<T> f = integerFunction<T>(FunctionId::Factorial, {T(x - 1)}, cancel);
+            if (f.error || f.roundings == 0) return f;
+        }
+        // e^lgamma: |lgamma| <= ln(max T) + X ln X, so exp's relative error stays far below u (scale 0)
+        const ExpParts<T> e = expParts(lgammaWord(x).value);
+        if (e.overflow) return fail<T>(ErrorCode::Overflow);
+        if (e.underflow) return ok<T>(T(0));
+        const bool negative = x < 0 && sinCosPi(x).first.hi < 0;  // the sign of sin(pi x) for x < 0
+        return ok<T>(withSign(toValue(expValue(e)), negative));
+    }
     default: return fail<T>(ErrorCode::DomainError);
     }
+    if (s.error) return fail<T>(*s.error);
+    Applied<T> r = ok<T>(toValue(s.value));
+    r.scale = s.scale;
+    return r;
 }
 
 }  // namespace impl
@@ -476,6 +629,45 @@ Applied<T> applyFunction(FunctionId id, const std::vector<T>& a, const std::atom
         r.value = abs(a[0]);
         break;
     }
+    case FunctionId::Floor:
+        if constexpr (isExact<T>) {
+            r.value = Rational(floorOf(a[0]));
+        } else {
+            using std::floor;
+            r.value = floor(a[0]);
+        }
+        break;
+    case FunctionId::Trunc:
+        if constexpr (isExact<T>) {
+            r.value = Rational(numerator(a[0]) / denominator(a[0]));  // Integer division truncates
+        } else {
+            using std::trunc;
+            r.value = trunc(a[0]);
+        }
+        break;
+    case FunctionId::Sgn: r.value = a[0] > 0 ? T(1) : a[0] < 0 ? T(-1) : T(0); break;
+    case FunctionId::Numerator:  // of the fraction the type really holds (sign included)
+    case FunctionId::Denominator: {
+        const Rational q = toRational(a[0]);
+        r.value = fromRational<T>(Rational(id == FunctionId::Numerator ? numerator(q) : denominator(q)));
+        break;
+    }
+    case FunctionId::Clip:  // (x, lo, hi)
+        if (a[1] > a[2]) return impl::fail<T>(ErrorCode::DomainError);
+        r.value = a[0] < a[1] ? a[1] : a[0] > a[2] ? a[2] : a[0];
+        break;
+    case FunctionId::Round: {  // halves away from zero; x − trunc(x) is exact, so 0.5 − tiny never rounds up
+        T n;
+        if constexpr (isExact<T>) {
+            n = Rational(numerator(a[0]) / denominator(a[0]));
+        } else {
+            using std::trunc;
+            n = trunc(a[0]);
+        }
+        const T rest = a[0] - n;
+        r.value = rest >= T(1) / 2 ? T(n + 1) : rest <= T(-1) / 2 ? T(n - 1) : n;
+        break;
+    }
     case FunctionId::FloorMod:  // floored: the sign of the divisor
     case FunctionId::Rem: {     // truncated: the sign of the dividend, like fmod
         if (a[1] == 0) return impl::fail<T>(ErrorCode::DivisionByZero);
@@ -493,6 +685,10 @@ Applied<T> applyFunction(FunctionId id, const std::vector<T>& a, const std::atom
         r.value = n % 2 ? sorted[n / 2] : T((sorted[n / 2 - 1] + sorted[n / 2]) / 2);
         break;
     }
+    case FunctionId::Uncertain:
+        if (a[1] < 0) return impl::fail<T>(ErrorCode::DomainError);
+        r.value = a[0];
+        break;
     case FunctionId::Factorial:
     case FunctionId::Ncr:
     case FunctionId::Npr:
@@ -506,7 +702,7 @@ Applied<T> applyFunction(FunctionId id, const std::vector<T>& a, const std::atom
             if (!functionInfo(id).exact) return impl::fail<T>(ErrorCode::NotAvailableInExact);
             return impl::exactFunction<T>(id, a);
         } else {
-            r = impl::kernel<T>(id, a);
+            r = impl::kernel<T>(id, a, cancel);
             if (r.error) return r;
         }
     }
@@ -563,8 +759,75 @@ std::vector<R> partials(FunctionId id, const std::vector<R>& a, const R& v) {
     case FunctionId::Asinh: return {R(1) / sqrt(x * x + 1)};
     case FunctionId::Acosh: return {x == 1 ? inf : R(R(1) / sqrt(x * x - 1))};
     case FunctionId::Atanh: return {R(1) / (R(1) - x * x)};
+    case FunctionId::Csch: return {-v / f(FunctionId::Tanh, x)};  // −csch·coth: cosh/sinh would overflow for a huge x
+    case FunctionId::Acot: return {R(-1) / (R(1) + x * x)};
+    case FunctionId::Gamma: return {v * f(FunctionId::Digamma, x)};
+    case FunctionId::Erfinv:
+    case FunctionId::Erfcinv: {  // ±sqrt(pi)/2 e^(v²)
+        const R d = sqrt(constantValue<R>(ConstantId::Pi)) / 2 * f(FunctionId::Exp, R(v * v));
+        return {id == FunctionId::Erfinv ? d : R(-d)};
+    }
+    case FunctionId::Erf:
+    case FunctionId::Erfc: {  // ±2/sqrt(pi) e^-x²
+        const R d = R(2) / sqrt(constantValue<R>(ConstantId::Pi)) * f(FunctionId::Exp, R(-x * x));
+        return {id == FunctionId::Erf ? d : R(-d)};
+    }
+    case FunctionId::Lgamma: return {f(FunctionId::Digamma, x)};
+    case FunctionId::Digamma: return {f(FunctionId::Trigamma, x)};
+    case FunctionId::Sinc: {  // (cos x − sinc x)/x cancels near 0: there the first Taylor term, −x/3
+        using std::abs;
+        using std::ldexp;
+        if (abs(x) < ldexp(R(1), -precisionBits<R>() / 4)) return {-x / 3};
+        return {(f(FunctionId::Cos, x) - v) / x};
+    }
     case FunctionId::Abs: return {x < 0 ? R(-1) : R(1)};
     case FunctionId::Rem: return {R(1), R(-trunc(a[0] / a[1]))};
+    case FunctionId::GammaP:
+    case FunctionId::GammaQ:
+    case FunctionId::Igamma:
+    case FunctionId::GammaInc: {  // (a, x)
+        using std::ldexp;
+        const R s = a[0], t = a[1];
+        const bool regularized = id == FunctionId::GammaP || id == FunctionId::GammaQ;
+        const bool lower = id == FunctionId::GammaP || id == FunctionId::GammaInc;
+        // d/dx: the density x^(a-1) e^-x (over Gamma(a) when regularized), with its limit at x = 0
+        R dx;
+        if (t == 0) dx = s > 1 ? R(0) : s < 1 ? inf : R(regularized ? R(1) / f(FunctionId::Gamma, s) : R(1));
+        else dx = f(FunctionId::Exp, R((s - 1) * f(FunctionId::Ln, t) - t - (regularized ? f(FunctionId::Lgamma, s) : R(0))));
+        // d/da has no short closed form: a central difference of the kernel itself, h near the optimum 2^(-p/3)
+        const R h = abs(s) * ldexp(R(1), -precisionBits<R>() / 3);
+        const R da = (applyFunction<R>(id, {R(s + h), t}).value - applyFunction<R>(id, {R(s - h), t}).value) / (2 * h);
+        return {da, lower ? dx : R(-dx)};
+    }
+    case FunctionId::Betainc:      // (a, b, x)
+    case FunctionId::Betaincinv: {  // (a, b, y); its value v is the x with I_v(a, b) = y
+        using std::ldexp;
+        const R p = a[0], q = a[1];
+        const R point = id == FunctionId::Betainc ? a[2] : v;
+        const R lnB = f(FunctionId::Lgamma, p) + f(FunctionId::Lgamma, q) - f(FunctionId::Lgamma, R(p + q));
+        const R slope = f(FunctionId::Exp, R((p - 1) * f(FunctionId::Ln, point) + (q - 1) * f(FunctionId::Ln, R(1 - point)) - lnB));  // I'(x)
+        // d/da, d/db have no short closed form: central differences of the kernel, h near the optimum 2^(-p/3)
+        const auto difference = [&](std::size_t k) {
+            std::vector<R> up{p, q, point}, down{p, q, point};
+            const R h = abs(up[k]) * ldexp(R(1), -precisionBits<R>() / 3);
+            up[k] += h;
+            down[k] -= h;
+            return R((applyFunction<R>(FunctionId::Betainc, up).value - applyFunction<R>(FunctionId::Betainc, down).value) / (2 * h));
+        };
+        if (id == FunctionId::Betainc) return {difference(0), difference(1), slope};
+        return {R(-difference(0) / slope), R(-difference(1) / slope), R(1 / slope)};  // the implicit function theorem
+    }
+    case FunctionId::Beta: {
+        const R both = f(FunctionId::Digamma, R(a[0] + a[1]));
+        return {v * (f(FunctionId::Digamma, a[0]) - both), v * (f(FunctionId::Digamma, a[1]) - both)};
+    }
+    case FunctionId::Atan2: {  // (y, x)
+        const R d = a[1] * a[1] + a[0] * a[0];
+        return {a[1] / d, -a[0] / d};
+    }
+    case FunctionId::Clip: return a[0] < a[1] ? std::vector<R>{R(0), R(1), R(0)} : a[0] > a[2] ? std::vector<R>{R(0), R(0), R(1)} : std::vector<R>{R(1), R(0), R(0)};
+    case FunctionId::Hypot:  // at the origin |Δh| <= |Δx| + |Δy|: 1 is a safe slope
+        return v == 0 ? std::vector<R>{R(1), R(1)} : std::vector<R>{a[0] / v, a[1] / v};
     case FunctionId::FloorMod: {
         using std::floor;
         return {R(1), R(-floor(a[0] / a[1]))};
@@ -579,6 +842,7 @@ std::vector<R> partials(FunctionId id, const std::vector<R>& a, const R& v) {
         else d[order[n / 2 - 1]] = d[order[n / 2]] = R(0.5);
         return d;
     }
+    case FunctionId::Uncertain: return {R(1), R(0)};  // the uncertainty's own errors never reach the value
     default: return std::vector<R>(a.size(), R(0));  // discrete functions and constants
     }
 }
@@ -726,7 +990,8 @@ inline Ruler functionSlope(FunctionId id, const Ruler& x, const Ruler& b) {
     }
     case FunctionId::Asin:
     case FunctionId::Acos: return far < 1 ? Ruler(1 / sqrt(1 - far * far)) : inf;
-    case FunctionId::Atan: return 1 / (1 + near * near);
+    case FunctionId::Atan:
+    case FunctionId::Acot: return 1 / (1 + near * near);  // between the jumps (the jump at 0 is checked apart)
     case FunctionId::Sinh: return f(FunctionId::Cosh, far);
     case FunctionId::Cosh: return f(FunctionId::Sinh, far);
     case FunctionId::Tanh: {  // 1 - tanh^2, written 1 / cosh^2 to keep its precision when it is tiny
@@ -736,6 +1001,37 @@ inline Ruler functionSlope(FunctionId id, const Ruler& x, const Ruler& b) {
     case FunctionId::Asinh: return 1 / sqrt(near * near + 1);
     case FunctionId::Acosh: return lo > 1 ? Ruler(1 / sqrt(lo * lo - 1)) : inf;
     case FunctionId::Atanh: return far < 1 ? Ruler(1 / (1 - far * far)) : inf;
+    case FunctionId::Erfinv:  // sqrt(pi)/2 e^(erfinv(y)²) grows with |y|: largest at the largest |y|, unbounded at ±1
+        return far < 1 ? Ruler(sqrt(constantValue<Ruler>(ConstantId::Pi)) / 2 * f(FunctionId::Exp, Ruler(f(FunctionId::Erfinv, far) * f(FunctionId::Erfinv, far)))) : inf;
+    case FunctionId::Erfcinv: {  // the same, measured from 1: largest at the end farthest from 1, unbounded at 0 and 2
+        const Ruler away = std::max(abs(lo - 1), abs(hi - 1));
+        if (away >= 1) return inf;
+        const Ruler v = f(FunctionId::Erfinv, away);
+        return sqrt(constantValue<Ruler>(ConstantId::Pi)) / 2 * f(FunctionId::Exp, Ruler(v * v));
+    }
+    case FunctionId::Erf:
+    case FunctionId::Erfc:  // 2/sqrt(pi) e^-t², largest at the smallest |t|
+        return 2 / sqrt(constantValue<Ruler>(ConstantId::Pi)) * f(FunctionId::Exp, Ruler(-near * near));
+    case FunctionId::Lgamma:   // psi, increasing between the poles
+    case FunctionId::Gamma:    // Gamma', monotonic between the poles (Gamma'' has the sign of Gamma)
+    case FunctionId::Digamma: {  // psi', convex between the poles
+        // The largest at an end of the interval; unbounded when the interval holds a pole (a non-positive integer).
+        if (std::min(Ruler(0), Ruler(floor(hi))) >= lo) return inf;
+        const auto d = [&](const Ruler& t) {
+            return id == FunctionId::Lgamma  ? f(FunctionId::Digamma, t)
+                   : id == FunctionId::Gamma ? Ruler(f(FunctionId::Gamma, t) * f(FunctionId::Digamma, t))
+                                             : f(FunctionId::Trigamma, t);
+        };
+        return std::max(abs(d(lo)), abs(d(hi)));
+    }
+    case FunctionId::Sinc: {  // |sinc'| <= 0.4362 everywhere, <= |t|/3, and <= 1/|t| + 1/t²; exact for an exact argument
+        if (b == 0) return x == 0 ? Ruler(0) : Ruler(abs((f(FunctionId::Cos, x) - f(FunctionId::Sinc, x)) / x));
+        Ruler s = std::min(Ruler(0.44), Ruler(far / 3));
+        if (near > 0) s = std::min(s, Ruler(1 / near + 1 / (near * near)));
+        return s;
+    }
+    case FunctionId::Csch:  // |csch|·coth falls as |x| grows: largest at the smallest |x|, unbounded at 0
+        return near > 0 ? Ruler(f(FunctionId::Csch, near) / f(FunctionId::Tanh, near)) : inf;
     default: return inf;  // not a one-argument function
     }
 }
@@ -764,6 +1060,78 @@ inline std::vector<Ruler> slopes(FunctionId id, const std::vector<Ruler>& a, con
     case FunctionId::Square: return {2 * (abs(a[0]) + b[0])};
     case FunctionId::Cube: return {3 * (abs(a[0]) + b[0]) * (abs(a[0]) + b[0])};
     case FunctionId::Power: return impl::powerSlopes(a, b);
+    case FunctionId::Betainc:
+    case FunctionId::Betaincinv: {
+        // The density t^(a-1) (1-t)^(b-1) / B(a, b) has one interior critical point, the mode (a-1)/(a+b-2), so its
+        // largest and smallest values over an interval are at an end or there. Uncertain a or b: no bound here.
+        if (b[0] > 0 || b[1] > 0) return {inf, inf, inf};
+        const Ruler p = a[0], q = a[1];
+        const Ruler lnB = impl::rulerValue(FunctionId::Lgamma, {p}) + impl::rulerValue(FunctionId::Lgamma, {q})
+                          - impl::rulerValue(FunctionId::Lgamma, {Ruler(p + q)});
+        const auto density = [&](const Ruler& t) -> Ruler {
+            if (t <= 0) return p > 1 ? Ruler(0) : p < 1 ? inf : impl::rulerValue(FunctionId::Exp, {Ruler(-lnB)});
+            if (t >= 1) return q > 1 ? Ruler(0) : q < 1 ? inf : impl::rulerValue(FunctionId::Exp, {Ruler(-lnB)});
+            return impl::rulerValue(FunctionId::Exp, {Ruler((p - 1) * impl::rulerValue(FunctionId::Ln, {t})
+                                                            + (q - 1) * impl::rulerValue(FunctionId::Ln, {Ruler(1 - t)}) - lnB)});
+        };
+        Ruler lo, hi;  // the x interval
+        if (id == FunctionId::Betainc) {
+            lo = std::max(Ruler(0), Ruler(a[2] - b[2]));
+            hi = std::min(Ruler(1), Ruler(a[2] + b[2]));
+        } else {
+            lo = impl::rulerValue(FunctionId::Betaincinv, {p, q, std::max(Ruler(0), Ruler(a[2] - b[2]))});
+            hi = impl::rulerValue(FunctionId::Betaincinv, {p, q, std::min(Ruler(1), Ruler(a[2] + b[2]))});
+        }
+        std::vector<Ruler> values{density(lo), density(hi)};
+        const Ruler mode = (p - 1) / (p + q - 2);
+        if (p + q != 2 && mode > lo && mode < hi) values.push_back(density(mode));
+        const std::vector<Ruler> centre = partials<Ruler>(id, a, impl::rulerValue(id, a));
+        if (id == FunctionId::Betainc)
+            return {abs(centre[0]), abs(centre[1]), *std::max_element(values.begin(), values.end())};
+        const Ruler least = *std::min_element(values.begin(), values.end());  // dx/dy = 1 / density
+        return {abs(centre[0]), abs(centre[1]), least > 0 ? Ruler(1 / least) : inf};
+    }
+    case FunctionId::GammaP:
+    case FunctionId::GammaQ:
+    case FunctionId::Igamma:
+    case FunctionId::GammaInc: {
+        // In x: the density t^(a-1) e^-t (over Gamma(a) when regularized), whose only interior critical point is the
+        // mode a - 1, so its largest value over the interval is at an end or there. An uncertain a has no bound here.
+        if (b[0] > 0) return {inf, inf};
+        const Ruler s = a[0];
+        const bool regularized = id == FunctionId::GammaP || id == FunctionId::GammaQ;
+        const auto density = [&](const Ruler& t) -> Ruler {
+            if (t <= 0) return s > 1 ? Ruler(0) : s < 1 ? inf : Ruler(regularized ? Ruler(1) / impl::rulerValue(FunctionId::Gamma, {s}) : Ruler(1));
+            return impl::rulerValue(FunctionId::Exp, {Ruler((s - 1) * impl::rulerValue(FunctionId::Ln, {t}) - t
+                                                            - (regularized ? impl::rulerValue(FunctionId::Lgamma, {s}) : Ruler(0)))});
+        };
+        const Ruler lo = std::max(Ruler(0), Ruler(a[1] - b[1])), hi = a[1] + b[1];
+        Ruler most = std::max(density(lo), density(hi));
+        if (s - 1 > lo && s - 1 < hi) most = std::max(most, density(Ruler(s - 1)));
+        return {abs(partials<Ruler>(id, a, impl::rulerValue(id, a))[0]), most};
+    }
+    case FunctionId::Beta: {  // B falls in each argument; psi(a + b) - psi(a) falls in a and grows in b
+        const Ruler loA = a[0] - b[0], loB = a[1] - b[1];
+        if (loA <= 0 || loB <= 0) return {inf, inf};
+        const auto g = [](FunctionId fn, const std::vector<Ruler>& args) { return impl::rulerValue(fn, args); };
+        const Ruler top = g(FunctionId::Beta, {loA, loB});
+        return {Ruler(top * (g(FunctionId::Digamma, {Ruler(loA + a[1] + b[1])}) - g(FunctionId::Digamma, {loA}))),
+                Ruler(top * (g(FunctionId::Digamma, {Ruler(loB + a[0] + b[0])}) - g(FunctionId::Digamma, {loB})))};
+    }
+    case FunctionId::Hypot: {  // |x|/h <= 1: at most the largest |x| over the smallest h in the box
+        const Ruler nearX = abs(a[0]) > b[0] ? Ruler(abs(a[0]) - b[0]) : Ruler(0);
+        const Ruler nearY = abs(a[1]) > b[1] ? Ruler(abs(a[1]) - b[1]) : Ruler(0);
+        const Ruler h = sqrt(nearX * nearX + nearY * nearY);
+        if (h == 0) return {Ruler(1), Ruler(1)};
+        return {std::min(Ruler(1), Ruler((abs(a[0]) + b[0]) / h)), std::min(Ruler(1), Ruler((abs(a[1]) + b[1]) / h))};
+    }
+    case FunctionId::Atan2: {  // |x|/(x²+y²) and |y|/(x²+y²): at most the largest |x| or |y| over the smallest x²+y²
+        const Ruler nearY = abs(a[0]) > b[0] ? Ruler(abs(a[0]) - b[0]) : Ruler(0);
+        const Ruler nearX = abs(a[1]) > b[1] ? Ruler(abs(a[1]) - b[1]) : Ruler(0);
+        const Ruler d = nearX * nearX + nearY * nearY;
+        if (d == 0) return {inf, inf};
+        return {Ruler((abs(a[1]) + b[1]) / d), Ruler((abs(a[0]) + b[0]) / d)};
+    }
     case FunctionId::Rem: {  // between its jumps: |trunc(x/y)| is largest at the largest |x| over the smallest |y|
         const Ruler nearest = abs(a[1]) - b[1];
         return {Ruler(1), nearest > 0 ? Ruler(floor((abs(a[0]) + b[0]) / nearest)) : inf};
@@ -783,6 +1151,12 @@ inline std::vector<Ruler> slopes(FunctionId id, const std::vector<Ruler>& a, con
     case FunctionId::Root: return impl::rootSlopes(a, b);
     case FunctionId::LogBase: return impl::logBaseSlopes(a, b);
     case FunctionId::Median: return impl::medianSlopes(a, b);
+    case FunctionId::Clip: {  // the selected argument; at a corner the errors can reach, both sides of it count
+        std::vector<Ruler> s = a[0] < a[1] ? std::vector<Ruler>{0, 1, 0} : a[0] > a[2] ? std::vector<Ruler>{0, 0, 1} : std::vector<Ruler>{1, 0, 0};
+        for (const std::size_t k : {std::size_t(1), std::size_t(2)})
+            if (b[0] + b[k] > 0 && abs(a[0] - a[k]) <= b[0] + b[k]) s[0] = s[k] = 1;
+        return s;
+    }
     case FunctionId::Sqrt:
     case FunctionId::Cbrt:
     case FunctionId::Exp:
@@ -799,7 +1173,18 @@ inline std::vector<Ruler> slopes(FunctionId id, const std::vector<Ruler>& a, con
     case FunctionId::Tanh:
     case FunctionId::Asinh:
     case FunctionId::Acosh:
-    case FunctionId::Atanh: return {impl::functionSlope(id, a[0], b[0])};
+    case FunctionId::Atanh:
+    case FunctionId::Csch:
+    case FunctionId::Acot:
+    case FunctionId::Sinc:
+    case FunctionId::Lgamma:
+    case FunctionId::Gamma:
+    case FunctionId::Digamma:
+    case FunctionId::Erf:
+    case FunctionId::Erfc:
+    case FunctionId::Erfinv:
+    case FunctionId::Erfcinv: return {impl::functionSlope(id, a[0], b[0])};
+    case FunctionId::Uncertain: return {Ruler(1), Ruler(0)};
     default: return std::vector<Ruler>(a.size(), Ruler(0));  // discrete functions: uncertain arguments are refused
     }
 }
@@ -902,6 +1287,13 @@ Ruler localError(FunctionId id, const std::vector<T>& args, const Applied<T>& ap
                 return fromRational<Ruler>(abs(exact - toRational(applied.value)));
         }
         if (impl::exactRootResult(id, args, applied.value)) return Ruler(0);
+        if (id == FunctionId::Gamma && impl::isInteger(args[0]) && args[0] >= 1 && args[0] <= 1024) {  // (n - 1)!
+            Integer factorial = 1;
+            for (long long k = 2; k < static_cast<long long>(impl::toLongLong(args[0])); ++k) factorial *= k;
+            return fromRational<Ruler>(abs(Rational(factorial) - toRational(applied.value)));
+        }
+        if (id == FunctionId::Hypot && toRational(applied.value) * toRational(applied.value) == exactArgs[0] * exactArgs[0] + exactArgs[1] * exactArgs[1])
+            return Ruler(0);  // hypot(3, 4) is exactly 5
         if (args.size() == 1)
             if (const auto exact = impl::exactPoint(id, exactArgs[0])) return fromRational<Ruler>(abs(*exact - toRational(applied.value)));
         switch (functionInfo(id).errorClass) {
@@ -912,9 +1304,12 @@ Ruler localError(FunctionId id, const std::vector<T>& args, const Applied<T>& ap
         }
         case ErrorClass::Rounded: return u * v;
         case ErrorClass::Counted: return Ruler(applied.roundings) * u * v;
-        case ErrorClass::Library: {
+        case ErrorClass::Library: {  // relative, with an absolute floor near a zero of a cancelling kernel (u * scale)
             const Ruler floor = exactCast<Ruler>((std::numeric_limits<T>::min)());
-            return Ruler(claimedFactor(id)) * u * (v > floor ? v : floor);
+            Ruler m = v > floor ? v : floor;
+            const Ruler cancelled = u * exactCast<Ruler>(applied.scale);
+            if (cancelled > m) m = cancelled;
+            return Ruler(claimedFactor(id)) * u * m;
         }
         default: return Ruler(0);  // Input errors belong to the engine
         }

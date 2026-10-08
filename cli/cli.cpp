@@ -45,6 +45,8 @@ std::string usage() {
            "  --color <when>     auto (default), always or never\n"
            "  --allow-uncertain  let discrete functions take arguments that carry error\n"
            "  --list-types       describe the number types of this build\n"
+           "  --list-functions   list the functions of the language\n"
+           "  --info <name>      describe a function\n"
            "  --help, --version\n"
            "\n"
            "Lines M+, M- and MC add Ans to, subtract it from, or clear the memory M.\n"
@@ -160,6 +162,50 @@ void listTypes(std::ostream& out) {
         }
         out << pad(optionName(t.type), 13) << pad(t.label, 11) << description << "\n";
     }
+}
+
+// name(arguments), then "exact" when the function is available in exact arithmetic, then its title.
+void listFunctions(std::ostream& out) {
+    for (const FunctionDescription& f : functions()) {
+        out << f.name << "(" << f.minArgs;
+        if (f.maxArgs < 0) out << "..";
+        else if (f.maxArgs != f.minArgs) out << ".." << f.maxArgs;
+        out << ")" << (f.exact ? "  exact" : "") << "  " << f.title << "\n";
+    }
+}
+
+// The function's call with its argument names, optional ones in brackets: log(x[, base]), mean(value, …).
+std::string signature(const FunctionDescription& f) {
+    if (f.arguments.empty()) return f.name;
+    std::string text = f.name + "(";
+    if (f.maxArgs < 0) {  // one argument, repeated: as often as needed, then more
+        for (int k = 0; k < f.minArgs; ++k) text += (k ? ", " : "") + f.arguments[0].name;
+        return text + ", …)";
+    }
+    for (std::size_t k = 0; k < f.arguments.size(); ++k) {
+        const bool optional = static_cast<int>(k) >= f.minArgs;
+        if (optional) text += "[";
+        if (k > 0) text += ", ";
+        text += f.arguments[k].name;
+    }
+    for (std::size_t k = static_cast<std::size_t>(f.minArgs); k < f.arguments.size(); ++k) text += "]";
+    return text + ")";
+}
+
+// The function named `name` (or spelled so): its call, title, description, other spellings and example.
+bool describeFunction(const std::string& name, std::ostream& out) {
+    for (const FunctionDescription& f : functions()) {
+        if (f.name != name && std::find(f.aliases.begin(), f.aliases.end(), name) == f.aliases.end()) continue;
+        out << signature(f) << " \u2014 " << f.title << "\n" << f.description << "\n";
+        if (!f.aliases.empty()) {
+            out << "Also: ";
+            for (std::size_t k = 0; k < f.aliases.size(); ++k) out << (k ? ", " : "") << f.aliases[k];
+            out << "\n";
+        }
+        out << "Example: " << f.example << "\n";
+        return true;
+    }
+    return false;
 }
 
 // Display columns of UTF-8 text: one per code point (bytes that are not continuation bytes).
@@ -320,6 +366,17 @@ int run(const std::vector<std::string>& args, std::istream& in, std::ostream& ou
         if (a == "--list-types") {
             listTypes(out);
             return 0;
+        }
+        if (a == "--list-functions") {
+            listFunctions(out);
+            return 0;
+        }
+        if (a == "--info") {
+            const auto v = value();
+            if (!v) return 2;
+            if (describeFunction(*v, out)) return 0;
+            err << "calc: unknown function '" << *v << "' (see --list-functions)\n";
+            return 2;
         }
         if (a == "--json") {
             s.json = true;

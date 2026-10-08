@@ -204,11 +204,15 @@ Statistic statisticNamed(std::string_view name) {
 // Spanish names of functions, in lowercase like every other name, and the function each one stands for.
 // Other spellings of functions: Spanish calculator names and common variants. They name the function
 // itself, so a convention that changes what `log` means leaves `log10` alone.
-constexpr std::array<std::pair<std::string_view, FunctionId>, 11> functionAliases{{
+constexpr std::array<std::pair<std::string_view, FunctionId>, 24> functionAliases{{
     {"sen", FunctionId::Sin}, {"arcsen", FunctionId::Asin}, {"arccos", FunctionId::Acos},
     {"arctan", FunctionId::Atan}, {"senh", FunctionId::Sinh}, {"arcsenh", FunctionId::Asinh},
     {"arccosh", FunctionId::Acosh}, {"arctanh", FunctionId::Atanh}, {"mcd", FunctionId::Gcd},
-    {"mcm", FunctionId::Lcm}, {"log10", FunctionId::Log10},
+    {"mcm", FunctionId::Lcm}, {"log10", FunctionId::Log10}, {"arcsin", FunctionId::Asin},
+    {"arsinh", FunctionId::Asinh}, {"arcosh", FunctionId::Acosh}, {"artanh", FunctionId::Atanh},
+    {"arccot", FunctionId::Acot}, {"cosech", FunctionId::Csch}, {"arccotg", FunctionId::Acot},
+    {"int", FunctionId::Trunc}, {"ent", FunctionId::Trunc}, {"signo", FunctionId::Sgn},
+    {"redondeo", FunctionId::Round}, {"suelo", FunctionId::Floor}, {"lngamma", FunctionId::Lgamma},
 }};
 
 // The function with this name (pi and e are constants, not functions).
@@ -249,6 +253,44 @@ int leftPower(TokenKind k) {
 
 // A Pratt parser that appends nodes to a post-order arena. After the first error every method
 // returns -1 and nothing else is parsed.
+// Functions written with nodes the engine already has (a lowering): their error is the composition's.
+bool isLowering(std::string_view name) {
+    for (const char* n : {"log2", "exp2", "exp10", "sq", "sqrtpi", "sec", "csc", "cot", "sech", "coth", "asec", "acsc", "asech", "acsch", "acoth", "ceil", "frac"})
+        if (name == n) return true;
+    return false;
+}
+
+// Other spellings of the lowerings (spelling → lowering name).
+constexpr std::array<std::pair<std::string_view, std::string_view>, 12> loweringAliases{{
+    {"arcsec", "asec"}, {"arccsc", "acsc"}, {"arsech", "asech"}, {"arcsch", "acsch"}, {"arcoth", "acoth"},
+    {"cosec", "csc"}, {"cotg", "cot"}, {"cotgh", "coth"}, {"arccosec", "acsc"}, {"arccosech", "acsch"}, {"arccotgh", "acoth"},
+    {"techo", "ceil"},
+}};
+
+std::string loweringNamed(std::string_view name) {
+    for (const auto& [alias, lowering] : loweringAliases)
+        if (name == alias) return std::string(lowering);
+    return std::string(name);
+}
+
+}  // namespace
+
+std::vector<std::string> otherSpellings(FunctionId id) {
+    std::vector<std::string> list;
+    for (const auto& [alias, named] : functionAliases)
+        if (named == id) list.emplace_back(alias);
+    return list;
+}
+
+std::vector<std::string> otherSpellings(std::string_view lowering) {
+    std::vector<std::string> list;
+    for (const auto& [alias, named] : loweringAliases)
+        if (named == lowering) list.emplace_back(alias);
+    return list;
+}
+
+namespace {
+
 enum class Range { None, Sum, Product };
 
 Range rangeNamed(std::string_view name) {
@@ -508,7 +550,8 @@ private:
         if (name == "e") return node(FunctionId::E, {}, t.span);
         if (name == "Ans") return fail(ErrorCode::UnknownName, "There is no previous result yet", t.span);
         if (name == "M") return fail(ErrorCode::UnknownName, "The memory is empty", t.span);
-        if (functionNamed(name) || name == "mod" || statisticNamed(name) != Statistic::None || rangeNamed(name) != Range::None)
+        if (functionNamed(name) || name == "mod" || statisticNamed(name) != Statistic::None || rangeNamed(name) != Range::None
+            || isLowering(loweringNamed(name)))
             return fail(ErrorCode::UnexpectedToken, name + " needs its arguments in parentheses: " + name + "(…)", t.span);
         return fail(ErrorCode::UnknownName, "Unknown name '" + name + "'", t.span);
     }
@@ -679,6 +722,7 @@ private:
         const std::string name(t.text);
         const int count = static_cast<int>(args.size());
         if (const Statistic s = statisticNamed(name); s != Statistic::None) return statistic(s, name, args, span);
+        if (const std::string canonical = loweringNamed(name); isLowering(canonical)) return lowering(canonical, name, args, span);
         const Conventions& conventions = options_.conventions;
         const bool floored = conventions.mod == Conventions::Mod::Floored;
         std::optional<FunctionId> id = name == "mod" ? (floored ? FunctionId::FloorMod : FunctionId::Rem) : functionNamed(name);
@@ -705,7 +749,7 @@ private:
     // arithmetic through pi: its error stays visible in the report.
     int withAngles(FunctionId id, std::vector<int> args, Span span, const std::string& written) {
         const bool direct = id == FunctionId::Sin || id == FunctionId::Cos || id == FunctionId::Tan;
-        const bool inverse = id == FunctionId::Asin || id == FunctionId::Acos || id == FunctionId::Atan;
+        const bool inverse = id == FunctionId::Asin || id == FunctionId::Acos || id == FunctionId::Atan || id == FunctionId::Acot || id == FunctionId::Atan2;
         if (options_.angle == AngleUnit::Radians || (!direct && !inverse)) return named(node(id, std::move(args), span), written);
         const std::string plain = std::string(functionInfo(id).name) + "(" + readings_[static_cast<std::size_t>(args[0])] + ")";  // the conversion stays hidden
         const std::string full = options_.angle == AngleUnit::Degrees ? "180" : "200";
@@ -719,6 +763,68 @@ private:
         const int top = node(FunctionId::Literal, {}, span, full);
         const int factor = node(FunctionId::Divide, {top, node(FunctionId::Pi, {}, span)}, span);
         return read(node(FunctionId::Multiply, {radians, factor}, span), plain);
+    }
+
+    // A node of a lowering: it speaks under the written name in errors.
+    int lowered(FunctionId id, std::vector<int> args, Span span, const std::string& written, std::string text = {}) {
+        const int n = node(id, std::move(args), span, std::move(text));
+        ast_.nodes[static_cast<std::size_t>(n)].written = written;
+        ast_.nodes[static_cast<std::size_t>(n)].lowered = true;
+        return n;
+    }
+
+    // Functions written with nodes the engine already has: their error is the composition's. Read as the call.
+    int lowering(const std::string& name, const std::string& written, const std::vector<int>& args, Span span) {
+        if (args.size() != 1) return fail(ErrorCode::WrongArgumentCount, written + " takes 1 argument", span);
+        const int x = args[0];
+        const std::string call = name + "(" + readings_[static_cast<std::size_t>(x)] + ")";
+        const auto literal = [&](const char* text) { return lowered(FunctionId::Literal, {}, span, written, text); };
+        if (name == "log2") return read(lowered(FunctionId::LogBase, {x, literal("2")}, span, written), call);
+        if (name == "exp2" || name == "exp10") {
+            const int base = literal(name == "exp2" ? "2" : "10");  // after x: post-order holds
+            return read(lowered(FunctionId::Power, {base, x}, span, written), call);
+        }
+        if (name == "sq") return read(lowered(FunctionId::Square, {x}, span, written), call);
+        // A call through withAngles, every node it makes marked as the lowering's.
+        const auto inner = [&](FunctionId id, int argument) {
+            const std::size_t first = ast_.nodes.size();
+            const int made = withAngles(id, {argument}, span, written);
+            for (std::size_t i = first; i < ast_.nodes.size(); ++i) {
+                ast_.nodes[i].lowered = true;
+                ast_.nodes[i].written = written;
+            }
+            return made;
+        };
+        if (name == "frac")  // x − trunc(x): exact, and it jumps where trunc does
+            return read(lowered(FunctionId::Subtract, {x, lowered(FunctionId::Trunc, {x}, span, written)}, span, written), call);
+        if (name == "ceil")  // −floor(−x)
+            return read(lowered(FunctionId::Negate, {lowered(FunctionId::Floor, {lowered(FunctionId::Negate, {x}, span, written)}, span, written)}, span, written), call);
+        if (name == "coth") return read(lowered(FunctionId::Divide, {literal("1"), lowered(FunctionId::Tanh, {x}, span, written)}, span, written), call);
+        if (name == "sech") {  // 2e^-|x| / (1 + e^-2|x|): no overflow where sech is tiny, nothing cancels
+            const int a = lowered(FunctionId::Abs, {x}, span, written);
+            const int two = literal("2");
+            const int top = lowered(FunctionId::Multiply, {two, lowered(FunctionId::Exp, {lowered(FunctionId::Negate, {a}, span, written)}, span, written)}, span, written);
+            const int one = literal("1");
+            const int twice = lowered(FunctionId::Multiply, {literal("2"), a}, span, written);
+            const int bottom = lowered(FunctionId::Add, {one, lowered(FunctionId::Exp, {lowered(FunctionId::Negate, {twice}, span, written)}, span, written)}, span, written);
+            return read(lowered(FunctionId::Divide, {top, bottom}, span, written), call);
+        }
+        if (name == "asech" || name == "acsch" || name == "acoth") {  // the inner function's refusals are the outer one's
+            const FunctionId id = name == "asech" ? FunctionId::Acosh : name == "acsch" ? FunctionId::Asinh : FunctionId::Atanh;
+            const int reciprocal = lowered(FunctionId::Divide, {literal("1"), x}, span, written);
+            return read(lowered(id, {reciprocal}, span, written), call);
+        }
+        if (name == "asec" || name == "acsc") {  // acos(1/x), asin(1/x): 1/x stays in [−1, 1] over their domain
+            const int reciprocal = lowered(FunctionId::Divide, {literal("1"), x}, span, written);
+            return read(inner(name == "asec" ? FunctionId::Acos : FunctionId::Asin, reciprocal), call);
+        }
+        if (name == "sec" || name == "csc" || name == "cot") {
+            const int one = literal("1");
+            const FunctionId id = name == "sec" ? FunctionId::Cos : name == "csc" ? FunctionId::Sin : FunctionId::Tan;
+            return read(lowered(FunctionId::Divide, {one, inner(id, x)}, span, written), call);
+        }
+        const int pi = lowered(FunctionId::Pi, {}, span, written);
+        return read(lowered(FunctionId::Sqrt, {lowered(FunctionId::Multiply, {x, pi}, span, written)}, span, written), call);
     }
 
     int sum(const std::vector<int>& terms, Span span) {
@@ -832,7 +938,7 @@ std::optional<Error> checkExact(const Ast& ast) {
     for (const Node& n : ast.nodes) {
         const FunctionInfo& info = functionInfo(n.function);
         if (info.exact) continue;
-        const std::string name = n.function == FunctionId::Pi ? "π" : nameOf(n);
+        const std::string name = n.function == FunctionId::Pi && !n.lowered ? "π" : nameOf(n);  // a lowering speaks as written
         return makeError(ErrorCode::NotAvailableInExact, errorMessage(ErrorCode::NotAvailableInExact, name), n.span);
     }
     return std::nullopt;

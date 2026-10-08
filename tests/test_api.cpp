@@ -3,8 +3,10 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <cfloat>
 #include <chrono>
+#include <map>
 #include <set>
 
 using namespace calculate_core;
@@ -335,7 +337,7 @@ TEST(Api, AnArgumentTooLargeToReduceIsAnError) {
     const Result r = evaluate("sin(1e4000)", as(NumberType::Binary128));
     ASSERT_TRUE(r.error);
     EXPECT_EQ(r.error->code, ErrorCode::ArgumentTooLarge);
-    EXPECT_EQ(r.error->message, "The argument of sin is too large to reduce accurately");
+    EXPECT_EQ(r.error->message, "The arguments of sin are too large to compute accurately");
 }
 
 TEST(Api, SemicolonsInCalls) {
@@ -752,4 +754,69 @@ TEST(Api, AFixedDenominatorSaysHowFarItIs) {
     bool listed = false;
     for (const TargetDescription& t : conversionTargets()) listed = listed || t.name == "1/n";
     EXPECT_TRUE(listed);
+}
+
+// Mutation survivors (Plan 1, final checkpoint): the sign of a mixed number, and the largest denominator of 1/n.
+TEST(Api, MixedNumbersKeepParenthesesForBothParts) {
+    EXPECT_EQ(evaluate("-6 to mixed", as(NumberType::Exact)).conversion->text, "-6");
+    EXPECT_EQ(evaluate("-1/3 to mixed", as(NumberType::Exact)).conversion->text, "-1/3");
+    EXPECT_FALSE(evaluate("1 to 1/1000000000").error);
+    EXPECT_EQ(evaluate("1 to 1/1000000001").error->code, ErrorCode::UnexpectedToken);
+}
+
+// nCr(n, r) takes the shorter product: over 37 factors its partial products pass 2^53, over 19 they never do.
+TEST(Api, ACombinationTakesTheShorterProduct) {
+    EXPECT_EQ(evaluate("nCr(56, 37)").bound, "0");
+}
+
+TEST(Api, EveryFunctionIsDescribed) {
+    const std::vector<std::string> categories = functionCategories();
+    for (const FunctionDescription& f : functions()) {
+        EXPECT_FALSE(f.title.empty()) << f.name;
+        ASSERT_FALSE(f.description.empty()) << f.name;
+        EXPECT_EQ(f.description.back(), '.') << f.name;
+        EXPECT_EQ(static_cast<int>(f.arguments.size()), f.maxArgs < 0 ? 1 : f.maxArgs) << f.name;
+        EXPECT_NE(std::find(categories.begin(), categories.end(), f.category), categories.end()) << f.name;
+        EXPECT_EQ(f.example.rfind(f.name, 0), 0u) << f.name << ": " << f.example;  // the example uses the function
+        const Result r = evaluate(f.example);
+        EXPECT_FALSE(r.error) << f.name << ": " << f.example;
+    }
+}
+
+TEST(Api, ArgumentsHaveNamesAndKinds) {
+    auto find = [](const std::string& name) {
+        for (const FunctionDescription& f : functions()) if (f.name == name) return f;
+        return FunctionDescription{"", 0, 0, false};
+    };
+    const FunctionDescription log = find("log");
+    ASSERT_EQ(log.arguments.size(), 2u);
+    EXPECT_EQ(log.arguments[1].name, "base");
+    EXPECT_EQ(log.minArgs, 1);  // so base is optional
+    EXPECT_EQ(find("sin").arguments[0].kind, ArgumentKind::Angle);
+    EXPECT_EQ(find("nCr").arguments[0].kind, ArgumentKind::Integer);
+    EXPECT_EQ(find("atan2").arguments[0].name, "y");
+    EXPECT_EQ(find("mean").arguments.size(), 1u);
+    EXPECT_EQ(find("gamma").category, "Special functions");
+}
+
+TEST(Api, FunctionsListTheirOtherSpellings) {
+    auto aliasesOf = [](const std::string& name) {
+        for (const FunctionDescription& f : functions()) if (f.name == name) return f.aliases;
+        return std::vector<std::string>{};
+    };
+    const std::vector<std::string> sin = aliasesOf("sin");
+    EXPECT_NE(std::find(sin.begin(), sin.end(), "sen"), sin.end());
+    const std::vector<std::string> log = aliasesOf("log");
+    EXPECT_NE(std::find(log.begin(), log.end(), "log10"), log.end());
+    const std::vector<std::string> trunc = aliasesOf("trunc");
+    EXPECT_NE(std::find(trunc.begin(), trunc.end(), "int"), trunc.end());
+    for (const FunctionDescription& f : functions())
+        for (const std::string& alias : f.aliases) EXPECT_FALSE(evaluate(alias + f.example.substr(f.name.size())).error) << alias;
+}
+
+TEST(Api, FunctionsWrittenWithOthersListTheirSpellingsToo) {
+    std::map<std::string, std::vector<std::string>> aliases;
+    for (const FunctionDescription& f : functions()) aliases[f.name] = f.aliases;
+    EXPECT_EQ(aliases["csc"], std::vector<std::string>{"cosec"});
+    EXPECT_EQ(aliases["acoth"], std::vector<std::string>({"arcoth", "arccotgh"}));
 }

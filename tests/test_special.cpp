@@ -1,0 +1,379 @@
+#include "parser.hpp"
+#include "special_oracle.hpp"
+
+#include <calculate-core/calculate-core.hpp>
+
+#include <atomic>
+
+using namespace calculate_core;
+using namespace calculate_core::detail;
+using std::ldexp;
+using test::logUniform;
+using test::randomSign;
+using test::uniform;
+
+TEST(SpecialOracle, AgreesWithMpfr) {
+    using O = Ruler;
+    namespace bm = boost::math;
+    // MPFR 4.2.2 at 1600 bits (generator in the plan, cycle 2.22).
+    const std::pair<O, const char*> cases[] = {
+        {bm::tgamma(O(0.5)), "1.77245385090551602729816748334114518279754945612239"},
+        {bm::tgamma(O(-2.5)), "-0.945308720482941881225689324448610764158693043265273"},
+        {bm::lgamma(O(2.5)), "0.284682870472919159632494669682701924320137695559895"},
+        {bm::digamma(O(1)), "-0.577215664901532860606512090082402431042159335939924"},
+        {bm::erf(O(0.5)), "0.520499877813046537682746653891964528736451575757964"},
+        {bm::erfc(O(3)), "2.20904969985854413727761295823203798477070873992497e-5"},
+        {bm::beta(O(1.5), O(2.5)), "0.196349540849362077403915211454968930262323087460944"},
+        {bm::gamma_q(O(1.5), O(2.5)), "0.171797144296733135063606652183051499789098236805969"},
+        {bm::erf_inv(O(0.5)), "0.476936276204469873381418353643130559808969749059471"},
+    };
+    for (const auto& [value, reference] : cases)
+        EXPECT_LE(abs(value - O(reference)), ldexp(abs(O(reference)), -160)) << reference;
+    EXPECT_LE(abs(bm::trigamma(O(1)) - acos(O(-1)) * acos(O(-1)) / 6), ldexp(O(1), -900));  // psi'(1) = pi^2/6
+}
+
+TEST(SpecialOracle, IncompleteBetaSeriesMatchesExactValues) {
+    using O = Ruler;
+    const O tolerance = ldexp(O(1), -900);
+    // Integer a, b: I_x(a, b) = sum_{j=a}^{a+b-1} C(a+b-1, j) x^j (1-x)^(a+b-1-j), a rational (python3 fractions).
+    EXPECT_LE(abs(test::betaincReference(O(10), O(3), O(0.375)) - O(108591111) / O(68719476736)), tolerance);
+    EXPECT_LE(abs(test::betaincReference(O(2), O(3), O(0.5)) - O(11) / O(16)), tolerance);
+    EXPECT_LE(abs(test::betaincReference(O(3), O(10), O(0.625)) - (1 - O(108591111) / O(68719476736))), tolerance);
+    EXPECT_LE(abs(test::betaincReference(O(1.5), O(2.5), O(0.25)) - O(1) / O(3)), tolerance);  // MPFR: 1/3
+    const O x(0.2);  // the arcsine law: I_x(1/2, 1/2) = (2/pi) asin(sqrt(x))
+    EXPECT_LE(abs(test::betaincReference(O(0.5), O(0.5), x) - 2 * asin(sqrt(x)) / acos(O(-1))), tolerance);
+    const O y = test::betaincReference(O(10), O(3), O(0.375));
+    EXPECT_LE(abs(test::betaincinvReference(O(10), O(3), y, O(0.4)) - O(0.375)), tolerance);
+}
+
+TEST(Stirling, CoefficientsAreBernoulliNumbersOverTwoKTimesTwoKMinusOne) {
+    const std::vector<Rational>& c = impl::stirlingRationals();
+    // python3: Bernoulli numbers by the recurrence sum_{j<=m} C(m+1, j) B_j = 0, then B_2k / (2k (2k-1))
+    const Rational expected[] = {Rational(1, 12),     Rational(-1, 360),         Rational(1, 1260),     Rational(-1, 1680),
+                                 Rational(1, 1188),   Rational(-691, 360360),    Rational(1, 156),      Rational(-3617, 122400),
+                                 Rational(43867, 244188), Rational(-174611, 125400)};
+    ASSERT_EQ(c.size(), static_cast<std::size_t>(impl::targetBits<RulerCheck>() / 6 + 4));
+    for (std::size_t k = 0; k < 10; ++k) EXPECT_EQ(c[k], expected[k]) << k;
+}
+
+template <class T>
+class SpecialKernelTest : public ::testing::Test {};
+TYPED_TEST_SUITE(SpecialKernelTest, test::FloatingTypes, test::TypeNames);
+
+TYPED_TEST(SpecialKernelTest, SineAndCosineOfPiTimesX) {
+    using T = TypeParam;
+    using O = test::SpecialOracleFor<T>;
+    std::mt19937_64 rng(31);
+    for (int i = 0; i < test::samplesFor<T>(); ++i) {
+        const T x = uniform<T>(rng, -40, 40);
+        const auto [s, c] = sinCosPi(x);
+        const O pix = acos(O(-1)) * exactCast<O>(x);
+        EXPECT_LE(test::errorInUScaled(toValue(s), O(sin(pix)), T(0)), 1.0) << i;
+        EXPECT_LE(test::errorInUScaled(toValue(c), O(cos(pix)), T(0)), 1.0) << i;
+    }
+    EXPECT_EQ(toValue(sinCosPi(T(3)).first), T(0));
+    EXPECT_EQ(toValue(sinCosPi(T(2.5)).first), T(1));
+    EXPECT_EQ(toValue(sinCosPi(T(-0.5)).first), T(-1));
+}
+
+TYPED_TEST(SpecialKernelTest, LogGammaOfPositiveArguments) {
+    using T = TypeParam;
+    test::expectSpecialWithinClaim<T>(FunctionId::Lgamma, [](auto& rng) { return std::vector<T>{uniform<T>(rng, 0.01, 30)}; });
+    test::expectSpecialWithinClaim<T>(FunctionId::Lgamma, [](auto& rng) { return std::vector<T>{logUniform<T>(rng, -60, 60)}; });
+    // The values of T nearest the zeros at 1 and 2: only the floor u * scale can hold there.
+    test::expectSpecialWithinClaim<T>(FunctionId::Lgamma, [](auto& rng) {
+        const T zero = (rng() & 1) ? T(2) : T(1);
+        const T step = ldexp(T(1 + static_cast<int>(rng() % 8)), 1 - precisionBits<T>());
+        return std::vector<T>{T(zero + randomSign(rng, step))};
+    });
+    EXPECT_EQ(applyFunction<T>(FunctionId::Lgamma, {T(1)}).value, T(0));
+    EXPECT_EQ(applyFunction<T>(FunctionId::Lgamma, {T(2)}).value, T(0));
+}
+
+TEST(Special, LogGammaIsAlsoLngamma) {
+    EXPECT_EQ(parse("lngamma(3)", AngleUnit::Radians).ast.nodes.back().function, FunctionId::Lgamma);
+    EXPECT_EQ(evaluate("lgamma(3)", [] { Options o; o.type = NumberType::Exact; return o; }()).error->code,
+              ErrorCode::NotAvailableInExact);
+}
+
+TYPED_TEST(SpecialKernelTest, LogGammaOfNegativeArguments) {
+    using T = TypeParam;
+    test::expectSpecialWithinClaim<T>(FunctionId::Lgamma, [](auto& rng) { return std::vector<T>{uniform<T>(rng, -20, -0.01)}; });
+    for (const T& pole : {T(0), T(-1), T(-7)})
+        EXPECT_EQ(applyFunction<T>(FunctionId::Lgamma, {pole}).error.value_or(ErrorCode::Cancelled), ErrorCode::DomainError);
+}
+
+// x − n must be exact: for a tiny negative x, n = floor(x) = −1 would make it 1 + x, which rounds.
+TYPED_TEST(SpecialKernelTest, SineOfPiTimesATinyArgument) {
+    using T = TypeParam;
+    using O = test::SpecialOracleFor<T>;
+    std::mt19937_64 rng(37);
+    for (int i = 0; i < test::samplesFor<T>(); ++i) {
+        const T x = randomSign(rng, logUniform<T>(rng, -60, -4));
+        const O pix = acos(O(-1)) * exactCast<O>(x);
+        EXPECT_LE(test::errorInUScaled(toValue(sinCosPi(x).first), O(sin(pix)), T(0)), 1.0) << i;
+    }
+    const T large = ldexp(T(3), precisionBits<T>() - 1);  // an odd multiple of a large power of 2: an integer
+    EXPECT_EQ(toValue(sinCosPi(large).first), T(0));
+}
+
+TYPED_TEST(SpecialKernelTest, Gamma) {
+    using T = TypeParam;
+    test::expectSpecialWithinClaim<T>(FunctionId::Gamma, [](auto& rng) { return std::vector<T>{uniform<T>(rng, 0.01, 30)}; });
+    test::expectSpecialWithinClaim<T>(FunctionId::Gamma, [](auto& rng) { return std::vector<T>{uniform<T>(rng, -30, -0.01)}; });
+    test::expectSpecialWithinClaim<T>(FunctionId::Gamma, [](auto& rng) { return std::vector<T>{randomSign(rng, logUniform<T>(rng, -60, -4))}; });
+    EXPECT_EQ(applyFunction<T>(FunctionId::Gamma, {T(5)}).value, T(24));
+    EXPECT_EQ(applyFunction<T>(FunctionId::Gamma, {T(1)}).value, T(1));
+    EXPECT_EQ(applyFunction<T>(FunctionId::Gamma, {T(-3)}).error.value_or(ErrorCode::Cancelled), ErrorCode::DomainError);
+    EXPECT_EQ(applyFunction<T>(FunctionId::Gamma, {ldexp(T(1), maxExponent<T>() / 2)}).error.value_or(ErrorCode::Cancelled),
+              ErrorCode::Overflow);
+    EXPECT_EQ(applyFunction<T>(FunctionId::Gamma, {T(T(-maxExponent<T>()) - T(0.5))}).value, T(0));  // underflows
+}
+
+TEST(Special, GammaOfWholeNumbersIsExact) {
+    const Result r = evaluate("gamma(5)");
+    ASSERT_FALSE(r.error);
+    EXPECT_EQ(r.value.digits, "24");
+    EXPECT_EQ(r.bound, "0");
+    EXPECT_NE(evaluate("gamma(0.5)").libraryError, "0");
+}
+
+TYPED_TEST(SpecialKernelTest, Digamma) {
+    using T = TypeParam;
+    test::expectSpecialWithinClaim<T>(FunctionId::Digamma, [](auto& rng) { return std::vector<T>{uniform<T>(rng, 0.01, 30)}; });
+    test::expectSpecialWithinClaim<T>(FunctionId::Digamma, [](auto& rng) { return std::vector<T>{uniform<T>(rng, -20, -0.01)}; });
+    test::expectSpecialWithinClaim<T>(FunctionId::Digamma, [](auto& rng) {  // near the positive root 1.4616...
+        return std::vector<T>{T(T(1.4616321449683622) + randomSign(rng, ldexp(T(1 + static_cast<int>(rng() % 8)), 1 - precisionBits<T>())))};
+    });
+    test::expectSpecialWithinClaim<T>(FunctionId::Trigamma, [](auto& rng) { return std::vector<T>{uniform<T>(rng, -20, 30)}; });
+    EXPECT_EQ(applyFunction<T>(FunctionId::Digamma, {T(-2)}).error.value_or(ErrorCode::Cancelled), ErrorCode::DomainError);
+}
+
+TEST(SpecialPartials, GammaFamily) {
+    using O = RulerCheck;
+    const O h = ldexp(O(1), -400);
+    for (FunctionId id : {FunctionId::Gamma, FunctionId::Lgamma, FunctionId::Digamma}) {
+        for (double p : {0.7, -1.3, 4.25}) {
+            const Ruler x(p);
+            const std::vector<Ruler> d = partials<Ruler>(id, {x}, applyFunction<Ruler>(id, {x}).value);
+            const O expected = (test::specialOracle<O>(id, {O(p) + h}) - test::specialOracle<O>(id, {O(p) - h})) / (2 * h);
+            EXPECT_LE(abs(exactCast<O>(d[0]) - expected), ldexp(O(1), -200) * (abs(expected) + 1)) << static_cast<int>(id) << " at " << p;
+        }
+    }
+}
+
+TYPED_TEST(SpecialKernelTest, Beta) {
+    using T = TypeParam;
+    test::expectSpecialWithinClaim<T>(FunctionId::Beta, [](auto& rng) { return std::vector<T>{uniform<T>(rng, 0.1, 30), uniform<T>(rng, 0.1, 30)}; });
+    test::expectSpecialWithinClaim<T>(FunctionId::Beta, [](auto& rng) { return std::vector<T>{logUniform<T>(rng, 10, 20), uniform<T>(rng, 0.5, 4)}; });
+    for (const auto& [a, b] : {std::pair<T, T>{T(0), T(1)}, {T(-1.5), T(2)}, {T(2), T(-3)}})
+        EXPECT_EQ(applyFunction<T>(FunctionId::Beta, {a, b}).error.value_or(ErrorCode::Cancelled), ErrorCode::DomainError);
+}
+
+TEST(SpecialPartials, Beta) {
+    using O = RulerCheck;
+    const O h = ldexp(O(1), -400);
+    const std::vector<Ruler> args{Ruler(1.5), Ruler(2.25)};
+    const std::vector<Ruler> d = partials<Ruler>(FunctionId::Beta, args, applyFunction<Ruler>(FunctionId::Beta, args).value);
+    const O da = (test::specialOracle<O>(FunctionId::Beta, {O(1.5) + h, O(2.25)}) - test::specialOracle<O>(FunctionId::Beta, {O(1.5) - h, O(2.25)})) / (2 * h);
+    const O db = (test::specialOracle<O>(FunctionId::Beta, {O(1.5), O(2.25) + h}) - test::specialOracle<O>(FunctionId::Beta, {O(1.5), O(2.25) - h})) / (2 * h);
+    EXPECT_LE(abs(exactCast<O>(d[0]) - da), ldexp(O(1), -200));
+    EXPECT_LE(abs(exactCast<O>(d[1]) - db), ldexp(O(1), -200));
+}
+
+TEST(Special, FactorialOfAFractionPointsToGamma) {
+    const Result r = evaluate("2.5!");
+    ASSERT_TRUE(r.error);
+    EXPECT_EQ(r.error->code, ErrorCode::NotAnInteger);
+    EXPECT_EQ(r.error->message, "! needs a whole-number argument; for other values use gamma(x + 1)");
+}
+
+TYPED_TEST(SpecialKernelTest, ErrorFunctions) {
+    using T = TypeParam;
+    test::expectSpecialWithinClaim<T>(FunctionId::Erf, [](auto& rng) { return std::vector<T>{uniform<T>(rng, -6, 6)}; });
+    test::expectSpecialWithinClaim<T>(FunctionId::Erf, [](auto& rng) { return std::vector<T>{randomSign(rng, logUniform<T>(rng, -60, -1))}; });
+    test::expectSpecialWithinClaim<T>(FunctionId::Erfc, [](auto& rng) { return std::vector<T>{uniform<T>(rng, -3, 30)}; });
+    const double tail = 0.9 * std::sqrt(0.69 * maxExponent<T>());  // erfc still above min() here
+    test::expectSpecialWithinClaim<T>(FunctionId::Erfc, [tail](auto& rng) { return std::vector<T>{uniform<T>(rng, 1, tail)}; });
+    EXPECT_EQ(applyFunction<T>(FunctionId::Erf, {T(0)}).value, T(0));
+    EXPECT_EQ(applyFunction<T>(FunctionId::Erfc, {T(0)}).value, T(1));
+    EXPECT_EQ(applyFunction<T>(FunctionId::Erf, {T(-1000)}).value, T(-1));
+    EXPECT_EQ(applyFunction<T>(FunctionId::Erfc, {ldexp(T(1), maxExponent<T>() / 2)}).value, T(0));
+}
+
+TEST(SpecialPartials, ErrorFunctions) {
+    using O = RulerCheck;
+    const O h = ldexp(O(1), -400);
+    for (FunctionId id : {FunctionId::Erf, FunctionId::Erfc}) {
+        const Ruler x(0.7);
+        const std::vector<Ruler> d = partials<Ruler>(id, {x}, applyFunction<Ruler>(id, {x}).value);
+        const O expected = (test::specialOracle<O>(id, {O(0.7) + h}) - test::specialOracle<O>(id, {O(0.7) - h})) / (2 * h);
+        EXPECT_LE(abs(exactCast<O>(d[0]) - expected), ldexp(O(1), -200)) << static_cast<int>(id);
+    }
+}
+
+TYPED_TEST(SpecialKernelTest, InverseErrorFunctions) {
+    using T = TypeParam;
+    test::expectSpecialWithinClaim<T>(FunctionId::Erfinv, [](auto& rng) { return std::vector<T>{uniform<T>(rng, -0.99, 0.99)}; });
+    test::expectSpecialWithinClaim<T>(FunctionId::Erfinv, [](auto& rng) {  // up to the last values below 1
+        return std::vector<T>{randomSign(rng, T(T(1) - logUniform<T>(rng, 2 - precisionBits<T>(), -2)))};
+    });
+    test::expectSpecialWithinClaim<T>(FunctionId::Erfcinv, [](auto& rng) { return std::vector<T>{uniform<T>(rng, 0.01, 1.99)}; });
+    test::expectSpecialWithinClaim<T>(FunctionId::Erfcinv, [](auto& rng) { return std::vector<T>{logUniform<T>(rng, -200, -2)}; });
+    EXPECT_EQ(applyFunction<T>(FunctionId::Erfinv, {T(0)}).value, T(0));
+    for (const T& y : {T(1), T(-1), T(2)})
+        EXPECT_EQ(applyFunction<T>(FunctionId::Erfinv, {y}).error.value_or(ErrorCode::Cancelled), ErrorCode::DomainError);
+    for (const T& z : {T(0), T(2), T(-1)})
+        EXPECT_EQ(applyFunction<T>(FunctionId::Erfcinv, {z}).error.value_or(ErrorCode::Cancelled), ErrorCode::DomainError);
+}
+
+TEST(SpecialPartials, InverseErrorFunctions) {
+    using O = RulerCheck;
+    const O h = ldexp(O(1), -400);
+    for (FunctionId id : {FunctionId::Erfinv, FunctionId::Erfcinv}) {
+        const Ruler y(0.3);
+        const std::vector<Ruler> d = partials<Ruler>(id, {y}, applyFunction<Ruler>(id, {y}).value);
+        const O expected = (test::specialOracle<O>(id, {O(0.3) + h}) - test::specialOracle<O>(id, {O(0.3) - h})) / (2 * h);
+        EXPECT_LE(abs(exactCast<O>(d[0]) - expected), ldexp(O(1), -200) * (abs(expected) + 1)) << static_cast<int>(id);
+    }
+}
+
+TYPED_TEST(SpecialKernelTest, RegularizedIncompleteGamma) {
+    using T = TypeParam;
+    for (FunctionId id : {FunctionId::GammaP, FunctionId::GammaQ}) {
+        test::expectSpecialWithinClaim<T>(id, [](auto& rng) { return std::vector<T>{uniform<T>(rng, 0.05, 20), uniform<T>(rng, 0, 30)}; });
+        test::expectSpecialWithinClaim<T>(id, [](auto& rng) { return std::vector<T>{logUniform<T>(rng, -20, -10), uniform<T>(rng, 0, 2)}; });
+        test::expectSpecialWithinClaim<T>(id, [](auto& rng) {
+            const T a = uniform<T>(rng, 500, 1500);
+            return std::vector<T>{a, T(a * uniform<T>(rng, 0.9, 1.1))};
+        });
+    }
+    test::expectSpecialWithinClaim<T>(FunctionId::GammaQ, [](auto& rng) { return std::vector<T>{uniform<T>(rng, 1, 3), uniform<T>(rng, 50, 80)}; });
+    EXPECT_EQ(applyFunction<T>(FunctionId::GammaP, {T(2), T(0)}).value, T(0));
+    EXPECT_EQ(applyFunction<T>(FunctionId::GammaQ, {T(2), T(0)}).value, T(1));
+    for (const auto& [a, x] : {std::pair<T, T>{T(0), T(1)}, {T(-1), T(1)}, {T(1), T(-1)}})
+        EXPECT_EQ(applyFunction<T>(FunctionId::GammaP, {a, x}).error.value_or(ErrorCode::Cancelled), ErrorCode::DomainError);
+}
+
+TEST(Special, IncompleteGammaCanBeCancelledAndHasACeiling) {
+    std::atomic<bool> cancel{true};
+    EXPECT_EQ(applyFunction<double>(FunctionId::GammaP, {1e9, 1e9}, &cancel).error.value_or(ErrorCode::Overflow), ErrorCode::Cancelled);
+    EXPECT_EQ(applyFunction<double>(FunctionId::GammaP, {1e15, 1e15}).error.value_or(ErrorCode::Overflow), ErrorCode::ArgumentTooLarge);
+    EXPECT_EQ(evaluate("gammap(1e15, 1e15)").error->message, "The arguments of gammap are too large to compute accurately");
+}
+
+TYPED_TEST(SpecialKernelTest, IncompleteGamma) {
+    using T = TypeParam;
+    for (FunctionId id : {FunctionId::Igamma, FunctionId::GammaInc})
+        test::expectSpecialWithinClaim<T>(id, [](auto& rng) { return std::vector<T>{uniform<T>(rng, 0.05, 20), uniform<T>(rng, 0, 30)}; });
+    EXPECT_EQ(applyFunction<T>(FunctionId::Igamma, {T(1), T(0)}).value, T(1));  // Gamma(1, 0) = Gamma(1)
+}
+
+TEST(SpecialPartials, IncompleteGamma) {
+    using O = RulerCheck;
+    const O h = ldexp(O(1), -400);
+    for (FunctionId id : {FunctionId::GammaP, FunctionId::GammaQ, FunctionId::Igamma, FunctionId::GammaInc}) {
+        const std::vector<Ruler> args{Ruler(2.5), Ruler(1.75)};
+        const std::vector<Ruler> d = partials<Ruler>(id, args, applyFunction<Ruler>(id, args).value);
+        const O da = (test::specialOracle<O>(id, {O(2.5) + h, O(1.75)}) - test::specialOracle<O>(id, {O(2.5) - h, O(1.75)})) / (2 * h);
+        const O dx = (test::specialOracle<O>(id, {O(2.5), O(1.75) + h}) - test::specialOracle<O>(id, {O(2.5), O(1.75) - h})) / (2 * h);
+        EXPECT_LE(abs(exactCast<O>(d[0]) - da), ldexp(O(1), -200) * (abs(da) + 1)) << static_cast<int>(id);
+        EXPECT_LE(abs(exactCast<O>(d[1]) - dx), ldexp(O(1), -200) * (abs(dx) + 1)) << static_cast<int>(id);
+    }
+}
+
+TYPED_TEST(SpecialKernelTest, RegularizedIncompleteBeta) {
+    using T = TypeParam;
+    test::expectSpecialWithinClaim<T>(FunctionId::Betainc, [](auto& rng) {
+        return std::vector<T>{uniform<T>(rng, 0.1, 10), uniform<T>(rng, 0.1, 10), uniform<T>(rng, 0, 1)};
+    });
+    test::expectSpecialWithinClaim<T>(FunctionId::Betainc, [](auto& rng) {
+        return std::vector<T>{uniform<T>(rng, 1, 200), uniform<T>(rng, 1, 200), uniform<T>(rng, 0, 1)};
+    });
+    EXPECT_EQ(applyFunction<T>(FunctionId::Betainc, {T(2), T(3), T(0)}).value, T(0));
+    EXPECT_EQ(applyFunction<T>(FunctionId::Betainc, {T(2), T(3), T(1)}).value, T(1));
+    EXPECT_EQ(applyFunction<T>(FunctionId::Betainc, {T(1), T(1), T(0.25)}).value, T(0.25));  // I_x(1, 1) = x
+    for (const std::vector<T>& bad : {std::vector<T>{T(2), T(3), T(1.5)}, {T(0), T(3), T(0.5)}, {T(2), T(-1), T(0.5)}})
+        EXPECT_EQ(applyFunction<T>(FunctionId::Betainc, bad).error.value_or(ErrorCode::Cancelled), ErrorCode::DomainError);
+}
+
+TEST(Special, IncompleteBetaOfWholeParametersIsRational) {
+    // I_{3/8}(10, 3) = 108591111/68719476736 (python3 fractions, see 2.22)
+    const Applied<Ruler> r = applyFunction<Ruler>(FunctionId::Betainc, {Ruler(10), Ruler(3), Ruler(0.375)});
+    ASSERT_FALSE(r.error);
+    EXPECT_LE(abs(r.value - Ruler(108591111) / Ruler(68719476736)), ldexp(Ruler(108591111) / Ruler(68719476736), -990));
+}
+
+TYPED_TEST(SpecialKernelTest, InverseIncompleteBeta) {
+    using T = TypeParam;
+    using O = test::SpecialOracleFor<T>;
+    std::mt19937_64 rng(77);
+    for (int i = 0; i < test::samplesFor<T>(); ++i) {
+        const T a = uniform<T>(rng, 0.2, 20), b = uniform<T>(rng, 0.2, 20), y = uniform<T>(rng, 0.001, 0.999);
+        const Applied<T> r = applyFunction<T>(FunctionId::Betaincinv, {a, b, y});
+        ASSERT_FALSE(r.error) << i;
+        const O exact = test::betaincinvReference(exactCast<O>(a), exactCast<O>(b), exactCast<O>(y), exactCast<O>(r.value));
+        EXPECT_LE(test::errorInUScaled(r.value, exact, T(0)), claimedFactor(FunctionId::Betaincinv)) << i;
+    }
+    EXPECT_EQ(applyFunction<T>(FunctionId::Betaincinv, {T(2), T(3), T(0)}).value, T(0));
+    EXPECT_EQ(applyFunction<T>(FunctionId::Betaincinv, {T(2), T(3), T(1)}).value, T(1));
+    EXPECT_EQ(applyFunction<T>(FunctionId::Betaincinv, {T(1), T(1), T(0.25)}).value, T(0.25));
+    EXPECT_EQ(applyFunction<T>(FunctionId::Betaincinv, {T(1), T(1), T(2)}).error.value_or(ErrorCode::Cancelled), ErrorCode::DomainError);
+}
+
+TEST(SpecialPartials, IncompleteBeta) {
+    using O = RulerCheck;
+    const O h = ldexp(O(1), -400);
+    const std::vector<Ruler> args{Ruler(2.5), Ruler(4.25), Ruler(0.375)};
+    const std::vector<Ruler> d = partials<Ruler>(FunctionId::Betainc, args, applyFunction<Ruler>(FunctionId::Betainc, args).value);
+    const O base[] = {O(2.5), O(4.25), O(0.375)};
+    for (std::size_t k = 0; k < 3; ++k) {
+        std::vector<O> up(base, base + 3), down(base, base + 3);
+        up[k] += h;
+        down[k] -= h;
+        const O expected = (test::specialOracle<O>(FunctionId::Betainc, up) - test::specialOracle<O>(FunctionId::Betainc, down)) / (2 * h);
+        EXPECT_LE(abs(exactCast<O>(d[k]) - expected), ldexp(O(1), -200) * (abs(expected) + 1)) << k;
+    }
+    // the inverse's slope in y is the reciprocal of the forward slope in x
+    const Ruler x = applyFunction<Ruler>(FunctionId::Betaincinv, {Ruler(2.5), Ruler(4.25), Ruler(0.4)}).value;
+    const std::vector<Ruler> forward = partials<Ruler>(FunctionId::Betainc, {Ruler(2.5), Ruler(4.25), x}, Ruler(0.4));
+    const std::vector<Ruler> inverse = partials<Ruler>(FunctionId::Betaincinv, {Ruler(2.5), Ruler(4.25), Ruler(0.4)}, x);
+    EXPECT_LE(abs(inverse[2] * forward[2] - 1), ldexp(Ruler(1), -300));  // the slopes in x and y are reciprocal
+    EXPECT_LE(abs(inverse[0] + forward[0] / forward[2]), ldexp(Ruler(1), -200) * (abs(inverse[0]) + 1));
+}
+
+TEST(Special, EndToEnd) {
+    for (const char* text : {"gamma(0.5)^2", "lgamma(10) - ln(9!)", "erf(1) + erfc(1)", "gammap(2, 3) + gammaq(2, 3)",
+                             "betainc(2, 5, 0.3) + betainc(5, 2, 0.7)", "erfinv(erf(0.5))", "beta(2, 3)*12"}) {
+        const Result r = evaluate(text);
+        ASSERT_FALSE(r.error) << text;
+        EXPECT_TRUE(r.measurementReliable) << text;
+        EXPECT_TRUE(r.boundComplete) << text;
+    }
+}
+
+TEST(Special, AnArgumentWhoseErrorReachesAPoleOrAnEdgeIsRefused) {
+    for (const char* text : {"gamma(0.1+0.2-0.3)", "lgamma(0.1+0.2-0.3)", "digamma(0.1+0.2-0.3)", "beta(0.1+0.2-0.3, 2)",
+                             "erfcinv(0.1+0.2-0.3)", "gammap(0.1+0.2-0.3, 1)", "gammap(0.5, 0.1+0.2-0.3)",
+                             "betainc(0.5, 3, 0.1+0.2-0.3)", "betaincinv(2, 3, 0.1*3+0.7)"}) {
+        const Result r = evaluate(text);
+        ASSERT_TRUE(r.error) << text;
+        EXPECT_EQ(r.error->code, ErrorCode::ArgumentNearEdge) << text;
+    }
+    for (const char* text : {"gamma(0.1+0.2)", "gamma(-2.5)", "betainc(2, 3, 0.25)", "erfinv(0.5)"})
+        EXPECT_FALSE(evaluate(text).error) << text;  // far from every edge, or a finite slope there
+}
+
+// x below 0 (and, for betainc, above 1) is outside the domain, whatever the slope there: 1 - 30^(1e-17) is negative
+// and 30^(1e-17) is above 1, though both round to an end in double. Found by the fuzz.
+TEST(Special, AnArgumentWhoseErrorReachesTheEndOfTheDomainIsRefused) {
+    for (const char* text : {"gammap(2, 1-30**1e-17)", "gammaq(2, 0.1+0.2-0.3)", "igamma(2, 1-30**1e-17)",
+                             "gammainc(2, 1-30**1e-17)", "betainc(1e-17, 30, 30**1e-17)", "betainc(2, 30, 1-30**1e-17)"}) {
+        const Result r = evaluate(text);
+        ASSERT_TRUE(r.error) << text;
+        EXPECT_EQ(r.error->code, ErrorCode::ArgumentNearEdge) << text;
+    }
+    EXPECT_FALSE(evaluate("gammap(2, 0)").error);  // an exact end is in the domain
+    EXPECT_FALSE(evaluate("betainc(2, 3, 1)").error);
+}
+
