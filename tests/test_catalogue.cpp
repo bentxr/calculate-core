@@ -313,3 +313,23 @@ TEST(Catalogue, Atan2NearTheOriginWithOneExactZero) {
     EXPECT_EQ(evaluate("atan2(0.1+0.2-0.3, 0)").error->code, ErrorCode::ArgumentNearEdge);
     EXPECT_EQ(evaluate("atan2(0, 0.1+0.2-0.3)").error->code, ErrorCode::ArgumentNearEdge);
 }
+
+TYPED_TEST(CatalogueKernelTest, HypotenuseWithoutOverflow) {
+    using T = TypeParam;
+    test::expectWithinClaim<T>(FunctionId::Hypot, [](auto& rng) {
+        return std::pair<T, T>{randomSign(rng, logUniform<T>(rng, -60, 60)), randomSign(rng, logUniform<T>(rng, -60, 60))};
+    });
+    const int top = maxExponent<T>() - 2;  // squares would overflow; the result does not
+    test::expectWithinClaim<T>(FunctionId::Hypot, [top](auto& rng) {
+        return std::pair<T, T>{logUniform<T>(rng, top - 4, top), logUniform<T>(rng, top - 4, top)};
+    });
+    EXPECT_EQ(applyFunction<T>(FunctionId::Hypot, {T(3), T(-4)}).value, T(5));
+    EXPECT_EQ(applyFunction<T>(FunctionId::Hypot, {T(0), T(0)}).value, T(0));
+    const T largest = (std::numeric_limits<T>::max)();
+    EXPECT_EQ(applyFunction<T>(FunctionId::Hypot, {largest, largest}).error.value_or(ErrorCode::Cancelled), ErrorCode::Overflow);
+}
+
+TEST(Catalogue, HypotenuseInExactArithmetic) {
+    EXPECT_EQ(inType("hypot(3/5, 4/5)", NumberType::Exact).exact->numerator, "1");
+    EXPECT_EQ(inType("hypot(1, 1)", NumberType::Exact).error->code, ErrorCode::IrrationalResult);
+}

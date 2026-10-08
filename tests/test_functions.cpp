@@ -712,3 +712,20 @@ TEST(Slopes, FourQuadrantArctangentDominatesItsDerivatives) {
         expectSlopesDominate(c.id, c.point, c.radius);
     EXPECT_FALSE(isFinite(slopes(FunctionId::Atan2, {Ruler(0.1), Ruler(0.1)}, {Ruler(0.2), Ruler(0.2)})[0]));  // the box holds the origin
 }
+
+TEST(Partials, Hypotenuse) {
+    using O = test::Oracle;
+    const std::vector<Ruler> args{Ruler(0.7), Ruler(-1.3)};
+    const std::vector<Ruler> d = partials<Ruler>(FunctionId::Hypot, args, applyFunction<Ruler>(FunctionId::Hypot, args).value);
+    for (std::size_t k = 0; k < 2; ++k) {
+        const O expected = centralDifference(FunctionId::Hypot, {O(0.7), O(-1.3)}, k);
+        EXPECT_LE(abs(exactCast<O>(d[k]) - expected), ldexp(O(1), -200) * (abs(expected) + 1)) << k;
+    }
+    EXPECT_EQ(partials<Ruler>(FunctionId::Hypot, {Ruler(0), Ruler(0)}, Ruler(0)), (std::vector<Ruler>{Ruler(1), Ruler(1)}));
+}
+
+TEST(Slopes, HypotenuseDominatesItsDerivatives) {
+    for (const SlopeCase& c : {SlopeCase{FunctionId::Hypot, {0.7, -1.3}, {0.1, 0.2}}, SlopeCase{FunctionId::Hypot, {3, 4}, {0, 0}},
+                               SlopeCase{FunctionId::Hypot, {-2, 0.5}, {0.5, 0.25}}})
+        expectSlopesDominate(c.id, c.point, c.radius);
+}

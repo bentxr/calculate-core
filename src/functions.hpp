@@ -91,6 +91,7 @@ inline const FunctionInfo& functionInfo(FunctionId id) {
         {F::Csch, "csch", 1, 1, C::Library, K::Continuous, false},
         {F::Acot, "acot", 1, 1, C::Library, K::Piecewise, false},
         {F::Atan2, "atan2", 2, 2, C::Library, K::Piecewise, false},
+        {F::Hypot, "hypot", 2, 2, C::Library, K::Continuous, true},  // exact: rational results
         {F::Median, "median", 1, -1, C::Checked, K::Continuous, true},
     }};
     return table[static_cast<std::size_t>(id)];
@@ -298,6 +299,7 @@ Applied<T> exactFunction(FunctionId id, const std::vector<Rational>& a) {
     case FunctionId::Power: e = exactPower(a[0], a[1], out); break;
     case FunctionId::Sqrt: e = exactRoot(a[0], Integer(2), out); break;
     case FunctionId::Cbrt: e = exactRoot(a[0], Integer(3), out); break;
+    case FunctionId::Hypot: e = exactRoot(a[0] * a[0] + a[1] * a[1], Integer(2), out); break;
     case FunctionId::Root:
         if (a[1] == 0) return fail<T>(ErrorCode::DomainError);
         e = exactPower(a[0], 1 / a[1], out);
@@ -423,6 +425,18 @@ Applied<T> kernel(FunctionId id, const std::vector<T>& a) {
             return ok<T>(toValue(logWord(dw(x)) + impl::word<T>(ConstantId::Ln2)));
         const DoubleWord<T> t = dw(x) - T(1);
         return ok<T>(toValue(logWord(t + sqrt(t * (t + T(2))) + T(1))));
+    }
+    case FunctionId::Hypot: {  // scaled by the larger one's binade, so the squares neither overflow nor underflow
+        using std::abs;
+        using std::frexp;
+        using std::ldexp;
+        const T t = std::max(abs(a[0]), abs(a[1])), s = std::min(abs(a[0]), abs(a[1]));
+        if (t == 0) return ok<T>(T(0));
+        int e;
+        frexp(t, &e);
+        const T big = ldexp(t, -e), small = ldexp(s, -e);  // exact; small may flush to 0 only where it is negligible
+        const DoubleWord<T> r = sqrt(dw(big) * big + dw(small) * small);
+        return ok<T>(ldexp(toValue(r), e));  // an overflow is infinity: applyFunction reports it
     }
     case FunctionId::Atan2: {  // (y, x): the angle of the point, in (−π, π]
         using std::abs;
@@ -581,6 +595,8 @@ std::vector<R> partials(FunctionId id, const std::vector<R>& a, const R& v) {
         const R d = a[1] * a[1] + a[0] * a[0];
         return {a[1] / d, -a[0] / d};
     }
+    case FunctionId::Hypot:  // at the origin |Δh| <= |Δx| + |Δy|: 1 is a safe slope
+        return v == 0 ? std::vector<R>{R(1), R(1)} : std::vector<R>{a[0] / v, a[1] / v};
     case FunctionId::FloorMod: {
         using std::floor;
         return {R(1), R(-floor(a[0] / a[1]))};
@@ -785,6 +801,13 @@ inline std::vector<Ruler> slopes(FunctionId id, const std::vector<Ruler>& a, con
     case FunctionId::Square: return {2 * (abs(a[0]) + b[0])};
     case FunctionId::Cube: return {3 * (abs(a[0]) + b[0]) * (abs(a[0]) + b[0])};
     case FunctionId::Power: return impl::powerSlopes(a, b);
+    case FunctionId::Hypot: {  // |x|/h <= 1: at most the largest |x| over the smallest h in the box
+        const Ruler nearX = abs(a[0]) > b[0] ? Ruler(abs(a[0]) - b[0]) : Ruler(0);
+        const Ruler nearY = abs(a[1]) > b[1] ? Ruler(abs(a[1]) - b[1]) : Ruler(0);
+        const Ruler h = sqrt(nearX * nearX + nearY * nearY);
+        if (h == 0) return {Ruler(1), Ruler(1)};
+        return {std::min(Ruler(1), Ruler((abs(a[0]) + b[0]) / h)), std::min(Ruler(1), Ruler((abs(a[1]) + b[1]) / h))};
+    }
     case FunctionId::Atan2: {  // |x|/(x²+y²) and |y|/(x²+y²): at most the largest |x| or |y| over the smallest x²+y²
         const Ruler nearY = abs(a[0]) > b[0] ? Ruler(abs(a[0]) - b[0]) : Ruler(0);
         const Ruler nearX = abs(a[1]) > b[1] ? Ruler(abs(a[1]) - b[1]) : Ruler(0);
@@ -932,6 +955,8 @@ Ruler localError(FunctionId id, const std::vector<T>& args, const Applied<T>& ap
                 return fromRational<Ruler>(abs(exact - toRational(applied.value)));
         }
         if (impl::exactRootResult(id, args, applied.value)) return Ruler(0);
+        if (id == FunctionId::Hypot && toRational(applied.value) * toRational(applied.value) == exactArgs[0] * exactArgs[0] + exactArgs[1] * exactArgs[1])
+            return Ruler(0);  // hypot(3, 4) is exactly 5
         if (args.size() == 1)
             if (const auto exact = impl::exactPoint(id, exactArgs[0])) return fromRational<Ruler>(abs(*exact - toRational(applied.value)));
         switch (functionInfo(id).errorClass) {
