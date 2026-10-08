@@ -663,3 +663,18 @@ TEST(Lexer, AssignmentIsOneToken) {
     EXPECT_EQ(l.tokens[1].span.end, 4u);
     EXPECT_TRUE(lex("a : 1").error);  // ':' alone is not part of the language
 }
+
+TEST(Parser, AnAssignmentNamesTheExpression) {
+    const Parsed p = parse("a := 0.1 + 0.2 # sum", AngleUnit::Radians);
+    ASSERT_FALSE(p.error);
+    EXPECT_EQ(p.assigned, "a");
+    EXPECT_EQ(sexpr(p.ast, p.ast.root()), "(+ 0.1 0.2)");
+    EXPECT_EQ(p.expanded, "0.1 + 0.2");  // what is stored: the expression only
+    EXPECT_EQ(parse("x := 2", AngleUnit::Radians).assigned, "x");
+    for (const char* text : {"pi := 3", "e := 3", "sin := 1", "sen := 1", "mean := 1", "sum := 1", "Ans := 1", "M := 1"})
+        EXPECT_EQ(parseError(text).code, ErrorCode::ReservedName) << text;
+    EXPECT_EQ(parseError("1 := 2").code, ErrorCode::UnexpectedToken);
+    EXPECT_EQ(parseError("(a := 1)").code, ErrorCode::UnexpectedToken);
+    EXPECT_EQ(parseError("a := b := 1").code, ErrorCode::UnexpectedToken);
+    EXPECT_EQ(parseError("a := ").code, ErrorCode::UnexpectedEnd);
+}

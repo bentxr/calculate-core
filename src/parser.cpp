@@ -250,6 +250,12 @@ Range rangeNamed(std::string_view name) {
     return Range::None;
 }
 
+// Names a variable (of a sum, or one assigned) cannot take.
+bool reserved(const std::string& n) {
+    return n == "pi" || n == "e" || n == "Ans" || n == "M" || functionNamed(n) || statisticNamed(n) != Statistic::None
+        || rangeNamed(n) != Range::None;
+}
+
 // Sums and products write out at most this many terms in one expression, nested ones included:
 // each term costs a full error analysis, in the browser too.
 constexpr long long maxTerms = 10000;
@@ -266,6 +272,18 @@ public:
 
     Parsed run() {
         Parsed out;
+        // name := expression: the expression is parsed and stored, under the name.
+        std::size_t start = 0;
+        if (tokens_.size() > 2 && tokens_[0].kind == TokenKind::Identifier && tokens_[1].kind == TokenKind::Assign) {
+            const std::string name(tokens_[0].text);
+            if (reserved(name)) {
+                out.error = makeError(ErrorCode::ReservedName, "'" + name + "' is a reserved name", tokens_[0].span);
+                return out;
+            }
+            out.assigned = name;
+            position_ = 2;
+            start = tokens_[2].span.begin;
+        }
         const int root = expression(0);
         if (!error_ && peek().kind != TokenKind::End)
             fail(ErrorCode::UnexpectedToken, "Unexpected '" + std::string(peek().text) + "'", peek().span);
@@ -275,7 +293,7 @@ public:
         }
         if (root != static_cast<int>(ast_.nodes.size()) - 1) ast_.nodes.push_back(ast_.nodes[root]);  // root last
         out.ast = std::move(ast_);
-        out.expanded = expandedText({0, peek().span.begin});
+        out.expanded = expandedText({start, peek().span.begin});
         out.warnings = warnings_;
         return out;
     }
@@ -325,6 +343,7 @@ private:
         int left = prefix();
         while (!error_) {
             const Token& t = peek();
+            if (t.kind == TokenKind::Assign) return fail(ErrorCode::UnexpectedToken, "':=' can only follow a name at the start", t.span);
             if (startsOperand(t.kind)) {
                 if (position_ > 0 && tokens_[position_ - 1].kind == TokenKind::Percent) {  // 3%2: a remainder was meant
                     const Span operand = spanOf(ast_.nodes[static_cast<std::size_t>(left)].args[0]);
@@ -420,6 +439,8 @@ private:
         for (auto b = bound_.rbegin(); b != bound_.rend(); ++b)
             if (b->name == name && peek().kind != TokenKind::LeftParen) return index(b->value, t.span);
         if (peek().kind == TokenKind::LeftParen) return call(t);
+        if (peek().kind == TokenKind::Assign)  // before asking whether the name exists: the := is what is out of place
+            return fail(ErrorCode::UnexpectedToken, "':=' can only follow a name at the start", peek().span);
         if (const auto found = names_.find(name); found != names_.end()) return expand(t, found->second);
         if (name == "pi") return node(FunctionId::Pi, {}, t.span);
         if (name == "e") return node(FunctionId::E, {}, t.span);
@@ -566,12 +587,6 @@ private:
         }
         position_ = close + 1;
         return total;
-    }
-
-    // Names a sum's variable cannot take.
-    static bool reserved(const std::string& n) {
-        return n == "pi" || n == "e" || n == "Ans" || n == "M" || functionNamed(n) || statisticNamed(n) != Statistic::None
-            || rangeNamed(n) != Range::None;
     }
 
     int call(const Token& t) {

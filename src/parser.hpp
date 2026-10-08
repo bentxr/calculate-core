@@ -55,6 +55,7 @@ struct Parsed {
     bool commentOnly = false;  // the source holds nothing but a comment
     std::optional<TargetText> target;
     std::vector<Warning> warnings;  // the parser's notes (an empty range)
+    std::string assigned;           // the variable's name when the source was "name := expression"
 };
 
 Parsed parse(std::string_view source, const Options& options, const Names& names = {});

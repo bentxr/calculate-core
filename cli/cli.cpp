@@ -85,6 +85,7 @@ const char* codeName(ErrorCode c) {
     case ErrorCode::ArgumentNearJump: return "ArgumentNearJump";
     case ErrorCode::UnknownTarget: return "UnknownTarget";
     case ErrorCode::TooManyTerms: return "TooManyTerms";
+    case ErrorCode::ReservedName: return "ReservedName";
     case ErrorCode::ArgumentNearEdge: return "ArgumentNearEdge";
     case ErrorCode::Cancelled: return "Cancelled";
     }
