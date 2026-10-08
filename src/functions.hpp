@@ -95,6 +95,7 @@ inline const FunctionInfo& functionInfo(FunctionId id) {
         {F::Sinc, "sinc", 1, 1, C::Library, K::Continuous, false},  // always in radians
         {F::Floor, "floor", 1, 1, C::Exact, K::Piecewise, true},
         {F::Trunc, "trunc", 1, 1, C::Exact, K::Piecewise, true},
+        {F::Round, "round", 1, 1, C::Exact, K::Piecewise, true},
         {F::Median, "median", 1, -1, C::Checked, K::Continuous, true},
     }};
     return table[static_cast<std::size_t>(id)];
@@ -525,6 +526,18 @@ Applied<T> applyFunction(FunctionId id, const std::vector<T>& a, const std::atom
             r.value = trunc(a[0]);
         }
         break;
+    case FunctionId::Round: {  // halves away from zero; x − trunc(x) is exact, so 0.5 − tiny never rounds up
+        T n;
+        if constexpr (isExact<T>) {
+            n = Rational(numerator(a[0]) / denominator(a[0]));
+        } else {
+            using std::trunc;
+            n = trunc(a[0]);
+        }
+        const T rest = a[0] - n;
+        r.value = rest >= T(1) / 2 ? T(n + 1) : rest <= T(-1) / 2 ? T(n - 1) : n;
+        break;
+    }
     case FunctionId::FloorMod:  // floored: the sign of the divisor
     case FunctionId::Rem: {     // truncated: the sign of the dividend, like fmod
         if (a[1] == 0) return impl::fail<T>(ErrorCode::DivisionByZero);

@@ -467,3 +467,22 @@ TEST(Catalogue, IntIsTruncAndDoesNotJumpAtZero) {
     EXPECT_EQ(evaluate("trunc(4.35*100)").error->code, ErrorCode::ArgumentNearJump);
     EXPECT_EQ(evaluate("int(4.35*100)").error->message.rfind("int jumps", 0), 0u);  // as written
 }
+
+TYPED_TEST(RoundingTest, RoundHalfAwayFromZero) {
+    using T = TypeParam;
+    EXPECT_EQ(applied<T>(FunctionId::Round, {T(5) / T(2)}), T(3));
+    EXPECT_EQ(applied<T>(FunctionId::Round, {T(-5) / T(2)}), T(-3));
+    EXPECT_EQ(applied<T>(FunctionId::Round, {T(7) / T(4)}), T(2));
+    EXPECT_EQ(applied<T>(FunctionId::Round, {T(-1) / T(4)}), T(0));
+    if constexpr (!isExact<T>) {
+        // The largest T below 1/2 must round to 0 (a naive floor(x + 1/2) rounds it to 1).
+        const T below = T(0.5) - ldexp(T(1), -precisionBits<T>() - 1);
+        EXPECT_EQ(applied<T>(FunctionId::Round, {below}), T(0));
+    }
+}
+
+TEST(Catalogue, RoundJumpsAtHalves) {
+    EXPECT_FALSE(evaluate("round(0.25*10)").error);  // 2.5 exactly: a jump, but no error
+    EXPECT_EQ(evaluate("round(0.1*25)").error->code, ErrorCode::ArgumentNearJump);
+    EXPECT_FALSE(evaluate("round(0.1*30)").error);  // near 3, far from 2.5 and 3.5
+}
