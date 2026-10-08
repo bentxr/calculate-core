@@ -340,3 +340,22 @@ TEST(BaseLiteral, Prefixes) {
     EXPECT_EQ(parseBaseLiteral("0o0.4")->exponent2, -3);
     for (const char* bad : {"0x", "0b102", "0xG", "0o8", "0x1.8p", "12"}) EXPECT_FALSE(parseBaseLiteral(bad)) << bad;
 }
+
+TEST(BaseExpansion, ExactDigitsInAnyBase) {
+    const BaseDigits hex = baseExpansion(toRational(0.1), 16);
+    EXPECT_EQ(hex.integerPart, "0");
+    EXPECT_EQ(hex.fractionDigits, "1999999999999A");
+    EXPECT_EQ(hex.repeatingDigits, "");
+    EXPECT_TRUE(hex.complete);
+    EXPECT_EQ(baseExpansion(toRational(0.1), 12).fractionDigits, "124972497249724A76232B004276");
+    EXPECT_EQ(baseExpansion(toRational(0.1), 8).fractionDigits, "0631463146314631464");
+    const BaseDigits half = baseExpansion(Rational(1, 2), 3);
+    EXPECT_EQ(half.fractionDigits, "");
+    EXPECT_EQ(half.repeatingDigits, "1");
+    EXPECT_EQ(baseExpansion(Rational(1, 3), 2).repeatingDigits, "01");
+    const BaseDigits minusTen = baseExpansion(Rational(-10), 2);
+    EXPECT_TRUE(minusTen.negative);
+    EXPECT_EQ(minusTen.integerPart, "1010");
+    EXPECT_EQ(baseExpansion(Rational(5, 2), 32).fractionDigits, "G");
+    EXPECT_FALSE(baseExpansion(Rational(1, 997), 10).complete);  // its period is 166 digits
+}

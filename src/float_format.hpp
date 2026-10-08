@@ -4,6 +4,7 @@
 
 #include <calculate-core/calculate-core.hpp>
 
+#include <algorithm>
 #include <string_view>
 #include <type_traits>
 
@@ -341,6 +342,52 @@ inline DecimalDigits terminatingDigits(const Rational& q, long long limit = show
     s.erase(s.find_last_not_of('0') + 1);
     r.digits = std::move(s);
     return r;
+}
+
+// q = (negative ? -1 : 1) × integerPart.fractionDigits(repeatingDigits repeated), digits 0-9A-Z.
+struct BaseDigits {
+    bool negative = false;
+    std::string integerPart;
+    std::string fractionDigits;
+    std::string repeatingDigits;
+    bool complete = true;  // false: the period is longer than maxPeriod and no digits after the point are given
+};
+
+// Long division in `base` (2 to 36), as exactFraction does in 10: the denominator's factors shared with the base give
+// the digits before the period; the period ends when the remainder comes back.
+inline BaseDigits baseExpansion(const Rational& q, int base, int maxPeriod = 60) {
+    static constexpr char digitChars[] = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+    BaseDigits b;
+    b.negative = q < 0;
+    Integer n = abs(numerator(q));
+    const Integer d = denominator(q);  // >= 1
+    Integer whole = n / d;
+    if (whole == 0) b.integerPart = "0";
+    for (; whole > 0; whole /= base) b.integerPart += digitChars[static_cast<int>(whole % base)];
+    std::reverse(b.integerPart.begin(), b.integerPart.end());
+    const auto nextDigit = [&d, base](Integer& r) {
+        r *= base;
+        const int digit = static_cast<int>(r / d);
+        r %= d;
+        return digitChars[digit];
+    };
+    Integer r = n % d;
+    long long before = 0;  // digits before the period
+    for (Integer rest = d, g = gcd(rest, Integer(base)); g > 1; g = gcd(rest, Integer(base))) {
+        rest /= g;
+        ++before;
+    }
+    for (long long i = 0; i < before; ++i) b.fractionDigits += nextDigit(r);
+    if (r == 0) return b;
+    const Integer start = r;
+    for (int i = 0; i < maxPeriod; ++i) {
+        b.repeatingDigits += nextDigit(r);
+        if (r == start) return b;
+    }
+    b.complete = false;
+    b.fractionDigits.clear();
+    b.repeatingDigits.clear();
+    return b;
 }
 
 }  // namespace calculate_core::detail
