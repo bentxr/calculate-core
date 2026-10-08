@@ -163,3 +163,13 @@ TEST(Numbers, FloorOfARational) {
     EXPECT_EQ(floorOf(Rational(-1, 1000)), Integer(-1));
     EXPECT_EQ(floorOf(Rational(999, 1000)), Integer(0));
 }
+
+// Huge fractions are not reduced, yet their distance is the exact one to within the ruler's rounding.
+TEST(Numbers, TheDistanceOfHugeFractionsIsTheExactOne) {
+    const Rational typed = toRational(*parseDecimal("3e-40000"));
+    const Rational stored = toRational(decimalTo<Binary512>(*parseDecimal("3e-40000")));
+    const Ruler fast = rulerDistance(typed, stored);
+    const Ruler exact = fromRational<Ruler>(abs(typed - stored));
+    ASSERT_GT(exact, 0);
+    EXPECT_LE(abs(fast - exact), exact * ldexp(Ruler(1), -900));
+}
