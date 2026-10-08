@@ -33,7 +33,7 @@ Vocabulary vocabulary() {
                   "0.2", "0.3",  "0.7",   "1.1",   "2.5",    "1e-17",  "1e16",          "1e300",     "1e-300",
                   "(0.1+0.2-0.3)", "(1.1-0.1)", "(0.1*3)", "(0.7+0.1)", "-1", "(pi/2)",
                   "3.00000000000000001", "(-2)", "sum(1/x; 1; 5)", "product((1+x/10); 1; 4)", "sum(x^2; 3; 1)",
-                  "sum(sum(y; 1; x; y); 1; 3)", "phi", "tau", "egamma", "catalan", "dozen", "billion", "ppm", "G", "c", "m_e"};
+                  "sum(sum(y; 1; x; y); 1; 3)", "phi", "tau", "egamma", "catalan", "dozen", "billion", "ppm", "G", "c", "m_e", "h"};
     v.small = {"0", "1", "3", "5", "12", "20", "(0.1*30)", "2.5"};
     v.prefix = {"-", "√", "∛"};
     v.infix = {"+", "-", "*", "/", "^", "**", "·", " mod ", " rem ", " floormod ", "±"};
@@ -105,6 +105,8 @@ std::string violation(const std::string& text, const Options& options) {
     if (ev.error) return ev.error->begin <= ev.error->end && ev.error->end <= text.size() ? "" : "an error outside the text";
     if (!isFinite(ev.value)) return "a value that is not finite";
     const Report& r = ev.report;
+    const bool constants = std::any_of(parsed.ast.nodes.begin(), parsed.ast.nodes.end(), [](const Node& n) { return n.constant >= 0; });
+    if (!constants && r.unit.kind == UnitState::Kind::Known && !r.unit.dimension.none()) return "a unit without a constant";
     if (!r.boundComplete) return "";  // the user accepted an incomplete bound
     if (!checkExact(parsed.ast)) {    // the truth, where exact arithmetic gives it
         const Forward<Rational> exact = forward<Rational>(parsed.ast);

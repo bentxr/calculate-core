@@ -4,6 +4,7 @@
 #include "functions.hpp"
 #include "numbers.hpp"
 #include "uncertainty.hpp"
+#include "units.hpp"
 
 #include <calculate-core/calculate-core.hpp>
 
@@ -392,6 +393,8 @@ inline int trustedDigits(const Ruler& absValue, const Ruler& error, int digitCou
 
 struct Report {
     Uncertainty uncertainty;  // the user's uncertain inputs: apart from the bound, which stays computational
+    UnitState unit;                 // the result's unit
+    std::vector<Warning> unitNotes;  // units that differ (spans in the source text)
     Ruler input = 0;
     Ruler rounding = 0;
     Ruler library = 0;
@@ -413,8 +416,9 @@ struct Evaluation {
 
 // The value in T and its error report: local errors weighted by the adjoints, the shadow
 // evaluations for the measured error, and the condition number.
+// `text` (the source, when known) names the arguments in the notes about units.
 template <class T>
-Evaluation<T> evaluate(const Ast& ast, const Options& options = {}) {
+Evaluation<T> evaluate(const Ast& ast, const Options& options = {}, std::string_view text = {}) {
     using std::abs;
     Evaluation<T> ev;
     const Forward<T> fw = forward<T>(ast, options.cancel);
@@ -532,6 +536,13 @@ Evaluation<T> evaluate(const Ast& ast, const Options& options = {}) {
         }
     }
     r.bound = r.input + r.rounding + r.library;
+
+    // Units: followed through the tree; exponents and orders must be exactly known.
+    const auto exactValue = [&](int i) -> std::optional<Rational> {
+        if (bounds[static_cast<std::size_t>(i)] != 0) return std::nullopt;
+        return toRational(fw.values[static_cast<std::size_t>(i)]);
+    };
+    r.unit = unitsOf(ast, exactValue, r.unitNotes, text).back();
 
     // Is first order good enough? Every quantity at its worst-case corner, both ways, in the ruler.
     Uncertainty& u = r.uncertainty;

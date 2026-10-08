@@ -60,7 +60,7 @@ Result build(const Parsed& parsed, const Options& options, std::string_view text
     Result r;
     r.type = options.type;
     r.uncertaintyRule = options.uncertaintyRule;
-    const Evaluation<T> ev = detail::evaluate<T>(parsed.ast, options);
+    const Evaluation<T> ev = detail::evaluate<T>(parsed.ast, options, text);
     if (ev.error) {
         r.error = ev.error;
         return r;
@@ -110,6 +110,9 @@ Result build(const Parsed& parsed, const Options& options, std::string_view text
         r.uncertaintyLinear = formatScientific(u.linear);
         r.uncertaintyQuadrature = formatScientific(u.quadrature);
     }
+    r.unitKnown = report.unit.kind == UnitState::Kind::Known;
+    if (r.unitKnown) r.unit = unitName(report.unit.dimension);
+    r.warnings.insert(r.warnings.end(), report.unitNotes.begin(), report.unitNotes.end());
     r.firstOrderChecked = u.checked;
     r.firstOrderReliable = u.reliable;
     if (u.checked) r.firstOrderObserved = formatScientific(u.observed);

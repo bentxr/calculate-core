@@ -100,7 +100,7 @@ struct FunctionDescription {
 std::vector<FunctionDescription> functions();
 std::vector<std::string> functionCategories();  // in display order
 
-enum class WarningCode { EmptyRange, FirstOrderUnreliable };  // grows with each producer
+enum class WarningCode { EmptyRange, FirstOrderUnreliable, UnitsDiffer };  // grows with each producer
 
 // Something worth knowing about a result that is not an error. begin/end: bytes of the expression.
 struct Warning {
@@ -197,6 +197,8 @@ struct Result {
     Digits uncertaintyShown;  // bound + the leading uncertainty, two significant digits: {false, "20", -1} is 0.20
     std::string concise;      // "5.00(20)"; "" when there is neither error nor uncertainty
     std::string plusMinus;    // "5.00 ± 0.20"
+    std::string unit;         // SI unit of the result ("m·s⁻¹"); "" when it has none or cannot be told
+    bool unitKnown = true;    // false: units that differ, or a constant in a unit outside the SI
 };
 
 Result evaluate(std::string_view expression, const Options& options = {});

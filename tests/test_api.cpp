@@ -937,3 +937,42 @@ TEST(Uncertainty, ReadPrecision) {
     o.uncertaintyRule = UncertaintyRule::Quadrature;
     EXPECT_EQ(evaluate("1.1*3.20", o).concise, "3.52(16)");
 }
+
+TEST(Units, ResultsCarryTheirUnit) {
+    EXPECT_EQ(evaluate("c").unit, "m·s⁻¹");
+    EXPECT_EQ(evaluate("2*c").unit, "m·s⁻¹");
+    EXPECT_EQ(evaluate("c^2").unit, "m²·s⁻²");
+    EXPECT_EQ(evaluate("h*c").unit, "J·m");
+    EXPECT_EQ(evaluate("sqrt(G*m_e)").unit, "m^(3/2)·s⁻¹");
+    EXPECT_EQ(evaluate("k_B*300").unit, "J·K⁻¹");
+    EXPECT_EQ(evaluate("q_e/m_e").unit, "C·kg⁻¹");
+    EXPECT_EQ(evaluate("c/c").unit, "");          // dimensionless
+    EXPECT_EQ(evaluate("2+2").unit, "");
+    EXPECT_EQ(evaluate("alpha").unit, "");
+    EXPECT_TRUE(evaluate("c").unitKnown);
+    EXPECT_TRUE(evaluate("2+2").unitKnown);
+    EXPECT_EQ(evaluate("c+c").unit, "m·s⁻¹");
+    EXPECT_EQ(evaluate("mean(c, 2*c)").unit, "m·s⁻¹");  // a lowering follows too
+    EXPECT_EQ(evaluate("c^0.5").unit, "m^(1/2)·s^(-1/2)");
+    EXPECT_EQ(evaluate("G±1e-15").unit, "m³·kg⁻¹·s⁻²");
+}
+
+TEST(Units, MismatchedUnitsGiveNoUnitAndANote) {
+    const Result r = evaluate("c + 1");
+    ASSERT_FALSE(r.error);  // the value is still computed
+    EXPECT_EQ(r.unit, "");
+    EXPECT_FALSE(r.unitKnown);
+    ASSERT_EQ(r.warnings.size(), 1u);
+    EXPECT_EQ(r.warnings[0].code, WarningCode::UnitsDiffer);
+    EXPECT_EQ(r.warnings[0].message, "the units of c (m·s⁻¹) and 1 (none) differ");
+    EXPECT_EQ(r.warnings[0].begin, 0u);
+    EXPECT_EQ(r.warnings[0].end, 5u);
+    EXPECT_EQ(evaluate("sin(c)").warnings[0].message, "sin needs a number without a unit; c has m·s⁻¹");
+    EXPECT_EQ(evaluate("(c^3)^(1/3)").unit, "");  // the exponent is not exactly known in double: no unit, no note
+    EXPECT_TRUE(evaluate("(c^3)^(1/3)").warnings.empty());
+    EXPECT_FALSE(evaluate("m_e_MeV*2").unitKnown);  // MeV: unknown, but no note
+    EXPECT_TRUE(evaluate("m_e_MeV*2").warnings.empty());
+    Options exact;
+    exact.type = NumberType::Exact;
+    EXPECT_EQ(evaluate("(c^3)^(1/3)", exact).unit, "m·s⁻¹");  // exact there
+}
