@@ -760,3 +760,9 @@ TEST(EndToEnd, PlusMinus) {
     ASSERT_FALSE(exact.error);
     EXPECT_EQ(exact.value, Rational(1, 3));
 }
+
+TEST(Parser, TheUncertaintyFunction) {
+    EXPECT_EQ(tree("uncertainty(5, 0.2)"), "(uncertainty 5 0.2)");
+    EXPECT_EQ(tree("uncertainty(5, 20%)"), "(uncertainty 5 (* (abs 5) (% 20)))");
+    EXPECT_EQ(parseError("uncertainty(5)").code, ErrorCode::WrongArgumentCount);
+}

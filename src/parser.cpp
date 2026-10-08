@@ -435,10 +435,11 @@ private:
     Span spanOf(int n) const { return ast_.nodes[static_cast<std::size_t>(n)].span; }
 
     // value ± spread. A percentage is relative: 5 ± 20% is 5 ± |5|·20% (the value node shared). Read as written.
-    int uncertain(int value, int spread, Span opSpan) {
+    // `whole` is the node's span: from value to spread when written with ±, the call when written uncertainty(x, u).
+    int uncertain(int value, int spread, Span opSpan, std::optional<Span> call = std::nullopt) {
         const std::string written = "(" + readings_[static_cast<std::size_t>(value)] + " ± "
                                     + readings_[static_cast<std::size_t>(spread)] + ")";
-        const Span whole{spanOf(value).begin, spanOf(spread).end};
+        const Span whole = call ? *call : Span{spanOf(value).begin, spanOf(spread).end};
         int u = spread;
         if (ast_.nodes[static_cast<std::size_t>(spread)].function == FunctionId::Percent)
             u = node(FunctionId::Multiply, {node(FunctionId::Abs, {value}, opSpan), spread}, opSpan);
@@ -766,6 +767,7 @@ private:
             const std::string expected = name == "log" ? "1 or 2 arguments" : argumentCount(info.minArgs, info.maxArgs < 0);
             return fail(ErrorCode::WrongArgumentCount, name + " takes " + expected, span);
         }
+        if (*id == FunctionId::Uncertain) return named(uncertain(args[0], args[1], span, span), name);  // 20% relative too
         return withAngles(*id, std::move(args), span, name);
     }
 
