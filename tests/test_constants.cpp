@@ -256,3 +256,20 @@ TEST(PhysicalConstants, NamesAreUniqueAndMeasuredValuesCarryTheirUncertainty) {
         EXPECT_EQ(c.definition.find("+/-") != std::string_view::npos, !c.exact) << c.name;
     }
 }
+
+TEST(PhysicalConstants, DimensionsComeFromTheUnits) {
+    const auto dims = [](std::string_view name) {
+        const PhysicalConstant* c = physical(name);
+        EXPECT_NE(c, nullptr) << name;
+        return c ? c->dimension : std::array<signed char, 7>{};
+    };
+    EXPECT_EQ(dims("G"), (std::array<signed char, 7>{3, -1, -2, 0, 0, 0, 0}));
+    EXPECT_EQ(dims("h"), (std::array<signed char, 7>{2, 1, -1, 0, 0, 0, 0}));   // J Hz^-1
+    EXPECT_EQ(dims("k_B"), (std::array<signed char, 7>{2, 1, -2, 0, -1, 0, 0}));
+    EXPECT_EQ(dims("q_e"), (std::array<signed char, 7>{0, 0, 1, 1, 0, 0, 0}));
+    EXPECT_EQ(dims("alpha"), (std::array<signed char, 7>{}));
+    EXPECT_TRUE(physical("G")->coherent);
+    EXPECT_TRUE(physical("alpha")->coherent);
+    EXPECT_FALSE(physical("m_e_MeV")->coherent);  // MeV: not an SI unit
+    EXPECT_FALSE(physical("m_e_u")->coherent);    // u
+}

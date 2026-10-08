@@ -20,6 +20,36 @@ def read_codata(path):
     return table
 
 
+# SI units as exponents of m, kg, s, A, K, mol, cd.
+SI = {
+    'm': [1, 0, 0, 0, 0, 0, 0], 'kg': [0, 1, 0, 0, 0, 0, 0], 's': [0, 0, 1, 0, 0, 0, 0], 'A': [0, 0, 0, 1, 0, 0, 0],
+    'K': [0, 0, 0, 0, 1, 0, 0], 'mol': [0, 0, 0, 0, 0, 1, 0], 'cd': [0, 0, 0, 0, 0, 0, 1],
+    'Hz': [0, 0, -1, 0, 0, 0, 0], 'N': [1, 1, -2, 0, 0, 0, 0], 'Pa': [-1, 1, -2, 0, 0, 0, 0],
+    'J': [2, 1, -2, 0, 0, 0, 0], 'W': [2, 1, -3, 0, 0, 0, 0], 'C': [0, 0, 1, 1, 0, 0, 0], 'V': [2, 1, -3, -1, 0, 0, 0],
+    'F': [-2, -1, 4, 2, 0, 0, 0], 'ohm': [2, 1, -3, -2, 0, 0, 0], 'S': [-2, -1, 3, 2, 0, 0, 0],
+    'Wb': [2, 1, -2, -1, 0, 0, 0], 'T': [0, 1, -2, -1, 0, 0, 0], 'H': [2, 1, -2, -2, 0, 0, 0],
+    'sr': [0, 0, 0, 0, 0, 0, 0], 'lm': [0, 0, 0, 0, 0, 0, 1], 'lx': [-2, 0, 0, 0, 0, 0, 1],
+}
+# Units outside the SI: a constant written in one has no coherent dimension (a later units plan converts them).
+NON_SI = {'eV', 'MeV', 'GeV', 'keV', 'u', 'fm', 'E_h'}
+
+
+def dimension(name, unit):
+    """(coherent, the 7 exponents) of a unit written as NIST writes it: "m^3 kg^-1 s^-2"."""
+    total = [0] * 7
+    coherent = True
+    for token in unit.split():
+        symbol, _, power = token.partition('^')
+        if symbol in NON_SI:
+            coherent = False
+            continue
+        if symbol not in SI:
+            sys.exit(f"{name}: unknown unit token '{token}': add it to the table")
+        k = int(power) if power else 1
+        total = [t + k * e for t, e in zip(total, SI[symbol])]
+    return coherent, (total if coherent else [0] * 7)
+
+
 def literal(text):
     return '"' + text.replace('\\', '\\\\').replace('"', '\\"') + '"'
 
@@ -42,8 +72,10 @@ def generate():
             sys.exit(f'{name}: a definition is needed exactly when NIST cuts the value short ("...")')
         if not definition:
             definition = value if exact else value + '+/-' + uncertainty
+        coherent, exponents = dimension(name, unit)
         rows.append(f'    {{{literal(name)}, {literal(quantity)}, {literal(definition)}, {literal(value)}, '
-                    f'{literal(unit)}, {"true" if exact else "false"}}},')
+                    f'{literal(unit)}, {{{", ".join(str(e) for e in exponents)}}}, {"true" if coherent else "false"}, '
+                    f'{"true" if exact else "false"}}},')
     return '\n'.join([
         '#pragma once',
         '',
@@ -61,6 +93,8 @@ def generate():
         '    std::string_view definition;  // what the name stands for: "6.67430e-11+/-0.00015e-11", "h/(2*pi)"',
         '    std::string_view nistValue;   // the value as NIST prints it, spaces removed: "1.054571817...e-34"',
         '    std::string_view unit;        // SI, as NIST writes it: "m^3 kg^-1 s^-2"; empty for pure numbers',
+        '    std::array<signed char, 7> dimension;  // exponents of m, kg, s, A, K, mol, cd; zeros when not coherent',
+        '    bool coherent;                // its unit is SI (MeV, u, eV… are not: no dimension then)',
         '    bool exact;                   // exact by the definition of the SI',
         '};',
         '',
