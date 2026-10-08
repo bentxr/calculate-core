@@ -310,3 +310,16 @@ TEST(TerminatingDigits, LeaveOutValuesBeyondTheLimit) {
     EXPECT_EQ(terminatingDigits(pow2(-1074), 500).digits, "");
     EXPECT_EQ(terminatingDigits(pow2(-4194302)).digits, "");  // binary512's smallest normal: millions of digits
 }
+
+TEST(BinaryForm, ExactlyAsSignificandTimesAPowerOfTwo) {
+    const BinaryForm tiny = binaryForm(pow2(-4194302));
+    EXPECT_EQ(tiny.significand, "1");
+    EXPECT_EQ(tiny.exponent2, -4194302);
+    const BinaryForm three = binaryForm(Rational(-3, 8));
+    EXPECT_TRUE(three.negative);
+    EXPECT_EQ(three.significand, "3");  // odd: the power of two holds every factor 2
+    EXPECT_EQ(three.exponent2, -3);
+    EXPECT_EQ(binaryForm(Rational(40)).significand, "5");
+    EXPECT_EQ(binaryForm(Rational(40)).exponent2, 3);
+    EXPECT_EQ(binaryForm(Rational(0)).significand, "0");
+}

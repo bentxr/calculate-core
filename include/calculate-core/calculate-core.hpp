@@ -235,12 +235,20 @@ struct UncertainInput {
     std::string contribution;  // sensitivity × u: "2e-1"
 };
 
+// A value written exactly as significand × 2^exponent2: when its decimal would be too long to write out.
+struct BinaryValue {
+    bool negative = false;
+    std::string significand;  // odd, in decimal
+    long long exponent2 = 0;
+};
+
 struct Result {
     std::optional<Error> error;
     NumberType type = NumberType::Double;
     Digits value;                     // floating types; empty for Exact
     std::optional<Fraction> exact;    // Exact only
     std::optional<FloatInspection> stored;  // floating types: the result as stored, bit by bit
+    std::optional<BinaryValue> binaryValue;  // set instead of value.digits when the decimal would pass 20 000 digits
     int trustedDigits = 0;            // leading significant digits guaranteed by the bound
     int trustedDigitsMeasured = 0;    // leading significant digits confirmed by the measured error
     std::string bound;                // guaranteed bound: input + rounding + library

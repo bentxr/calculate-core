@@ -294,3 +294,10 @@ TEST(Cli, ListsTheConstants) {
     EXPECT_NE(r.out.find("dozen = 12  (one dozen (12))\n"), std::string::npos);
     EXPECT_NE(r.out.find("billion = 1e12  (one billion (10^12))\n"), std::string::npos);
 }
+
+TEST(Cli, AHugeExpansionIsWrittenInBinary) {
+    const Outcome r = invoke({"--color", "never", "--type", "binary512", "1e-1000000"});
+    EXPECT_EQ(r.code, 0);
+    EXPECT_NE(r.out.find(" × 2^-"), std::string::npos);
+    EXPECT_NE(r.out.find("too long to write out in decimal"), std::string::npos);
+}

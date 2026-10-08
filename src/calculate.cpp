@@ -74,7 +74,15 @@ Result build(const Parsed& parsed, const Options& options, std::string_view text
                            f.repeatingDigits};
     } else {
         r.stored = detail::inspectValue(detail::formatInfo(options.type), valueOf(ev.value));
-        const DecimalDigits d = exactDigits(ev.value);
+        const Rational q = toRational(ev.value);
+        DecimalDigits d;
+        if (impl::decimalLengthEstimate(q) > shownDigitsLimit) {  // millions of digits: exactly, in binary instead
+            const BinaryForm b = binaryForm(q);
+            r.binaryValue = BinaryValue{b.negative, b.significand, b.exponent2};
+            d.negative = q < 0;
+        } else {
+            d = exactDigits(ev.value);
+        }
         r.value = Digits{d.negative, d.digits, d.exponent10};
         const Ruler magnitude = abs(exactCast<Ruler>(ev.value));
         const int count = static_cast<int>(d.digits.size());

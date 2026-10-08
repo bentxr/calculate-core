@@ -1037,3 +1037,19 @@ TEST(Api, PhysicalConstantsComeInGroups) {
         }
     }
 }
+
+TEST(Api, AValueTooLongToWriteOutIsShownInBinary) {
+    Options o;
+    o.type = NumberType::Binary512;
+    const auto start = std::chrono::steady_clock::now();
+    const Result r = evaluate("1e-1000000", o);
+    EXPECT_LT(std::chrono::steady_clock::now() - start, std::chrono::seconds(3));
+    ASSERT_FALSE(r.error);
+    EXPECT_TRUE(r.value.digits.empty());
+    ASSERT_TRUE(r.binaryValue);
+    EXPECT_FALSE(r.binaryValue->negative);
+    EXPECT_EQ(r.binaryValue->significand.back() % 2, 1);  // odd
+    EXPECT_LT(r.binaryValue->exponent2, -3000000);
+    EXPECT_EQ(r.trustedDigits, 0);
+    EXPECT_FALSE(evaluate("0.1").binaryValue);  // short values stay decimal
+}

@@ -130,6 +130,9 @@ void printJson(std::ostream& out, const std::string& input, const Result& r) {
     } else {
         out << ",\"value\":{\"negative\":" << flag(r.value.negative) << ",\"digits\":" << jsonString(r.value.digits)
             << ",\"exponent10\":" << r.value.exponent10 << "}";
+        if (r.binaryValue)
+            out << ",\"binaryValue\":{\"negative\":" << flag(r.binaryValue->negative) << ",\"significand\":"
+                << jsonString(r.binaryValue->significand) << ",\"exponent2\":" << r.binaryValue->exponent2 << "}";
     }
     if (!r.unit.empty()) out << ",\"unit\":" << jsonString(r.unit);
     out << ",\"trustedDigits\":" << r.trustedDigits << ",\"trustedDigitsMeasured\":" << r.trustedDigitsMeasured
@@ -289,7 +292,13 @@ void printHuman(std::ostream& out, const std::string& input, const Result& r, bo
         printNotes(out, r);
         return;
     }
-    out << "= " << formatValue(r.value, r.trustedDigitsWithUncertainty, color) << (r.unit.empty() ? "" : " " + r.unit) << "\n";
+    if (r.binaryValue) {  // exactly, as significand × 2^e
+        const BinaryValue& b = *r.binaryValue;
+        out << "= " << (b.negative ? "-" : "") << (b.significand == "1" ? "" : b.significand + " \xC3\x97 ") << "2^" << b.exponent2
+            << (r.unit.empty() ? "" : " " + r.unit) << "\n  (too long to write out in decimal: shown exactly in binary)\n";
+    } else {
+        out << "= " << formatValue(r.value, r.trustedDigitsWithUncertainty, color) << (r.unit.empty() ? "" : " " + r.unit) << "\n";
+    }
     if (r.conversion) out << "→ " << r.conversion->text << (r.conversion->note.empty() ? "" : " (" + r.conversion->note + ")") << "\n";
     out << "  ± " << r.bound << "  input " << r.inputError << " · rounding " << r.roundingError << " · library "
         << r.libraryError;
