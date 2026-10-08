@@ -21,6 +21,7 @@ add_executable(calculate-core-tests
     test_parser.cpp
     test_api.cpp
     test_catalogue.cpp
+    test_units.cpp
     test_fuzz.cpp
     test_cli.cpp
 )
