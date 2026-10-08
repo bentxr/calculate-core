@@ -66,6 +66,10 @@ inline Parsed parse(std::string_view source, AngleUnit angle, const Names& names
     return parse(source, o, names);
 }
 
+// The other spellings the parser accepts for a function (sin: sen) and for a lowering by its name (csc: cosec).
+std::vector<std::string> otherSpellings(FunctionId id);
+std::vector<std::string> otherSpellings(std::string_view lowering);
+
 // The first node the Exact type cannot evaluate, as an error.
 std::optional<Error> checkExact(const Ast& ast);
 

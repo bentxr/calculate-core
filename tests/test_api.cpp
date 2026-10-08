@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cfloat>
 #include <chrono>
+#include <map>
 #include <set>
 
 using namespace calculate_core;
@@ -796,4 +797,26 @@ TEST(Api, ArgumentsHaveNamesAndKinds) {
     EXPECT_EQ(find("atan2").arguments[0].name, "y");
     EXPECT_EQ(find("mean").arguments.size(), 1u);
     EXPECT_EQ(find("gamma").category, "Special functions");
+}
+
+TEST(Api, FunctionsListTheirOtherSpellings) {
+    auto aliasesOf = [](const std::string& name) {
+        for (const FunctionDescription& f : functions()) if (f.name == name) return f.aliases;
+        return std::vector<std::string>{};
+    };
+    const std::vector<std::string> sin = aliasesOf("sin");
+    EXPECT_NE(std::find(sin.begin(), sin.end(), "sen"), sin.end());
+    const std::vector<std::string> log = aliasesOf("log");
+    EXPECT_NE(std::find(log.begin(), log.end(), "log10"), log.end());
+    const std::vector<std::string> trunc = aliasesOf("trunc");
+    EXPECT_NE(std::find(trunc.begin(), trunc.end(), "int"), trunc.end());
+    for (const FunctionDescription& f : functions())
+        for (const std::string& alias : f.aliases) EXPECT_FALSE(evaluate(alias + f.example.substr(f.name.size())).error) << alias;
+}
+
+TEST(Api, FunctionsWrittenWithOthersListTheirSpellingsToo) {
+    std::map<std::string, std::vector<std::string>> aliases;
+    for (const FunctionDescription& f : functions()) aliases[f.name] = f.aliases;
+    EXPECT_EQ(aliases["csc"], std::vector<std::string>{"cosec"});
+    EXPECT_EQ(aliases["acoth"], std::vector<std::string>({"arcoth", "arccotgh"}));
 }

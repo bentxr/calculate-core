@@ -273,6 +273,24 @@ std::string loweringNamed(std::string_view name) {
     return std::string(name);
 }
 
+}  // namespace
+
+std::vector<std::string> otherSpellings(FunctionId id) {
+    std::vector<std::string> list;
+    for (const auto& [alias, named] : functionAliases)
+        if (named == id) list.emplace_back(alias);
+    return list;
+}
+
+std::vector<std::string> otherSpellings(std::string_view lowering) {
+    std::vector<std::string> list;
+    for (const auto& [alias, named] : loweringAliases)
+        if (named == lowering) list.emplace_back(alias);
+    return list;
+}
+
+namespace {
+
 enum class Range { None, Sum, Product };
 
 Range rangeNamed(std::string_view name) {

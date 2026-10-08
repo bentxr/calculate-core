@@ -160,6 +160,7 @@ std::vector<FunctionDescription> functions() {
         const FunctionInfo& info = functionInfo(static_cast<FunctionId>(i));
         if (info.name.empty() || info.id == FunctionId::LogBase) continue;  // log covers both arities
         list.push_back({std::string(info.name), info.minArgs, info.id == FunctionId::Log10 ? 2 : info.maxArgs, info.exact});
+        list.back().aliases = otherSpellings(info.id);
     }
     for (const char* name : {"mean", "varp", "stdevp"}) list.push_back({name, 1, -1, true});
     for (const char* name : {"var", "stdev"}) list.push_back({name, 2, -1, true});
@@ -177,6 +178,8 @@ std::vector<FunctionDescription> functions() {
             f.example = text->example;
             f.category = text->category;
         }
+    for (FunctionDescription& f : list)
+        for (std::string& alias : otherSpellings(std::string_view(f.name))) f.aliases.push_back(std::move(alias));  // a lowering's
     return list;
 }
 
