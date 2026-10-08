@@ -240,6 +240,7 @@ struct Result {
     NumberType type = NumberType::Double;
     Digits value;                     // floating types; empty for Exact
     std::optional<Fraction> exact;    // Exact only
+    std::optional<FloatInspection> stored;  // floating types: the result as stored, bit by bit
     int trustedDigits = 0;            // leading significant digits guaranteed by the bound
     int trustedDigitsMeasured = 0;    // leading significant digits confirmed by the measured error
     std::string bound;                // guaranteed bound: input + rounding + library

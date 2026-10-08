@@ -40,4 +40,7 @@ FloatBits bitsOf(const BinaryFormat& f, const FloatValue& v, const Integer& patt
 // A datum of a format as the inspector shows it: its bits, its neighbours and its ulp (finite and infinite values).
 FloatInspection inspectValue(const FloatFormatInfo& info, const FloatValue& v);
 
+// The inspector's row for a floating number type's own storage.
+FloatFormatInfo formatInfo(NumberType type);
+
 }  // namespace calculate_core::detail

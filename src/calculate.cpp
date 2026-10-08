@@ -2,6 +2,8 @@
 
 #include "catalogue.hpp"
 #include "engine.hpp"
+#include "float_format.hpp"
+#include "inspect.hpp"
 #include "parser.hpp"
 #include "targets.hpp"
 
@@ -71,6 +73,7 @@ Result build(const Parsed& parsed, const Options& options, std::string_view text
         r.exact = Fraction{f.negative, f.numerator, f.denominator, f.hasDecimal, f.integerPart, f.fractionDigits,
                            f.repeatingDigits};
     } else {
+        r.stored = detail::inspectValue(detail::formatInfo(options.type), valueOf(ev.value));
         const DecimalDigits d = exactDigits(ev.value);
         r.value = Digits{d.negative, d.digits, d.exponent10};
         const Ruler magnitude = abs(exactCast<Ruler>(ev.value));

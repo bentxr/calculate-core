@@ -208,3 +208,36 @@ TEST(InspectBits, Errors) {
     EXPECT_EQ(inspectBits(entryOf(NumberType::Float), "012", 2).error->code, ErrorCode::InvalidNumber);
     EXPECT_TRUE(inspectBits(entryOf(NumberType::Float), "", 2).error);
 }
+
+TEST(Inspect, EveryFloatingResultCarriesItsStoredBits) {
+    const Result r = evaluate("0.1 + 0.2");
+    ASSERT_TRUE(r.stored);
+    EXPECT_EQ(r.stored->format, FloatFormat::Binary64);
+    EXPECT_EQ(r.stored->stored.hex, "3FD3333333333334");
+    EXPECT_EQ(r.stored->below.value.digits, "299999999999999988897769753748434595763683319091796875");
+    EXPECT_EQ(r.stored->above.value.digits, "300000000000000099920072216264088638126850128173828125");
+    EXPECT_EQ(r.stored->ulpExponent, -54);
+    EXPECT_EQ(r.stored->conversionError.digits, "");
+    Options single;
+    single.type = NumberType::Float;
+    EXPECT_EQ(evaluate("1/3", single).stored->stored.hex, "3EAAAAAB");
+    Options exact;
+    exact.type = NumberType::Exact;
+    EXPECT_FALSE(evaluate("1/3", exact).stored);
+    EXPECT_FALSE(evaluate("1/0").stored);
+}
+
+TEST(Inspect, TheStoredBitsKeepTheSignOfZero) {
+    const Result r = evaluate("-0");
+    EXPECT_EQ(r.value.digits, "0");
+    EXPECT_EQ(r.stored->stored.hex, "8000000000000000");
+}
+
+TEST(Inspect, AZeroInBinary512StaysQuick) {
+    Options o;
+    o.type = NumberType::Binary512;
+    const auto start = std::chrono::steady_clock::now();
+    const Result r = evaluate("1 - 1", o);
+    EXPECT_LT(std::chrono::steady_clock::now() - start, std::chrono::seconds(2));
+    EXPECT_EQ(r.stored->above.exponent2, -4194302);
+}

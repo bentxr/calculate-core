@@ -106,6 +106,12 @@ FloatInspection inspectValue(const FloatFormatInfo& info, const FloatValue& v) {
     return r;
 }
 
+FloatFormatInfo formatInfo(NumberType type) {
+    for (const FloatFormatInfo& f : floatFormats())
+        if (f.type == type) return f;
+    return floatFormats()[3];  // Double
+}
+
 }  // namespace detail
 
 namespace {
