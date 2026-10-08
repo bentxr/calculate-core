@@ -451,3 +451,19 @@ TEST(Catalogue, FloorRefusesAnArgumentWhoseErrorReachesAJump) {
     EXPECT_TRUE(far.boundComplete);
     EXPECT_EQ(inType("floor((1 - 9/10)*10)", NumberType::Exact).exact->numerator, "1");
 }
+
+TYPED_TEST(RoundingTest, TruncateTowardZero) {
+    using T = TypeParam;
+    EXPECT_EQ(applied<T>(FunctionId::Trunc, {T(7) / T(4)}), T(1));
+    EXPECT_EQ(applied<T>(FunctionId::Trunc, {T(-7) / T(4)}), T(-1));
+    EXPECT_EQ(applied<T>(FunctionId::Trunc, {T(-1) / T(4)}), T(0));
+    EXPECT_EQ(applied<T>(FunctionId::Trunc, {T(5)}), T(5));
+}
+
+TEST(Catalogue, IntIsTruncAndDoesNotJumpAtZero) {
+    EXPECT_EQ(tree("int(2.5)"), "(trunc 2.5)");
+    EXPECT_EQ(tree("ent(2.5)"), "(trunc 2.5)");
+    EXPECT_FALSE(evaluate("trunc(0.1*3 - 0.3)").error);  // near 0, where trunc is continuous
+    EXPECT_EQ(evaluate("trunc(4.35*100)").error->code, ErrorCode::ArgumentNearJump);
+    EXPECT_EQ(evaluate("int(4.35*100)").error->message.rfind("int jumps", 0), 0u);  // as written
+}

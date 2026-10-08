@@ -94,6 +94,7 @@ inline const FunctionInfo& functionInfo(FunctionId id) {
         {F::Hypot, "hypot", 2, 2, C::Library, K::Continuous, true},  // exact: rational results
         {F::Sinc, "sinc", 1, 1, C::Library, K::Continuous, false},  // always in radians
         {F::Floor, "floor", 1, 1, C::Exact, K::Piecewise, true},
+        {F::Trunc, "trunc", 1, 1, C::Exact, K::Piecewise, true},
         {F::Median, "median", 1, -1, C::Checked, K::Continuous, true},
     }};
     return table[static_cast<std::size_t>(id)];
@@ -514,6 +515,14 @@ Applied<T> applyFunction(FunctionId id, const std::vector<T>& a, const std::atom
         } else {
             using std::floor;
             r.value = floor(a[0]);
+        }
+        break;
+    case FunctionId::Trunc:
+        if constexpr (isExact<T>) {
+            r.value = Rational(numerator(a[0]) / denominator(a[0]));  // Integer division truncates
+        } else {
+            using std::trunc;
+            r.value = trunc(a[0]);
         }
         break;
     case FunctionId::FloorMod:  // floored: the sign of the divisor

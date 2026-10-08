@@ -204,13 +204,14 @@ Statistic statisticNamed(std::string_view name) {
 // Spanish names of functions, in lowercase like every other name, and the function each one stands for.
 // Other spellings of functions: Spanish calculator names and common variants. They name the function
 // itself, so a convention that changes what `log` means leaves `log10` alone.
-constexpr std::array<std::pair<std::string_view, FunctionId>, 18> functionAliases{{
+constexpr std::array<std::pair<std::string_view, FunctionId>, 20> functionAliases{{
     {"sen", FunctionId::Sin}, {"arcsen", FunctionId::Asin}, {"arccos", FunctionId::Acos},
     {"arctan", FunctionId::Atan}, {"senh", FunctionId::Sinh}, {"arcsenh", FunctionId::Asinh},
     {"arccosh", FunctionId::Acosh}, {"arctanh", FunctionId::Atanh}, {"mcd", FunctionId::Gcd},
     {"mcm", FunctionId::Lcm}, {"log10", FunctionId::Log10}, {"arcsin", FunctionId::Asin},
     {"arsinh", FunctionId::Asinh}, {"arcosh", FunctionId::Acosh}, {"artanh", FunctionId::Atanh},
     {"arccot", FunctionId::Acot}, {"cosech", FunctionId::Csch}, {"arccotg", FunctionId::Acot},
+    {"int", FunctionId::Trunc}, {"ent", FunctionId::Trunc},
 }};
 
 // The function with this name (pi and e are constants, not functions).
