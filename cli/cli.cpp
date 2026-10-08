@@ -126,6 +126,7 @@ void printJson(std::ostream& out, const std::string& input, const Result& r) {
         out << ",\"value\":{\"negative\":" << flag(r.value.negative) << ",\"digits\":" << jsonString(r.value.digits)
             << ",\"exponent10\":" << r.value.exponent10 << "}";
     }
+    if (!r.unit.empty()) out << ",\"unit\":" << jsonString(r.unit);
     out << ",\"trustedDigits\":" << r.trustedDigits << ",\"trustedDigitsMeasured\":" << r.trustedDigitsMeasured
         << ",\"bound\":" << jsonString(r.bound) << ",\"inputError\":" << jsonString(r.inputError)
         << ",\"roundingError\":" << jsonString(r.roundingError) << ",\"libraryError\":" << jsonString(r.libraryError)
@@ -233,13 +234,13 @@ void printHuman(std::ostream& out, const std::string& input, const Result& r, bo
     out << input << "\n";
     if (r.commentOnly) return;  // a note: the line alone
     if (r.exact) {
-        out << "= " << formatFraction(*r.exact) << "\n";
+        out << "= " << formatFraction(*r.exact) << (r.unit.empty() ? "" : " " + r.unit) << "\n";
         if (r.conversion) out << "→ " << r.conversion->text << (r.conversion->note.empty() ? "" : " (" + r.conversion->note + ")") << "\n";
         out << "  exact, no rounding error · κ " << r.conditionNumber << "\n";
         printNotes(out, r);
         return;
     }
-    out << "= " << formatValue(r.value, r.trustedDigits, color) << "\n";
+    out << "= " << formatValue(r.value, r.trustedDigits, color) << (r.unit.empty() ? "" : " " + r.unit) << "\n";
     if (r.conversion) out << "→ " << r.conversion->text << (r.conversion->note.empty() ? "" : " (" + r.conversion->note + ")") << "\n";
     out << "  ± " << r.bound << "  input " << r.inputError << " · rounding " << r.roundingError << " · library "
         << r.libraryError;

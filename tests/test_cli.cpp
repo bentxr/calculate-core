@@ -237,3 +237,11 @@ TEST(Cli, DescribesOptionalAndRepeatedArguments) {
     EXPECT_EQ(invoke({"--info", "log"}).out.rfind("log(x[, base]) ", 0), 0u);
     EXPECT_EQ(invoke({"--info", "var"}).out.rfind("var(value, value, …) ", 0), 0u);
 }
+
+TEST(Cli, ResultsShowTheirUnit) {
+    EXPECT_NE(invoke({"--color", "never", "c"}).out.find("\n= 299792458 m·s⁻¹\n"), std::string::npos);
+    EXPECT_NE(invoke({"--json", "c"}).out.find(",\"unit\":\"m·s⁻¹\""), std::string::npos);
+    EXPECT_EQ(invoke({"--json", "2+2"}).out.find("\"unit\""), std::string::npos);  // only when there is one
+    EXPECT_NE(invoke({"--color", "never", "c+1"}).out.find("\n  note: the units of c (m·s⁻¹) and 1 (none) differ\n"),
+              std::string::npos);
+}
