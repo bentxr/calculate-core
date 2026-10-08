@@ -140,3 +140,42 @@ TEST(Inspect, UnreadableText) {
     EXPECT_TRUE(inspectDecimal(entryOf(NumberType::Double), "").error);
     EXPECT_EQ(inspectDecimal(entryOf(NumberType::Double), "1e9999999").note, "overflow");  // decided without building the number
 }
+
+TEST(Inspect, NeighboursAndUlp) {
+    const FloatInspection r = inspectDecimal(entryOf(NumberType::Double), "0.1");
+    ASSERT_TRUE(r.hasNeighbours);
+    EXPECT_EQ(r.below.hex, "3FB9999999999999");
+    EXPECT_EQ(r.below.value.digits, "9999999999999999167332731531132594682276248931884765625");
+    EXPECT_EQ(r.below.value.exponent10, -2);
+    EXPECT_EQ(r.above.hex, "3FB999999999999B");
+    EXPECT_EQ(r.above.value.digits, "10000000000000001942890293094023945741355419158935546875");
+    EXPECT_EQ(r.above.value.exponent10, -1);
+    EXPECT_EQ(r.ulpExponent, -56);
+    EXPECT_EQ(r.ulp.digits, "1387778780781445675529539585113525390625");
+    EXPECT_EQ(r.ulp.exponent10, -17);
+}
+
+TEST(Inspect, NeighboursAtTheEdges) {
+    const FloatInspection zero = inspectDecimal(entryOf(NumberType::Double), "0");
+    EXPECT_EQ(zero.above.hex, "0000000000000001");
+    EXPECT_EQ(zero.below.hex, "8000000000000001");
+    EXPECT_EQ(zero.above.valueClass, FloatClass::Subnormal);
+    EXPECT_EQ(zero.ulpExponent, -1074);
+    EXPECT_EQ(zero.above.value.digits.size(), 751u);
+    const FloatInspection quadZero = inspectDecimal(entryOf(NumberType::Binary128), "0");
+    EXPECT_EQ(quadZero.above.hex, "00010000000000000000000000000000");  // no subnormals: the smallest normal
+    EXPECT_EQ(quadZero.ulpExponent, -16382);
+    const FloatInspection max = inspectDecimal(entryOf(NumberType::Float), "3.4028234663852885981170418348451692544e38");
+    EXPECT_EQ(max.stored.hex, "7F7FFFFF");
+    EXPECT_EQ(max.above.valueClass, FloatClass::Infinite);
+    EXPECT_EQ(max.above.hex, "7F800000");
+    EXPECT_FALSE(inspectDecimal(entryOf(NumberType::Float), "nan").hasNeighbours);
+}
+
+TEST(Inspect, ValuesTooLongToWriteOutKeepTheirPowerOfTwo) {
+    const FloatInspection r = inspectDecimal(entryOf(NumberType::Binary512), "0");
+    EXPECT_EQ(r.above.value.digits, "");  // millions of digits
+    EXPECT_EQ(r.above.exponent2, -4194302);
+    EXPECT_EQ(r.above.significand.digits, "1");
+    EXPECT_EQ(r.ulp.digits, "");
+}

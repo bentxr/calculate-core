@@ -37,4 +37,7 @@ FloatFormat floatFormatOf() {
 // A bit pattern of f, field by field, with the value v it stands for.
 FloatBits bitsOf(const BinaryFormat& f, const FloatValue& v, const Integer& pattern);
 
+// A datum of a format as the inspector shows it: its bits, its neighbours and its ulp (finite and infinite values).
+FloatInspection inspectValue(const FloatFormatInfo& info, const FloatValue& v);
+
 }  // namespace calculate_core::detail

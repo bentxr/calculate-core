@@ -83,6 +83,27 @@ FloatBits bitsOf(const BinaryFormat& f, const FloatValue& v, const Integer& patt
     return b;
 }
 
+FloatInspection inspectValue(const FloatFormatInfo& info, const FloatValue& v) {
+    using calculate_core::FloatClass;
+    const BinaryFormat& f = binaryFormat(info.format);
+    FloatInspection r;
+    r.format = info.format;
+    r.stored = bitsOf(f, v, encode(f, v));
+    const bool finite = v.kind == FloatClass::Zero || v.kind == FloatClass::Subnormal || v.kind == FloatClass::Normal;
+    if (finite || v.kind == FloatClass::Infinite) {
+        r.hasNeighbours = true;
+        const FloatValue below = nextDown(f, info.subnormals, v);
+        const FloatValue above = nextUp(f, info.subnormals, v);
+        r.below = bitsOf(f, below, encode(f, below));
+        r.above = bitsOf(f, above, encode(f, above));
+    }
+    if (finite) {
+        r.ulpExponent = ulpExponent(f, info.subnormals, v);
+        r.ulp = digitsOf(terminatingDigits(scaleByPowerOfTwo(Rational(1), r.ulpExponent)));
+    }
+    return r;
+}
+
 }  // namespace detail
 
 namespace {
@@ -126,7 +147,7 @@ FloatInspection inspectDecimal(const FloatFormatInfo& format, std::string_view t
         }
         v = decimalToFormat(negative, *d, f, format.subnormals);
     }
-    r.stored = bitsOf(f, v, encode(f, v));
+    r = inspectValue(format, v);
     if (d && d->significand != 0) {
         if (v.kind == FloatClass::Infinite) r.note = "overflow";
         if (v.kind == FloatClass::Zero) {
