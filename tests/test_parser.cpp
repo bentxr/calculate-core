@@ -730,3 +730,33 @@ TEST(Lexer, ZIsALetter) {
     EXPECT_EQ(parse("z := 2", AngleUnit::Radians).assigned, "z");
     EXPECT_EQ(parse("Z := 2", AngleUnit::Radians).assigned, "Z");
 }
+
+TEST(Lexer, PlusMinus) {
+    const Lexed l = lex("5±0.2 + 5+/-0.2");
+    ASSERT_FALSE(l.error);
+    EXPECT_EQ(kinds(l), (std::vector<TokenKind>{TokenKind::Number, TokenKind::PlusMinus, TokenKind::Number,
+                                                TokenKind::Plus, TokenKind::Number, TokenKind::PlusMinus,
+                                                TokenKind::Number, TokenKind::End}));
+    EXPECT_EQ(l.tokens[1].span.end - l.tokens[1].span.begin, 2u);  // ± is two bytes
+    EXPECT_EQ(l.tokens[5].text, "+/-");
+}
+
+TEST(Parser, PlusMinusBindsTighterThanTimes) {
+    EXPECT_EQ(tree("5±0.2"), "(uncertainty 5 0.2)");
+    EXPECT_EQ(tree("5+/-0.2"), "(uncertainty 5 0.2)");
+    EXPECT_EQ(tree("2*5±0.2"), "(* 2 (uncertainty 5 0.2))");
+    EXPECT_EQ(tree("5±0.2*2"), "(* (uncertainty 5 0.2) 2)");
+    EXPECT_EQ(tree("1+2±0.1"), "(+ 1 (uncertainty 2 0.1))");
+    EXPECT_EQ(tree("-5±0.2"), "(uncertainty (neg 5) 0.2)");
+    EXPECT_EQ(tree("5±0.2^2"), "(uncertainty 5 (^ 0.2 2))");
+    EXPECT_EQ(tree("5±20%"), "(uncertainty 5 (* (abs 5) (% 20)))");  // relative: 20% of |5|
+    EXPECT_EQ(parseError("5±").code, ErrorCode::UnexpectedEnd);
+}
+
+TEST(EndToEnd, PlusMinus) {
+    EXPECT_EQ(evaluateText<double>("5±-0.2").error->code, ErrorCode::DomainError);
+    EXPECT_EQ(evaluateText<double>("5±20%").report.uncertainty.linear, 1);
+    const Evaluation<Rational> exact = evaluateText<Rational>("1/3±0.1");
+    ASSERT_FALSE(exact.error);
+    EXPECT_EQ(exact.value, Rational(1, 3));
+}

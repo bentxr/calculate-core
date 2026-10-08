@@ -30,7 +30,7 @@ struct Alias {
     TokenKind kind;
 };
 
-constexpr std::array<Alias, 10> aliases{{
+constexpr std::array<Alias, 11> aliases{{
     {"\xC3\x97", TokenKind::Star},            // ×
     {"\xC3\xB7", TokenKind::Slash},           // ÷
     {"\xE2\x88\x92", TokenKind::Minus},       // −
@@ -41,6 +41,7 @@ constexpr std::array<Alias, 10> aliases{{
     {"\xC2\xB3", TokenKind::Cubed},           // ³
     {"\xC2\xB7", TokenKind::Star},            // ·
     {"\xE2\x8B\x85", TokenKind::Star},        // ⋅
+    {"\xC2\xB1", TokenKind::PlusMinus},       // ±
 }};
 
 // Symbols that are names: Σ ∑ (sum) and Π ∏ (product).
@@ -153,6 +154,11 @@ Lexed lex(std::string_view s) {
             i += 2;
             continue;
         }
+        if (s.substr(i, 3) == "+/-") {  // another spelling of ±, before '+'
+            push(TokenKind::PlusMinus, i, i + 3);
+            i += 3;
+            continue;
+        }
         if (s.substr(i, 2) == ":=") {
             push(TokenKind::Assign, i, i + 2);
             i += 2;
@@ -242,6 +248,7 @@ int leftPower(TokenKind k) {
     case TokenKind::Minus: return 10;
     case TokenKind::Star:
     case TokenKind::Slash: return 20;
+    case TokenKind::PlusMinus: return 25;  // tighter than × ÷, looser than unary minus and ^
     case TokenKind::Caret: return 40;
     case TokenKind::Bang:
     case TokenKind::Percent:
@@ -427,6 +434,17 @@ private:
 
     Span spanOf(int n) const { return ast_.nodes[static_cast<std::size_t>(n)].span; }
 
+    // value ± spread. A percentage is relative: 5 ± 20% is 5 ± |5|·20% (the value node shared). Read as written.
+    int uncertain(int value, int spread, Span opSpan) {
+        const std::string written = "(" + readings_[static_cast<std::size_t>(value)] + " ± "
+                                    + readings_[static_cast<std::size_t>(spread)] + ")";
+        const Span whole{spanOf(value).begin, spanOf(spread).end};
+        int u = spread;
+        if (ast_.nodes[static_cast<std::size_t>(spread)].function == FunctionId::Percent)
+            u = node(FunctionId::Multiply, {node(FunctionId::Abs, {value}, opSpan), spread}, opSpan);
+        return read(node(FunctionId::Uncertain, {value, u}, whole), written);
+    }
+
     int expression(int minPower) {
         int left = prefix();
         while (!error_) {
@@ -469,6 +487,12 @@ private:
             case TokenKind::Squared: left = node(FunctionId::Square, {left}, postfix); continue;
             case TokenKind::Cubed: left = node(FunctionId::Cube, {left}, postfix); continue;
             default: break;
+            }
+            if (op.kind == TokenKind::PlusMinus) {  // left-associative
+                const int spread = expression(power);
+                if (error_) return -1;
+                left = uncertain(left, spread, op.span);
+                continue;
             }
             const bool bareRight = peek().kind != TokenKind::LeftParen;
             const int right = expression(op.kind == TokenKind::Caret ? power - 1 : power);  // ^ is right-associative

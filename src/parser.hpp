@@ -15,7 +15,7 @@ namespace calculate_core::detail {
 
 enum class TokenKind {
     Number, Identifier, Plus, Minus, Star, Slash, Caret, LeftParen, RightParen, Comma,
-    Bang, Percent, Squared, Cubed, SquareRoot, CubeRoot, Pi, Assign, End
+    Bang, Percent, Squared, Cubed, SquareRoot, CubeRoot, Pi, Assign, PlusMinus, End
 };
 
 struct Token {
