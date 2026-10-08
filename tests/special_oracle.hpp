@@ -60,6 +60,7 @@ O specialOracle(FunctionId id, [[maybe_unused]] const std::vector<O>& a) {
     case FunctionId::Gamma: return boost::math::tgamma(a[0]);
     case FunctionId::Digamma: return boost::math::digamma(a[0]);
     case FunctionId::Trigamma: return boost::math::trigamma(a[0]);
+    case FunctionId::Beta: return boost::math::beta(a[0], a[1]);
     default: return O(0);
     }
 }

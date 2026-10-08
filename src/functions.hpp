@@ -105,6 +105,7 @@ inline const FunctionInfo& functionInfo(FunctionId id) {
         {F::Gamma, "gamma", 1, 1, C::Library, K::Continuous, false},
         {F::Digamma, "digamma", 1, 1, C::Library, K::Continuous, false},
         {F::Trigamma, "", 1, 1, C::Library, K::Continuous, false},  // internal: digamma's derivative
+        {F::Beta, "beta", 2, 2, C::Library, K::Continuous, false},
         {F::Median, "median", 1, -1, C::Checked, K::Continuous, true},
     }};
     return table[static_cast<std::size_t>(id)];
@@ -484,6 +485,17 @@ Applied<T> specialFunction(FunctionId id, const std::vector<T>& a, [[maybe_unuse
         if (x == 1 || x == 2) return ok<T>(T(0));                            // the exact zeros
         s = lgammaWord(x);
         break;
+    case FunctionId::Beta: {  // e^(lgamma a + lgamma b - lgamma(a + b)), a, b > 0
+        if (a[0] <= 0 || a[1] <= 0) return fail<T>(ErrorCode::DomainError);
+        const Special<T> la = lgammaPositive(dw(a[0])), lb = lgammaPositive(dw(a[1])), lab = lgammaPositive(dw(a[0]) + a[1]);
+        const ExpParts<T> e = expParts(la.value + lb.value - lab.value);
+        if (e.overflow) return fail<T>(ErrorCode::Overflow);
+        if (e.underflow) return ok<T>(T(0));
+        Applied<T> r = ok<T>(toValue(expValue(e)));
+        r.scale = r.value * (la.scale + lb.scale + lab.scale);  // Step 5: the terms of the exponent can be enormous
+        if (!isFinite(r.scale)) r.scale = (std::numeric_limits<T>::max)();
+        return r;
+    }
     case FunctionId::Digamma:
     case FunctionId::Trigamma:
         if (x <= 0 && isInteger(x)) return fail<T>(ErrorCode::DomainError);  // a pole
@@ -680,6 +692,10 @@ std::vector<R> partials(FunctionId id, const std::vector<R>& a, const R& v) {
     }
     case FunctionId::Abs: return {x < 0 ? R(-1) : R(1)};
     case FunctionId::Rem: return {R(1), R(-trunc(a[0] / a[1]))};
+    case FunctionId::Beta: {
+        const R both = f(FunctionId::Digamma, R(a[0] + a[1]));
+        return {v * (f(FunctionId::Digamma, a[0]) - both), v * (f(FunctionId::Digamma, a[1]) - both)};
+    }
     case FunctionId::Atan2: {  // (y, x)
         const R d = a[1] * a[1] + a[0] * a[0];
         return {a[1] / d, -a[0] / d};
@@ -907,6 +923,14 @@ inline std::vector<Ruler> slopes(FunctionId id, const std::vector<Ruler>& a, con
     case FunctionId::Square: return {2 * (abs(a[0]) + b[0])};
     case FunctionId::Cube: return {3 * (abs(a[0]) + b[0]) * (abs(a[0]) + b[0])};
     case FunctionId::Power: return impl::powerSlopes(a, b);
+    case FunctionId::Beta: {  // B falls in each argument; psi(a + b) - psi(a) falls in a and grows in b
+        const Ruler loA = a[0] - b[0], loB = a[1] - b[1];
+        if (loA <= 0 || loB <= 0) return {inf, inf};
+        const auto g = [](FunctionId fn, const std::vector<Ruler>& args) { return impl::rulerValue(fn, args); };
+        const Ruler top = g(FunctionId::Beta, {loA, loB});
+        return {Ruler(top * (g(FunctionId::Digamma, {Ruler(loA + a[1] + b[1])}) - g(FunctionId::Digamma, {loA}))),
+                Ruler(top * (g(FunctionId::Digamma, {Ruler(loB + a[0] + b[0])}) - g(FunctionId::Digamma, {loB})))};
+    }
     case FunctionId::Hypot: {  // |x|/h <= 1: at most the largest |x| over the smallest h in the box
         const Ruler nearX = abs(a[0]) > b[0] ? Ruler(abs(a[0]) - b[0]) : Ruler(0);
         const Ruler nearY = abs(a[1]) > b[1] ? Ruler(abs(a[1]) - b[1]) : Ruler(0);

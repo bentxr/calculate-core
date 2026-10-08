@@ -765,3 +765,9 @@ TEST(Slopes, GammaFamilyDominatesItsDerivatives) {
     for (const FunctionId id : {FunctionId::Gamma, FunctionId::Lgamma, FunctionId::Digamma})
         EXPECT_FALSE(isFinite(slopes(id, {Ruler(-0.05)}, {Ruler(0.1)})[0]));  // the interval holds the pole at 0
 }
+
+TEST(Slopes, BetaDominatesItsDerivatives) {
+    for (const SlopeCase& c : {SlopeCase{FunctionId::Beta, {1.5, 2.25}, {0.1, 0.2}}, SlopeCase{FunctionId::Beta, {0.7, 3}, {0.05, 0.5}},
+                               SlopeCase{FunctionId::Beta, {1.5, 2.25}, {0, 0}}})
+        expectSlopesDominate(c.id, c.point, c.radius);
+}

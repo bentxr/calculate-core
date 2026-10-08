@@ -159,3 +159,22 @@ TEST(SpecialPartials, GammaFamily) {
         }
     }
 }
+
+TYPED_TEST(SpecialKernelTest, Beta) {
+    using T = TypeParam;
+    test::expectSpecialWithinClaim<T>(FunctionId::Beta, [](auto& rng) { return std::vector<T>{uniform<T>(rng, 0.1, 30), uniform<T>(rng, 0.1, 30)}; });
+    test::expectSpecialWithinClaim<T>(FunctionId::Beta, [](auto& rng) { return std::vector<T>{logUniform<T>(rng, 10, 20), uniform<T>(rng, 0.5, 4)}; });
+    for (const auto& [a, b] : {std::pair<T, T>{T(0), T(1)}, {T(-1.5), T(2)}, {T(2), T(-3)}})
+        EXPECT_EQ(applyFunction<T>(FunctionId::Beta, {a, b}).error.value_or(ErrorCode::Cancelled), ErrorCode::DomainError);
+}
+
+TEST(SpecialPartials, Beta) {
+    using O = RulerCheck;
+    const O h = ldexp(O(1), -400);
+    const std::vector<Ruler> args{Ruler(1.5), Ruler(2.25)};
+    const std::vector<Ruler> d = partials<Ruler>(FunctionId::Beta, args, applyFunction<Ruler>(FunctionId::Beta, args).value);
+    const O da = (test::specialOracle<O>(FunctionId::Beta, {O(1.5) + h, O(2.25)}) - test::specialOracle<O>(FunctionId::Beta, {O(1.5) - h, O(2.25)})) / (2 * h);
+    const O db = (test::specialOracle<O>(FunctionId::Beta, {O(1.5), O(2.25) + h}) - test::specialOracle<O>(FunctionId::Beta, {O(1.5), O(2.25) - h})) / (2 * h);
+    EXPECT_LE(abs(exactCast<O>(d[0]) - da), ldexp(O(1), -200));
+    EXPECT_LE(abs(exactCast<O>(d[1]) - db), ldexp(O(1), -200));
+}
