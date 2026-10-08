@@ -271,6 +271,7 @@ public:
         if (root != static_cast<int>(ast_.nodes.size()) - 1) ast_.nodes.push_back(ast_.nodes[root]);  // root last
         out.ast = std::move(ast_);
         out.expanded = expandedText({0, peek().span.begin});
+        out.warnings = warnings_;
         return out;
     }
 
@@ -547,6 +548,9 @@ private:
             if (body < 0) return -1;
             ast_.nodes.resize(size);
             total = node(FunctionId::Literal, {}, span, kind == Range::Sum ? "0" : "1");
+            warnings_.push_back({WarningCode::EmptyRange,
+                                 name + " from " + from.str() + " to " + to.str() + " has no terms, so it is " + (kind == Range::Sum ? "0" : "1"),
+                                 span.begin, span.end});
         }
         for (Integer k = from; k <= to; ++k) {
             bound_.push_back({variable, k});
@@ -662,7 +666,8 @@ private:
         Integer value;
     };
     std::vector<Binding> bound_;  // the variables of the sums and products being written out, innermost last
-    long long terms_ = 0;         // terms written out so far  // a span's begin → (its end, its text)
+    long long terms_ = 0;         // terms written out so far
+    std::vector<Warning> warnings_;  // a span's begin → (its end, its text)
 };
 
 }  // namespace

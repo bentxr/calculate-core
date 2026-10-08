@@ -72,6 +72,7 @@ Result build(const Parsed& parsed, const Options& options) {
     r.roundingOperations = report.roundingOperations;
     r.expression = parsed.expanded;
     r.comment = parsed.comment;
+    r.warnings = parsed.warnings;
     if (parsed.target) {
         const Rational value = toRational(ev.value);
         const TargetInput in{parsed, options, value, report};

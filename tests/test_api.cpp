@@ -660,3 +660,19 @@ TEST(Api, AJumpExactlyAtTheEndOfTheErrorIsSeen) {
     ASSERT_TRUE(r.error);
     EXPECT_EQ(r.error->code, ErrorCode::ArgumentNearJump);
 }
+
+TEST(Api, AnEmptyRangeIsANote) {
+    const Result r = evaluate("sum(x; 5; 1)");
+    ASSERT_FALSE(r.error);
+    EXPECT_EQ(r.value.digits, "0");
+    ASSERT_EQ(r.warnings.size(), 1u);
+    EXPECT_EQ(r.warnings[0].code, WarningCode::EmptyRange);
+    EXPECT_EQ(r.warnings[0].message, "sum from 5 to 1 has no terms, so it is 0");
+    EXPECT_EQ(r.warnings[0].begin, 0u);
+    EXPECT_EQ(r.warnings[0].end, 12u);
+    EXPECT_EQ(evaluate("product(x; 2; 1)").warnings[0].message, "product from 2 to 1 has no terms, so it is 1");
+    EXPECT_EQ(evaluate("1 + sum(x; 5; 1)").warnings[0].begin, 4u);
+    EXPECT_TRUE(evaluate("sum(x; 1; 3)").warnings.empty());
+    EXPECT_TRUE(evaluate("1/0").warnings.empty());
+    EXPECT_TRUE(evaluate("sum(x; 5; 1)", as(NumberType::Exact)).warnings.size() == 1u);  // in every type
+}

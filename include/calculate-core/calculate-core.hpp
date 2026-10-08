@@ -73,6 +73,16 @@ struct FunctionDescription {
 
 std::vector<FunctionDescription> functions();
 
+enum class WarningCode { EmptyRange };  // grows with each producer
+
+// Something worth knowing about a result that is not an error. begin/end: bytes of the expression.
+struct Warning {
+    WarningCode code;
+    std::string message;
+    std::size_t begin = 0;
+    std::size_t end = 0;
+};
+
 // What "to <target>" made of a result: the same value in another form.
 struct Conversion {
     std::string target;  // the target's name, "fraction"
@@ -126,6 +136,7 @@ struct Result {
     std::string comment;              // the text after '#', "" when none
     bool commentOnly = false;         // the input was only a comment: a note with no value
     std::optional<Conversion> conversion;  // set when the input ended in "to <target>"
+    std::vector<Warning> warnings;         // notes about a result that is not an error
 };
 
 Result evaluate(std::string_view expression, const Options& options = {});

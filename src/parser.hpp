@@ -54,6 +54,7 @@ struct Parsed {
     std::string comment;   // the text after '#', trimmed; "" when none
     bool commentOnly = false;  // the source holds nothing but a comment
     std::optional<TargetText> target;
+    std::vector<Warning> warnings;  // the parser's notes (an empty range)
 };
 
 Parsed parse(std::string_view source, const Options& options, const Names& names = {});
