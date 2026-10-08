@@ -32,16 +32,17 @@ Vocabulary vocabulary() {
     v.literals = {"0",   "1",    "2",     "3",     "7",      "10",     "100",           "0.5",       "0.1",
                   "0.2", "0.3",  "0.7",   "1.1",   "2.5",    "1e-17",  "1e16",          "1e300",     "1e-300",
                   "(0.1+0.2-0.3)", "(1.1-0.1)", "(0.1*3)", "(0.7+0.1)", "-1", "(pi/2)",
-                  "3.00000000000000001", "(-2)"};
+                  "3.00000000000000001", "(-2)", "sum(1/x; 1; 5)", "product((1+x/10); 1; 4)", "sum(x^2; 3; 1)",
+                  "sum(sum(y; 1; x; y); 1; 3)"};
     v.small = {"0", "1", "3", "5", "12", "20", "(0.1*30)", "2.5"};
     v.prefix = {"-", "√", "∛"};
-    v.infix = {"+", "-", "*", "/", "^"};
+    v.infix = {"+", "-", "*", "/", "^", "**", "·", " mod ", " rem ", " floormod "};
     v.postfix = {"%", "²", "³"};
     v.calls = {{"abs", 1},  {"exp", 1},  {"sin", 1},   {"cos", 1},  {"atan", 1}, {"sinh", 1},
                {"cosh", 1}, {"tanh", 1}, {"asinh", 1}, {"mean", -1}, {"varp", -1}, {"mod", 2},
                {"sqrt", 1}, {"cbrt", 1}, {"root", 2}, {"ln", 1}, {"log", 1}, {"log", 2}, {"tan", 1},
                {"asin", 1}, {"acos", 1}, {"acosh", 1}, {"atanh", 1}, {"var", -2}, {"stdev", -2}, {"stdevp", -1},
-               {"median", -1}, {"log10", 1}, {"sen", 1}, {"arcsen", 1}};
+               {"median", -1}, {"log10", 1}, {"sen", 1}, {"arcsen", 1}, {"rem", 2}, {"floormod", 2}};
     v.discrete = {{"gcd", 2}, {"lcm", 2}, {"nCr", 2}, {"nPr", 2}};
     return v;
 }
@@ -94,7 +95,7 @@ int samples(int normal) {
 template <class T>
 std::string violation(const std::string& text, const Options& options) {
     using std::abs;
-    const Parsed parsed = parse(text, options.angle);
+    const Parsed parsed = parse(text, options);
     if (parsed.error) return "a parse error: " + parsed.error->message;  // the generator writes valid expressions
     const Evaluation<T> ev = detail::evaluate<T>(parsed.ast, options);
     if (ev.error) return ev.error->begin <= ev.error->end && ev.error->end <= text.size() ? "" : "an error outside the text";
@@ -130,10 +131,13 @@ TYPED_TEST_SUITE(FuzzTest, test::FloatingTypes, test::TypeNames);
 TYPED_TEST(FuzzTest, NoExpressionBeatsItsBound) {
     using T = TypeParam;
     const int count = samples(std::is_floating_point_v<T> ? 120 : 25);
-    for (const AngleUnit angle : {AngleUnit::Radians, AngleUnit::Degrees}) {
-        Generator g(vocabulary(), 2026u + static_cast<unsigned>(angle));
-        Options options;
-        options.angle = angle;
+    Options other;  // degrees, and the other reading of log and mod
+    other.angle = AngleUnit::Degrees;
+    other.conventions.log = Conventions::Log::Natural;
+    other.conventions.mod = Conventions::Mod::Floored;
+    other.conventions.percent = Conventions::Percent::OfValue;
+    for (const Options& options : {Options(), other}) {
+        Generator g(vocabulary(), 2026u + static_cast<unsigned>(options.angle));
         for (int i = 0; i < count; ++i) {
             const std::string text = g.expression(3);
             EXPECT_EQ(violation<T>(text, options), "") << text;
@@ -179,6 +183,31 @@ TEST(Fuzz, EveryCallOfTheVocabularyParses) {
             for (int i = 0; i < n; ++i) text += i ? ", 2" : "2";
             text += ")";
             EXPECT_FALSE(parse(text, AngleUnit::Radians).error) << text;
+        }
+    }
+}
+
+// Found by the long run: kernels that scale their argument lost the low bits of a subnormal one (asin through atan's
+// halvings, tanh through expm1), so the result missed the claim's absolute floor.
+TEST(Fuzz, OddFunctionsOfTinyArgumentsKeepTheirBound) {
+    for (const char* text : {"asin((1e-17/1e300))", "tanh((1e-300/(20)!))", "atan(1e-320)", "sin(4e-320)",
+                             "tan(4e-320)", "sinh(4e-320)", "asinh(4e-320)", "atanh(4e-320)", "asin(-3e-310)",
+                             "atan(2e-309)", "tanh(-2e-309)", "asin(1e-6)", "tan(-3e-6)", "sinh(1e-7)", "atanh(2e-7)"})
+        EXPECT_EQ(violation<double>(text, Options()), "") << text;
+    for (const char* text : {"asin(1e-40)", "atan(1e-40)", "tanh(1e-40)", "asinh(-1e-40)", "atanh(3e-39)"})
+        EXPECT_EQ(violation<float>(text, Options()), "") << text;
+}
+
+TEST(Fuzz, CommentsAndConversionsLeaveTheResultAlone) {
+    Generator g(vocabulary(), 21);
+    for (int i = 0; i < 40; ++i) {
+        const std::string text = g.expression(3);
+        const Result plain = evaluate(text);
+        for (const char* suffix : {" # note", " to fraction", " to sci", " to mixed", " to percent", " to 1/3"}) {
+            const Result r = evaluate(text + suffix);
+            EXPECT_EQ(plain.error.has_value(), r.error.has_value()) << text << suffix;
+            EXPECT_EQ(plain.value.digits, r.value.digits) << text << suffix;
+            EXPECT_EQ(plain.bound, r.bound) << text << suffix;
         }
     }
 }

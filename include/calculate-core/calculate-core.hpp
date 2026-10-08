@@ -2,6 +2,8 @@
 
 #include <atomic>
 #include <cstddef>
+#include <functional>
+#include <map>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -18,7 +20,7 @@ enum class ErrorCode {
     InvalidCharacter, InvalidNumber, UnexpectedToken, UnexpectedEnd, MissingClosingParenthesis,
     MissingOperator, UnknownName, WrongArgumentCount, NotAvailableInExact, LiteralOutOfRange,
     DivisionByZero, DomainError, Overflow, IrrationalResult, ArgumentTooLarge, NotAnInteger,
-    UncertainDiscreteArgument, ArgumentNearJump, ArgumentNearEdge, Cancelled
+    UncertainDiscreteArgument, ArgumentNearJump, UnknownTarget, TooManyTerms, ReservedName, ArgumentNearEdge, Cancelled
 };
 
 // begin/end: byte offsets of the offending part of the expression, [begin, end).
@@ -29,9 +31,22 @@ struct Error {
     std::size_t end = 0;
 };
 
+// How the words whose meaning differs between traditions are read. Results and stored texts (Ans, M,
+// variables) are written in a canonical spelling (log10, ln, rem, floormod, the percentage written out), so
+// changing a convention never changes what an earlier result means.
+struct Conventions {
+    enum class Log { Base10, Natural };
+    enum class Mod { Truncated, Floored };
+    enum class Percent { Divide, OfValue };
+    Log log = Log::Base10;
+    Mod mod = Mod::Truncated;
+    Percent percent = Percent::Divide;
+};
+
 struct Options {
     NumberType type = NumberType::Double;
     AngleUnit angle = AngleUnit::Radians;
+    Conventions conventions;
     // Accept arguments whose error reaches a jump, an edge or a whole-number requirement; the bound is then incomplete.
     bool allowUncertainDiscreteArguments = false;
     const std::atomic<bool>* cancel = nullptr;
@@ -59,6 +74,42 @@ struct FunctionDescription {
 };
 
 std::vector<FunctionDescription> functions();
+
+enum class WarningCode { EmptyRange };  // grows with each producer
+
+// Something worth knowing about a result that is not an error. begin/end: bytes of the expression.
+struct Warning {
+    WarningCode code;
+    std::string message;
+    std::size_t begin = 0;
+    std::size_t end = 0;
+};
+
+// A number as a target shows it, split where the trusted digits end.
+struct NumberParts {
+    bool negative = false;
+    std::string trusted;       // "1.000000000000000": the sign is apart, the point included
+    std::string noise;         // "055511151231257827021181583404541015625"; empty when every digit is trusted
+    long long exponent10 = 0;  // shown as e±n when hasExponent
+    bool hasExponent = false;
+    std::string suffix;        // "%" (to percent)
+};
+
+// What "to <target>" made of a result: the same value in another form.
+struct Conversion {
+    std::string target;  // the target's name, "fraction"
+    std::string text;    // the converted result as plain text, "3602879701896397/36028797018963968"
+    std::optional<NumberParts> parts;  // set by targets that show a number
+    std::string note;  // "off by 3.3e-2": the stored value minus what the text shows, when they differ
+};
+
+// A conversion target, for completion and keys.
+struct TargetDescription {
+    std::string name;
+    std::string summary;  // one line, English
+};
+
+std::vector<TargetDescription> conversionTargets();
 
 // value = (negative ? -1 : 1) * d1.d2d3... * 10^exponent10: every digit, nothing truncated.
 struct Digits {
@@ -96,6 +147,12 @@ struct Result {
     bool boundComplete = true;        // false when uncertain discrete arguments were allowed
     int roundingOperations = 0;       // operations whose result was actually rounded
     std::string expression;           // what was evaluated, with Ans and M expanded
+    std::string comment;              // the text after '#', "" when none
+    bool commentOnly = false;         // the input was only a comment: a note with no value
+    std::optional<Conversion> conversion;  // set when the input ended in "to <target>"
+    std::vector<Warning> warnings;         // notes about a result that is not an error
+    std::string assigned;                  // the variable set by "name := …", "" otherwise
+    std::string reading;                   // how the expression was read: every operation in parentheses
 };
 
 Result evaluate(std::string_view expression, const Options& options = {});
@@ -121,7 +178,13 @@ public:
     const std::vector<Entry>& history() const { return history_; }
     void clearHistory() { history_.clear(); }
 
+    using Variables = std::map<std::string, std::string, std::less<>>;
+    const Variables& variables() const { return variables_; }  // name → expression text, names expanded
+    bool forget(std::string_view name);                         // false when there was no such variable
+    void clearVariables() { variables_.clear(); }
+
 private:
+    Variables variables_;
     std::string answer_;
     std::string memory_;
     std::vector<Entry> history_;

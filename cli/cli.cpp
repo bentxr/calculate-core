@@ -38,13 +38,18 @@ std::string usage() {
            "  --type <t>         float, double (default), long-double, exact,\n"
            "                     binary128, binary256 or binary512\n"
            "  --angle <u>        rad (default), deg or grad\n"
+           "  --log 10|e          what log(x) means (default 10)\n"
+           "  --mod truncated|floored   the sign of mod (default truncated)\n"
+           "  --percent divide|of-value   x + p% adds p/100, or p% of x (default divide)\n"
            "  --json             one JSON object per expression\n"
            "  --color <when>     auto (default), always or never\n"
            "  --allow-uncertain  let discrete functions take arguments that carry error\n"
            "  --list-types       describe the number types of this build\n"
            "  --help, --version\n"
            "\n"
-           "Lines M+, M- and MC add Ans to, subtract it from, or clear the memory M.\n";
+           "Lines M+, M- and MC add Ans to, subtract it from, or clear the memory M.\n"
+           "An expression may end in 'to <target>' (to fraction: the exact stored value).\n"
+           "'name := expression' stores an expression under a name.\n";
 }
 
 struct Settings {
@@ -79,8 +84,18 @@ const char* codeName(ErrorCode c) {
     case ErrorCode::NotAnInteger: return "NotAnInteger";
     case ErrorCode::UncertainDiscreteArgument: return "UncertainDiscreteArgument";
     case ErrorCode::ArgumentNearJump: return "ArgumentNearJump";
+    case ErrorCode::UnknownTarget: return "UnknownTarget";
+    case ErrorCode::TooManyTerms: return "TooManyTerms";
+    case ErrorCode::ReservedName: return "ReservedName";
     case ErrorCode::ArgumentNearEdge: return "ArgumentNearEdge";
     case ErrorCode::Cancelled: return "Cancelled";
+    }
+    return "";
+}
+
+const char* warningName(WarningCode code) {
+    switch (code) {
+    case WarningCode::EmptyRange: return "EmptyRange";
     }
     return "";
 }
@@ -91,6 +106,10 @@ void printJson(std::ostream& out, const std::string& input, const Result& r) {
     if (r.error) {
         out << ",\"error\":{\"code\":" << jsonString(codeName(r.error->code)) << ",\"message\":"
             << jsonString(r.error->message) << ",\"begin\":" << r.error->begin << ",\"end\":" << r.error->end << "}}\n";
+        return;
+    }
+    if (r.commentOnly) {
+        out << ",\"comment\":" << jsonString(r.comment) << "}\n";
         return;
     }
     if (r.exact) {
@@ -109,7 +128,22 @@ void printJson(std::ostream& out, const std::string& input, const Result& r) {
         << ",\"measured\":" << jsonString(r.measured) << ",\"conditionNumber\":" << jsonString(r.conditionNumber)
         << ",\"measuredAvailable\":" << flag(r.measuredAvailable)
         << ",\"measurementReliable\":" << flag(r.measurementReliable) << ",\"boundComplete\":" << flag(r.boundComplete)
-        << ",\"roundingOperations\":" << r.roundingOperations << ",\"expanded\":" << jsonString(r.expression) << "}\n";
+        << ",\"roundingOperations\":" << r.roundingOperations << ",\"expanded\":" << jsonString(r.expression) << ",\"reading\":" << jsonString(r.reading);
+    if (r.conversion)
+        out << ",\"conversion\":{\"target\":" << jsonString(r.conversion->target) << ",\"text\":" << jsonString(r.conversion->text)
+            << (r.conversion->note.empty() ? "" : ",\"note\":" + jsonString(r.conversion->note)) << "}";
+    if (!r.warnings.empty()) {
+        out << ",\"warnings\":[";
+        for (std::size_t i = 0; i < r.warnings.size(); ++i) {
+            const Warning& w = r.warnings[i];
+            out << (i ? "," : "") << "{\"code\":" << jsonString(warningName(w.code)) << ",\"message\":" << jsonString(w.message)
+                << ",\"begin\":" << w.begin << ",\"end\":" << w.end << "}";
+        }
+        out << "]";
+    }
+    if (!r.comment.empty()) out << ",\"comment\":" << jsonString(r.comment);
+    if (!r.assigned.empty()) out << ",\"assigned\":" << jsonString(r.assigned);
+    out << "}\n";
 }
 
 void listTypes(std::ostream& out) {
@@ -142,14 +176,23 @@ void printError(std::ostream& err, const std::string& input, const Error& e) {
         << std::string(std::max<std::size_t>(1, columns(input, e.begin, e.end)), '^') << " " << e.message << "\n";
 }
 
+// After the report lines: what is worth knowing about the result.
+void printNotes(std::ostream& out, const Result& r) {
+    for (const Warning& w : r.warnings) out << "  note: " << w.message << "\n";
+}
+
 void printHuman(std::ostream& out, const std::string& input, const Result& r, bool color) {
     out << input << "\n";
+    if (r.commentOnly) return;  // a note: the line alone
     if (r.exact) {
         out << "= " << formatFraction(*r.exact) << "\n";
+        if (r.conversion) out << "→ " << r.conversion->text << (r.conversion->note.empty() ? "" : " (" + r.conversion->note + ")") << "\n";
         out << "  exact, no rounding error · κ " << r.conditionNumber << "\n";
+        printNotes(out, r);
         return;
     }
     out << "= " << formatValue(r.value, r.trustedDigits, color) << "\n";
+    if (r.conversion) out << "→ " << r.conversion->text << (r.conversion->note.empty() ? "" : " (" + r.conversion->note + ")") << "\n";
     out << "  ± " << r.bound << "  input " << r.inputError << " · rounding " << r.roundingError << " · library "
         << r.libraryError;
     if (!r.boundComplete) out << "  (incomplete: an uncertain argument was accepted)";
@@ -160,6 +203,7 @@ void printHuman(std::ostream& out, const std::string& input, const Result& r, bo
     if (r.trustedDigits >= static_cast<int>(r.value.digits.size())) out << "all digits trusted";
     else out << r.trustedDigits << (r.trustedDigits == 1 ? " trusted digit" : " trusted digits");
     out << "\n";
+    printNotes(out, r);
 }
 
 // One expression or memory command. Returns false when it failed.
@@ -308,6 +352,23 @@ int run(const std::vector<std::string>& args, std::istream& in, std::ostream& ou
             else if (*v == "grad") s.options.angle = AngleUnit::Gradians;
             else {
                 err << "calc: unknown angle unit '" << *v << "' (rad, deg or grad)\n";
+                return 2;
+            }
+            continue;
+        }
+        // The conventions: each word takes one of two values, the first being the default.
+        if (a == "--log" || a == "--mod" || a == "--percent") {
+            const auto v = value();
+            if (!v) return 2;
+            Conventions& c = s.options.conventions;
+            if (a == "--log" && (*v == "10" || *v == "e")) c.log = *v == "e" ? Conventions::Log::Natural : Conventions::Log::Base10;
+            else if (a == "--mod" && (*v == "truncated" || *v == "floored"))
+                c.mod = *v == "floored" ? Conventions::Mod::Floored : Conventions::Mod::Truncated;
+            else if (a == "--percent" && (*v == "divide" || *v == "of-value"))
+                c.percent = *v == "of-value" ? Conventions::Percent::OfValue : Conventions::Percent::Divide;
+            else {
+                const char* values = a == "--log" ? "10 or e" : a == "--mod" ? "truncated or floored" : "divide or of-value";
+                err << "calc: " << a << " takes " << values << "\n";
                 return 2;
             }
             continue;

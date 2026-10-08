@@ -135,3 +135,70 @@ TEST(Cli, AJumpWithinTheErrorIsAnErrorCode) {
 TEST(Cli, AnEdgeWithinTheErrorIsAnErrorCode) {
     EXPECT_NE(invoke({"--json", "sqrt(0.1+0.2-0.3)"}).out.find("\"code\":\"ArgumentNearEdge\""), std::string::npos);
 }
+
+TEST(Cli, ConventionsAreOptions) {
+    EXPECT_NE(invoke({"--color", "never", "--log", "e", "log(1)"}).out.find("\n= 0\n"), std::string::npos);
+    EXPECT_NE(invoke({"--color", "never", "--mod", "floored", "mod(-7, 3)"}).out.find("\n= 2\n"), std::string::npos);
+    EXPECT_NE(invoke({"--color", "never", "--percent", "of-value", "100+10%"}).out.find("\n= 110\n"), std::string::npos);
+    EXPECT_NE(invoke({"--color", "never", "--type", "exact", "100+10%"}).out.find("\n= 1001/10 = 100.1\n"), std::string::npos);
+    const Outcome bad = invoke({"--log", "2", "1"});
+    EXPECT_EQ(bad.code, 2);
+    EXPECT_NE(bad.err.find("--log takes 10 or e"), std::string::npos);
+    EXPECT_NE(invoke({"--json", "--log", "e", "log(1)"}).out.find("\"expanded\":\"ln(1)\""), std::string::npos);
+    EXPECT_NE(invoke({"--help"}).out.find("--percent"), std::string::npos);
+}
+
+TEST(Cli, CommentsAreShownWithTheirExpression) {
+    const Outcome r = invoke({"--color", "never", "1+1 # two", "# a note"});
+    EXPECT_EQ(r.code, 0);
+    EXPECT_EQ(r.out.substr(0, 14), "1+1 # two\n= 2\n");
+    EXPECT_NE(r.out.find("\n# a note\n"), std::string::npos);
+    EXPECT_EQ(r.err, "");
+    const Outcome json = invoke({"--json", "1+1 # two", "# a note"});
+    EXPECT_NE(json.out.find(",\"comment\":\"two\"}\n"), std::string::npos);
+    EXPECT_NE(json.out.find("{\"expression\":\"# a note\",\"type\":\"double\",\"comment\":\"a note\"}\n"), std::string::npos);
+}
+
+TEST(Cli, ConversionsFollowTheValue) {
+    const Outcome r = invoke({"--color", "never", "0.1 to fraction"});
+    EXPECT_EQ(r.code, 0);
+    EXPECT_NE(r.out.find("\n→ 3602879701896397/36028797018963968\n  ± "), std::string::npos);
+    const Outcome exact = invoke({"--type", "exact", "1/4 to fraction"});
+    EXPECT_EQ(exact.out, "1/4 to fraction\n= 1/4 = 0.25\n→ 1/4\n  exact, no rounding error · κ 2e+0\n");
+    const Outcome json = invoke({"--json", "0.1 to fraction"});
+    EXPECT_NE(json.out.find(",\"conversion\":{\"target\":\"fraction\",\"text\":\"3602879701896397/36028797018963968\"}"),
+              std::string::npos);
+    EXPECT_EQ(invoke({"0.1 to nothing"}).err, "0.1 to nothing\n       ^^^^^^^ Unknown conversion 'nothing'\n");
+}
+
+TEST(Cli, TooManyTermsIsAnErrorCode) {
+    EXPECT_NE(invoke({"--json", "sum(x, 1, 10001)"}).out.find("\"code\":\"TooManyTerms\""), std::string::npos);
+}
+
+TEST(Cli, NotesFollowTheReport) {
+    const Outcome r = invoke({"--color", "never", "sum(x; 5; 1)"});
+    EXPECT_NE(r.out.find("\n  note: sum from 5 to 1 has no terms, so it is 0\n"), std::string::npos);
+    EXPECT_NE(invoke({"--json", "sum(x; 5; 1)"}).out.find(
+                  ",\"warnings\":[{\"code\":\"EmptyRange\",\"message\":\"sum from 5 to 1 has no terms, so it is 0\",\"begin\":0,\"end\":12}]"),
+              std::string::npos);
+    EXPECT_EQ(invoke({"--json", "1+1"}).out.find("warnings"), std::string::npos);  // only when there are some
+}
+
+TEST(Cli, AssignmentsLastForTheSession) {
+    const Outcome r = invoke({"--color", "never", "a := 2", "a*3"});
+    EXPECT_EQ(r.code, 0);
+    EXPECT_NE(r.out.find("a*3\n= 6\n"), std::string::npos);
+    EXPECT_NE(invoke({"--json", "a := 2"}).out.find(",\"assigned\":\"a\""), std::string::npos);
+    EXPECT_EQ(invoke({"pi := 3"}).err, "pi := 3\n^^ 'pi' is a reserved name\n");
+}
+
+TEST(Cli, AnApproximateConversionSaysHowFarItIs) {
+    EXPECT_NE(invoke({"--color", "never", "2.7 to 1/3"}).out.find("\n→ 8/3 (off by 3.3e-2)\n"), std::string::npos);
+    EXPECT_NE(invoke({"--json", "2.7 to 1/3"}).out.find("\"text\":\"8/3\",\"note\":\"off by 3.3e-2\"}"), std::string::npos);
+    EXPECT_NE(invoke({"--color", "never", "2.5 to 1/2"}).out.find("\n→ 5/2\n"), std::string::npos);  // exact: no note
+}
+
+TEST(Cli, JsonCarriesTheReading) {
+    EXPECT_NE(invoke({"--json", "2^3^2"}).out.find(",\"reading\":\"(2 ^ (3 ^ 2))\""), std::string::npos);
+    EXPECT_EQ(invoke({"--color", "never", "2^3^2"}).out.find("reading"), std::string::npos);  // human output unchanged
+}

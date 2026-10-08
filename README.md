@@ -86,6 +86,9 @@ share `Ans` and the memory `M`, which the lines `M+`, `M-` and `MC` update.
 |---|---|
 | `--type <t>` | The number type: `double` by default (see below) |
 | `--angle <u>` | `rad` (default), `deg` or `grad` |
+| `--log 10\|e` | What `log(x)` means: base 10 (default) or natural |
+| `--mod truncated\|floored` | The sign of `mod`: the dividend's (default) or the divisor's |
+| `--percent divide\|of-value` | `x + p%` adds p/100 (default) or p% of x |
 | `--json` | One JSON object per expression |
 | `--color <when>` | `auto` (default), `always` or `never` |
 | `--allow-uncertain` | Let `!`, `nCr`, `gcd`… take arguments that carry an error |
@@ -121,14 +124,23 @@ transcendental functions are unavailable.
 |---|---|
 | Operators | `+  -  *  /  ^` and postfix `!  %  ²  ³`, prefix `√  ∛` (also `×  ÷  −`) |
 | Constants | `pi` (or `π`), `e`, `Ans`, `M` |
-| Roots, powers and logarithms | `sqrt  cbrt  root(x, n)  exp  ln  log(x)  log(x, b)  abs` |
+| Roots, powers and logarithms | `sqrt  cbrt  root(x, n)  exp  ln  log(x)  log10(x)  log(x, b)  abs` |
 | Trigonometry | `sin  cos  tan  asin  acos  atan` and `sinh  cosh  tanh  asinh  acosh  atanh` |
-| Integers | `mod(a, b)  gcd  lcm  nCr  nPr` |
+| Integers | `mod(a, b)  rem(a, b)  floormod(a, b)  gcd  lcm  nCr  nPr` |
 | Statistics | `mean  median  var  stdev  varp  stdevp` of any number of values |
+| Sums and products | `sum(f; from; to)`, `sum(f; from; to; k)`, `product(…)`, also `Σ  ∑  Π  ∏`: the variable is `x` unless named, the limits exact whole numbers |
+| Conversions | `… to fraction` (also `->` and `→`): the same result in another form; `to fraction` alone converts Ans |
+| Comments | `# …` after an expression, or alone as a note: kept in the history, never evaluated |
+| Variables | `name := expression` stores the expression (as text, with names expanded) under any name that is not a constant, function or reserved word; it is recomputed in each number type |
 
-`^` is right-associative, `-2^2` is −4, `%` divides by 100, `log(x)` is base 10 (`log10(x)` is always base 10), and `mod` keeps
-the sign of `a`. There is no implicit multiplication: write `2π` as `2×π`.
+`^` is right-associative and `-2^2` is −4; `**` is `^`, and `·` and `⋅` are `×`. `a mod b`, `a rem b` and `a floormod b` also work between
+their operands. There is no implicit multiplication: write `2π` as `2×π`.
 Arguments are separated by `,` or `;`.
+
+`log(x)` is base 10, `mod(a, b)` keeps the sign of a, and `%` divides by 100, by default; each is a setting
+(`Options::conventions`; `--log e`, `--mod floored`, `--percent of-value` for `calc`). `log10`, `ln`, `rem` (sign
+of a) and `floormod` (sign of b) never change. Results and stored texts (Ans, M) are written with these explicit
+names, so changing a setting never changes what an earlier result means.
 The Spanish names work too: `sen  arcsen  arccos  arctan`, `senh  arcsenh  arccosh  arctanh`,
 `mcd` (gcd) and `mcm` (lcm).
 

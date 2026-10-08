@@ -6,6 +6,7 @@
 
 #include <calculate-core/calculate-core.hpp>
 
+#include <algorithm>
 #include <atomic>
 #include <limits>
 #include <optional>
@@ -35,15 +36,23 @@ inline Ruler times(const Ruler& a, const Ruler& b) {
     return a == 0 || b == 0 ? Ruler(0) : Ruler(a * b);
 }
 
-// Whether the arguments' errors could carry x/y across a whole number k != 0, where a truncated remainder
-// jumps (it is continuous at 0). To first order the jump at k is |x - k*y| away, and the errors move
-// x - k*y by at most bx + |k|*by. The nearest k and its two neighbours are enough.
-inline bool nearJump(const Rational& x, const Rational& y, const Ruler& bx, const Ruler& by) {
+// The Ruler rounds to nearest, so a bound whose parts are all exact (and so equal to the true error) can come out a
+// few ulps low: a point exactly at the end of the error interval must still count as reached. 2^-900 is far above
+// those ulps and far below anything a bound means (the tests allow the same).
+inline Ruler widened(const Ruler& bound) {
+    using std::ldexp;
+    return bound * (Ruler(1) + ldexp(Ruler(1), -900));
+}
+
+// Whether the arguments' errors could carry x/y across a whole number k where a remainder jumps: every k for a
+// floored one, k != 0 for a truncated one (continuous at 0). To first order the jump at k is |x - k*y| away, and
+// the errors move x - k*y by at most bx + |k|*by. The nearest k and its two neighbours are enough.
+inline bool nearJump(const Rational& x, const Rational& y, const Ruler& bx, const Ruler& by, bool jumpsAtZero) {
     const Integer n = floorOf(x / y + Rational(1, 2));  // y != 0: the forward pass succeeded
     for (const Integer& k : {Integer(n - 1), n, Integer(n + 1)}) {
-        if (k == 0) continue;
+        if (k == 0 && !jumpsAtZero) continue;
         const Ruler distance = fromRational<Ruler>(abs(x - Rational(k) * y));
-        if (distance <= bx + fromRational<Ruler>(Rational(abs(k))) * by) return true;
+        if (distance <= widened(bx + fromRational<Ruler>(Rational(abs(k))) * by)) return true;
     }
     return false;
 }
@@ -82,7 +91,8 @@ inline int edgeReached(FunctionId id, const std::vector<Rational>& x, const std:
         const Integer k = floorOf(x[0] / pi);
         return near(x[0], (Rational(k) + Rational(1, 2)) * pi, b[0]) ? 0 : -1;
     }
-    case FunctionId::Mod: return near(x[1], 0, b[1]) ? 1 : -1;
+    case FunctionId::Rem:
+    case FunctionId::FloorMod: return near(x[1], 0, b[1]) ? 1 : -1;
     default: return -1;
     }
 }
@@ -287,6 +297,40 @@ inline std::string formatScientific(const Ruler& x, int significant = 2) {
     return s;
 }
 
+enum class Notation { Scientific, Engineering, Positional };
+
+// The digits of d in a notation, the first `trusted` significant ones apart from the rest. Scientific: one digit
+// before the point; engineering: one to three, the exponent a multiple of 3; positional: no exponent, with leading
+// "0.000" or trailing zeros up to the units. A point goes with the digit after it, so neither part ends in one.
+inline NumberParts formatParts(const DecimalDigits& d, int trusted, Notation notation) {
+    NumberParts p;
+    p.negative = d.negative;
+    const long long n = static_cast<long long>(d.digits.size());
+    const long long e = d.exponent10;
+    long long point;  // the significant digits before the point
+    if (notation == Notation::Positional) {
+        p.hasExponent = false;
+        if (e < 0) {
+            p.trusted = "0." + std::string(static_cast<std::size_t>(-e - 1), '0');
+            point = 0;
+        } else {
+            point = e + 1;
+        }
+    } else {
+        const long long shift = notation == Notation::Engineering ? ((e % 3) + 3) % 3 : 0;
+        point = shift + 1;
+        p.hasExponent = true;
+        p.exponent10 = e - shift;
+    }
+    const long long count = std::max(n, point);  // zeros pad the digits up to the point
+    for (long long i = 0; i < count; ++i) {
+        std::string& part = i < trusted ? p.trusted : p.noise;
+        if (i == point && i > 0) part += '.';
+        part += i < n ? d.digits[static_cast<std::size_t>(i)] : '0';
+    }
+    return p;
+}
+
 // Leading significant digits guaranteed by `error`: floor(-log10(error / |value|)), capped.
 inline int trustedDigits(const Ruler& absValue, const Ruler& error, int digitCount) {
     if (error == 0) return digitCount;
@@ -381,7 +425,7 @@ Evaluation<T> evaluate(const Ast& ast, const Options& options = {}) {
             const Ruler& by = bounds[node.args[1]];
             const Rational x = toRational(fw.values[node.args[0]]);
             const Rational y = toRational(fw.values[node.args[1]]);
-            if ((bx == 0 && by == 0) || !impl::nearJump(x, y, bx, by)) continue;
+            if ((bx == 0 && by == 0) || !impl::nearJump(x, y, bx, by, node.function == FunctionId::FloorMod)) continue;
             if (!options.allowUncertainDiscreteArguments) {
                 ev.error = impl::nodeError(node, ErrorCode::ArgumentNearJump,
                                            errorMessage(ErrorCode::ArgumentNearJump, name) + "; they carry errors of up to "

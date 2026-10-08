@@ -2,6 +2,7 @@
 
 #include "engine.hpp"
 #include "parser.hpp"
+#include "targets.hpp"
 
 #include <utility>
 
@@ -70,15 +71,39 @@ Result build(const Parsed& parsed, const Options& options) {
     r.boundComplete = report.boundComplete;
     r.roundingOperations = report.roundingOperations;
     r.expression = parsed.expanded;
+    r.comment = parsed.comment;
+    r.warnings = parsed.warnings;
+    r.assigned = parsed.assigned;
+    r.reading = parsed.reading;
+    if (parsed.target) {
+        const Rational value = toRational(ev.value);
+        const TargetInput in{parsed, options, value, report};
+        if (auto e = findTarget(parsed.target->name)->apply(in, r)) {
+            Result failed;
+            failed.type = r.type;
+            failed.error = std::move(e);
+            return failed;
+        }
+    }
     return r;
 }
 
 Result evaluateWithNames(std::string_view text, const Options& options, const Names& names) {
-    const Parsed parsed = parse(text, options.angle, names);
+    const Parsed parsed = parse(text, options, names);
     Result r;
     r.type = options.type;
     if (parsed.error) {
         r.error = parsed.error;
+        return r;
+    }
+    if (parsed.commentOnly) {
+        r.comment = parsed.comment;
+        r.commentOnly = true;
+        return r;
+    }
+    if (parsed.target && !findTarget(parsed.target->name)) {
+        const TargetText& t = *parsed.target;
+        r.error = Error{ErrorCode::UnknownTarget, "Unknown conversion '" + t.name + "'", t.span.begin, t.span.begin + t.name.size()};
         return r;
     }
     if (options.type == NumberType::Exact) {
@@ -99,8 +124,9 @@ Result evaluateWithNames(std::string_view text, const Options& options, const Na
     return r;
 }
 
-Names namesOf(const std::string& answer, const std::string& memory) {
-    Names names;
+// The session's names: its variables, then Ans and M.
+Names namesOf(const Session::Variables& variables, const std::string& answer, const std::string& memory) {
+    Names names(variables.begin(), variables.end());
     if (!answer.empty()) names["Ans"] = answer;
     if (!memory.empty()) names["M"] = memory;
     return names;
@@ -121,6 +147,12 @@ std::vector<TypeInfo> numberTypes() {
     };
 }
 
+std::vector<TargetDescription> conversionTargets() {
+    std::vector<TargetDescription> list;
+    for (const Target& t : targets()) list.push_back({std::string(t.name), std::string(t.summary)});
+    return list;
+}
+
 std::vector<FunctionDescription> functions() {
     std::vector<FunctionDescription> list;
     for (int i = 0; i < functionCount; ++i) {
@@ -130,6 +162,8 @@ std::vector<FunctionDescription> functions() {
     }
     for (const char* name : {"mean", "varp", "stdevp"}) list.push_back({name, 1, -1, true});
     for (const char* name : {"var", "stdev"}) list.push_back({name, 2, -1, true});
+    list.push_back({"mod", 2, 2, true});  // the word exists under every convention
+    for (const char* name : {"sum", "product"}) list.push_back({name, 3, 4, true});
     return list;
 }
 
@@ -138,16 +172,24 @@ Result evaluate(std::string_view expression, const Options& options) {
 }
 
 Result Session::evaluate(std::string_view expression, const Options& options) {
-    Result r = evaluateWithNames(expression, options, namesOf(answer_, memory_));
+    Result r = evaluateWithNames(expression, options, namesOf(variables_, answer_, memory_));
     if (!r.error) {
-        answer_ = r.expression;
+        if (!r.commentOnly) answer_ = r.expression;  // a note changes nothing but the history
+        if (!r.assigned.empty()) variables_[r.assigned] = r.expression;
         history_.push_back({std::string(expression), r});
     }
     return r;
 }
 
+bool Session::forget(std::string_view name) {
+    const auto found = variables_.find(name);
+    if (found == variables_.end()) return false;
+    variables_.erase(found);
+    return true;
+}
+
 Result Session::preview(std::string_view expression, const Options& options) const {
-    return evaluateWithNames(expression, options, namesOf(answer_, memory_));
+    return evaluateWithNames(expression, options, namesOf(variables_, answer_, memory_));
 }
 
 bool Session::memoryAdd() {

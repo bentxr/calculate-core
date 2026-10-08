@@ -408,3 +408,348 @@ TEST(Api, MessagesUseTheNameAsWritten) {
     EXPECT_EQ(evaluate("sen(1)", as(NumberType::Exact)).error->message,
               "sen is not available in exact arithmetic: its result is irrational");
 }
+
+TEST(Api, TheRemaindersAreListedAndExact) {
+    int found = 0;
+    for (const FunctionDescription& f : functions())
+        if ((f.name == "rem" || f.name == "mod") && f.minArgs == 2 && f.maxArgs == 2 && f.exact) ++found;
+    EXPECT_EQ(found, 2);
+    EXPECT_EQ(evaluate("rem(-7, 3)").value.digits, "1");
+    EXPECT_TRUE(evaluate("rem(-7, 3)").value.negative);
+}
+
+TEST(Api, AFlooredModuloCanRoundAndSaysSo) {
+    // -1e-30 floormod 1 is exactly 1 - 1e-30 (of the stored -1e-30), which double rounds to 1.
+    const Result r = evaluate("floormod(-1e-30, 1)");
+    ASSERT_FALSE(r.error);
+    EXPECT_EQ(r.value.digits, "1");
+    EXPECT_EQ(r.value.exponent10, 0);
+    EXPECT_EQ(r.roundingError, "1e-30");
+    EXPECT_EQ(r.inputError, "8.3e-47");
+    const Result exact = evaluate("floormod(-7/2, 3)", as(NumberType::Exact));
+    EXPECT_EQ(exact.exact->numerator, "5");
+    EXPECT_EQ(exact.exact->denominator, "2");
+}
+
+TEST(Api, AFlooredModuloAlsoJumpsAtZero) {
+    EXPECT_EQ(evaluate("floormod(0.1+0.2-0.3, 1)").error->code, ErrorCode::ArgumentNearJump);
+    EXPECT_FALSE(evaluate("rem(0.1+0.2-0.3, 1)").error);  // a truncated remainder is continuous at 0
+    EXPECT_EQ(evaluate("floormod(0.7 + 0.1, 0.8)").error->code, ErrorCode::ArgumentNearJump);
+    EXPECT_EQ(evaluate("floormod(5, 0.1+0.2-0.3)").error->code, ErrorCode::ArgumentNearEdge);
+    EXPECT_FALSE(evaluate("floormod(-0.3, 1)").error);
+}
+
+TEST(Session, ChangingAConventionNeverChangesAnEarlierResult) {
+    Session s;
+    Options natural;
+    natural.conventions.log = Conventions::Log::Natural;
+    s.evaluate("log(100)");  // base 10: 2
+    EXPECT_EQ(s.answer(), "log10(100)");
+    const Result r = s.evaluate("Ans + log(1)", natural);  // Ans keeps its meaning; this log is ln
+    EXPECT_EQ(r.value.digits, "2");
+    EXPECT_EQ(r.expression, "(log10(100)) + ln(1)");
+    EXPECT_EQ(s.history()[0].input, "log(100)");  // the history keeps what was typed
+    Options floored;
+    floored.conventions.mod = Conventions::Mod::Floored;
+    EXPECT_EQ(evaluate("mod(-7, 3)", floored).value.digits, "2");
+    EXPECT_FALSE(evaluate("mod(-7, 3)", floored).value.negative);
+    EXPECT_EQ(evaluate("mod(-7, 3)").value.digits, "1");  // the default: truncated, -1
+}
+
+TEST(Api, PercentagesAddedOrSubtractedUnderEachConvention) {
+    Options of;
+    of.conventions.percent = Conventions::Percent::OfValue;
+    const Result up = evaluate("100 + 10%", of);
+    EXPECT_EQ(up.value.digits, "11");
+    EXPECT_EQ(up.value.exponent10, 2);
+    EXPECT_EQ(up.bound, "0");  // 100 × 10 and ÷ 100 are exact
+    EXPECT_EQ(evaluate("100 - 10%", of).value.digits, "9");
+    EXPECT_EQ(evaluate("100 × 10%", of).value.exponent10, 1);  // 10
+    EXPECT_EQ(evaluate("100 ÷ 10%", of).value.exponent10, 3);  // 1000
+    const Result shop = evaluate("19.99 + 21%", of);
+    EXPECT_EQ(shop.value.digits, "241878999999999990677679306827485561370849609375");
+    EXPECT_TRUE(shop.measurementReliable);
+    Options exactOf = of;
+    exactOf.type = NumberType::Exact;
+    const Result exact = evaluate("19.99 + 21%", exactOf);
+    EXPECT_EQ(exact.exact->numerator, "241879");
+    EXPECT_EQ(exact.exact->denominator, "10000");
+    EXPECT_EQ(evaluate("100 + 10% + 5%", exactOf).exact->numerator, "231");  // 231/2, compounded
+    EXPECT_EQ(evaluate("50 - 50%", exactOf).exact->numerator, "25");
+    EXPECT_EQ(evaluate("100 + 10%", as(NumberType::Exact)).exact->numerator, "1001");  // the default: 1001/10
+}
+
+TEST(Session, APercentageKeepsItsMeaningInAns) {
+    Session s;
+    Options of;
+    of.conventions.percent = Conventions::Percent::OfValue;
+    s.evaluate("200 + 10%", of);
+    EXPECT_EQ(s.evaluate("Ans").value.digits, "22");  // 220 under the default too
+}
+
+// Where an elementary function's value is a known rational (ln 1 = 0, cos 0 = 1, log10 1000 = 3), the computed
+// value is checked against it, so a correct kernel claims no error there.
+TEST(Api, ElementaryFunctionsHaveNoErrorAtTheirExactPoints) {
+    for (const NumberType type : {NumberType::Float, NumberType::Double, NumberType::Binary128}) {
+        for (const char* text : {"ln(1)", "log10(1)", "log(1000)", "exp(0)", "sin(0)", "cos(0)", "tan(0)", "asin(0)",
+                                 "acos(1)", "atan(0)", "sinh(0)", "cosh(0)", "tanh(0)", "asinh(0)", "acosh(1)", "atanh(0)"}) {
+            const Result r = evaluate(text, as(type));
+            ASSERT_FALSE(r.error) << text;
+            EXPECT_EQ(r.bound, "0") << text;
+            EXPECT_EQ(r.trustedDigits, r.value.digits == "0" ? 1 : static_cast<int>(r.value.digits.size())) << text;
+        }
+    }
+    EXPECT_EQ(evaluate("ln(1)").value.digits, "0");
+    for (const char* text : {"ln(2)", "log10(0.001)", "sin(1e-300)", "exp(1e-300)", "cos(pi)", "log(1001)"})
+        EXPECT_NE(evaluate(text).bound, "0") << text;  // only the exact points
+}
+
+TEST(Api, CommentsAreKeptButNotEvaluated) {
+    const Result r = evaluate("(5×2)/2 # triangle area");
+    ASSERT_FALSE(r.error);
+    EXPECT_EQ(r.value.digits, "5");
+    EXPECT_EQ(r.comment, "triangle area");
+    EXPECT_EQ(r.expression, "(5×2)/2");
+    EXPECT_FALSE(r.commentOnly);
+    const Result note = evaluate("# shopping list");
+    ASSERT_FALSE(note.error);
+    EXPECT_TRUE(note.commentOnly);
+    EXPECT_EQ(note.comment, "shopping list");
+    EXPECT_TRUE(note.value.digits.empty());
+}
+
+TEST(Session, CommentsStayInTheHistoryButNotInAns) {
+    Session s;
+    s.evaluate("1 + 2 # three");
+    EXPECT_EQ(s.answer(), "1 + 2");
+    EXPECT_EQ(s.evaluate("Ans*2").value.digits, "6");
+    EXPECT_FALSE(s.evaluate("# a note").error);
+    EXPECT_EQ(s.answer(), "(1 + 2)*2");  // a note changes nothing but the history
+    ASSERT_EQ(s.history().size(), 3u);
+    EXPECT_EQ(s.history()[0].input, "1 + 2 # three");
+    EXPECT_EQ(s.history()[0].result.comment, "three");
+    EXPECT_TRUE(s.history()[2].result.commentOnly);
+}
+
+TEST(Api, ToFractionShowsTheStoredValueExactly) {
+    const Result r = evaluate("0.1 to fraction");
+    ASSERT_FALSE(r.error);
+    ASSERT_TRUE(r.conversion);
+    EXPECT_EQ(r.conversion->target, "fraction");
+    EXPECT_EQ(r.conversion->text, "3602879701896397/36028797018963968");
+    EXPECT_EQ(r.value.digits, "1000000000000000055511151231257827021181583404541015625");  // the value and report stay
+    EXPECT_EQ(r.bound, "5.6e-18");
+    EXPECT_EQ(r.expression, "0.1");
+    EXPECT_EQ(evaluate("0.1 to fraction", as(NumberType::Float)).conversion->text, "13421773/134217728");
+    EXPECT_EQ(evaluate("-1/2 -> fraction").conversion->text, "-1/2");
+    EXPECT_EQ(evaluate("6 → fraction", as(NumberType::Exact)).conversion->text, "6");
+    EXPECT_EQ(evaluate("1/3 to fraction", as(NumberType::Exact)).conversion->text, "1/3");
+    EXPECT_FALSE(evaluate("0.1").conversion);
+}
+
+TEST(Api, UnknownTargetsAreErrors) {
+    const Result r = evaluate("0.1 to fractoin");
+    ASSERT_TRUE(r.error);
+    EXPECT_EQ(r.error->code, ErrorCode::UnknownTarget);
+    EXPECT_EQ(r.error->begin, 7u);
+    EXPECT_EQ(r.error->end, 15u);
+    EXPECT_EQ(r.error->message, "Unknown conversion 'fractoin'");
+    EXPECT_EQ(evaluate("0.1 to fraction 3").error->code, ErrorCode::UnexpectedToken);
+    bool listed = false;
+    for (const TargetDescription& t : conversionTargets()) listed = listed || (t.name == "fraction" && !t.summary.empty());
+    EXPECT_TRUE(listed);
+}
+
+TEST(Session, ATargetAloneConvertsAns) {
+    Session s;
+    EXPECT_EQ(s.evaluate("to fraction").error->code, ErrorCode::UnknownName);
+    s.evaluate("0.1");
+    const Result r = s.evaluate("to fraction");
+    ASSERT_FALSE(r.error);
+    EXPECT_EQ(r.conversion->text, "3602879701896397/36028797018963968");
+    EXPECT_EQ(s.answer(), "(0.1)");
+    EXPECT_EQ(s.evaluate("Ans + 0 to fraction").conversion->text, "3602879701896397/36028797018963968");
+    EXPECT_EQ(s.answer(), "((0.1)) + 0");  // the target is never part of Ans
+    EXPECT_EQ(s.history().back().input, "Ans + 0 to fraction");
+}
+
+// Mutation survivors of Checkpoint A (Plan 1).
+TEST(Api, ARemainderNearZeroSeesTheJumpOnItsNegativeSide) {
+    // -0.297 ± 0.83 reaches -1, where rem(x, 1) jumps, but not +1: the nearest whole quotient is 0, so the jump checked
+    // must be its lower neighbour.
+    EXPECT_EQ(evaluate("rem(-1.13 + (0.1+0.2-0.3)*1.5e16, 1)").error->code, ErrorCode::ArgumentNearJump);
+}
+
+TEST(Api, TheLcmWithOneIsExact) {
+    const Result r = evaluate("lcm(5, 1)");
+    EXPECT_EQ(r.value.digits, "5");
+    EXPECT_EQ(r.bound, "0");  // the exact check knows lcm(x, 1) = |x|
+}
+
+TEST(Api, SumsAndProducts) {
+    EXPECT_EQ(evaluate("sum(x^2; 1; 4)").value.digits, "3");  // 30; arguments separated by ; or ,
+    EXPECT_EQ(evaluate("sum(x^2; 1; 4)").value.exponent10, 1);
+    EXPECT_EQ(evaluate("sum(x^2, 1, 4)").value.digits, "3");
+    EXPECT_EQ(evaluate("sum(x^2; 1; 4)").expression, "sum(x^2; 1; 4)");
+    const Result harmonic = evaluate("sum(1/k; 1; 10; k)", as(NumberType::Exact));
+    EXPECT_EQ(harmonic.exact->numerator, "7381");
+    EXPECT_EQ(harmonic.exact->denominator, "2520");
+    EXPECT_EQ(evaluate("product(x, 1, 5)").value.digits, "12");  // 120
+    EXPECT_EQ(evaluate("sum(x^2, -2, 2)").value.digits, "1");    // 10
+    EXPECT_EQ(evaluate("sum(sum(y, 1, x, y), 1, 3)").value.digits, "1");  // 1 + 3 + 6 = 10
+}
+
+TEST(Api, SumAndProductAreListed) {
+    int found = 0;
+    for (const FunctionDescription& f : functions())
+        if ((f.name == "sum" || f.name == "product") && f.minArgs == 3 && f.maxArgs == 4 && f.exact) ++found;
+    EXPECT_EQ(found, 2);
+}
+
+TEST(Api, ASumIsExactlyItsExpansion) {
+    std::string harmonic, sines, alternating;
+    for (int k = 1; k <= 10; ++k) {
+        const std::string i = std::to_string(k), plus = k > 1 ? "+" : "";
+        harmonic += plus + "1/" + i;
+        sines += plus + "sin(" + i + ")";
+        alternating += plus + "(-1)^" + i + "/" + i;
+    }
+    const std::vector<std::pair<std::string, std::string>> cases{
+        {"sum(1/x, 1, 10)", harmonic}, {"sum(sin(x), 1, 10)", sines}, {"sum((-1)^x/x, 1, 10)", alternating}};
+    for (const TypeInfo& t : numberTypes()) {
+        for (const auto& [sum, expansion] : cases) {
+            const Result a = evaluate(sum, as(t.type));
+            const Result b = evaluate(expansion, as(t.type));
+            ASSERT_EQ(a.error.has_value(), b.error.has_value()) << t.label << ": " << sum;
+            if (a.error) continue;  // sin in Exact
+            EXPECT_EQ(a.value.digits, b.value.digits) << t.label << ": " << sum;
+            EXPECT_EQ(a.value.exponent10, b.value.exponent10);
+            EXPECT_EQ(a.bound, b.bound) << t.label << ": " << sum;
+            EXPECT_EQ(a.inputError, b.inputError);
+            EXPECT_EQ(a.roundingError, b.roundingError);
+            EXPECT_EQ(a.libraryError, b.libraryError);
+            EXPECT_EQ(a.measured, b.measured);
+            EXPECT_EQ(a.conditionNumber, b.conditionNumber);
+            EXPECT_EQ(a.trustedDigits, b.trustedDigits);
+            EXPECT_EQ(a.roundingOperations, b.roundingOperations);
+            if (a.exact) {
+                EXPECT_EQ(a.exact->numerator + "/" + a.exact->denominator, b.exact->numerator + "/" + b.exact->denominator);
+            }
+        }
+    }
+}
+
+TEST(Api, TheIndexIsExactUnlessTheTypeCannotHoldIt) {
+    const Result factorials = evaluate("sum(x!, 1, 5)");
+    ASSERT_FALSE(factorials.error);  // the index is exactly known, so ! accepts it (R.4)
+    EXPECT_EQ(factorials.value.digits, "153");
+    EXPECT_EQ(evaluate("sum(x, 16777216, 16777218)").inputError, "0");
+    EXPECT_NE(evaluate("sum(x, 16777216, 16777218)", as(NumberType::Float)).inputError, "0");  // 16777217 needs 25 bits
+}
+
+TEST(Api, CancellationInALongSumShowsInKappa) {
+    const double plain = std::stod(evaluate("sum(1/x, 1, 100)").conditionNumber);
+    const double alternating = std::stod(evaluate("sum((-1)^x/x, 1, 100)").conditionNumber);
+    EXPECT_GT(alternating, plain);
+}
+
+// Found by the long fuzz run: the divisor's bound is exactly its true error (both parts are exact), so the jump at
+// k = -2500 sits exactly at the end of the error interval; the comparison must not depend on the Ruler's last bit.
+TEST(Api, AJumpExactlyAtTheEndOfTheErrorIsSeen) {
+    const Result r = evaluate("mod(2.5, (-(0.1%)))", as(NumberType::LongDouble));
+    ASSERT_TRUE(r.error);
+    EXPECT_EQ(r.error->code, ErrorCode::ArgumentNearJump);
+}
+
+TEST(Api, AnEmptyRangeIsANote) {
+    const Result r = evaluate("sum(x; 5; 1)");
+    ASSERT_FALSE(r.error);
+    EXPECT_EQ(r.value.digits, "0");
+    ASSERT_EQ(r.warnings.size(), 1u);
+    EXPECT_EQ(r.warnings[0].code, WarningCode::EmptyRange);
+    EXPECT_EQ(r.warnings[0].message, "sum from 5 to 1 has no terms, so it is 0");
+    EXPECT_EQ(r.warnings[0].begin, 0u);
+    EXPECT_EQ(r.warnings[0].end, 12u);
+    EXPECT_EQ(evaluate("product(x; 2; 1)").warnings[0].message, "product from 2 to 1 has no terms, so it is 1");
+    EXPECT_EQ(evaluate("1 + sum(x; 5; 1)").warnings[0].begin, 4u);
+    EXPECT_TRUE(evaluate("sum(x; 1; 3)").warnings.empty());
+    EXPECT_TRUE(evaluate("1/0").warnings.empty());
+    EXPECT_TRUE(evaluate("sum(x; 5; 1)", as(NumberType::Exact)).warnings.size() == 1u);  // in every type
+}
+
+TEST(Session, VariablesHoldExpressions) {
+    Session s;
+    const Result r = s.evaluate("a := 0.1 + 0.2");
+    ASSERT_FALSE(r.error);
+    EXPECT_EQ(r.assigned, "a");
+    EXPECT_EQ(s.variables().at("a"), "0.1 + 0.2");
+    EXPECT_EQ(s.answer(), "0.1 + 0.2");
+    EXPECT_EQ(s.evaluate("a*10").expression, "(0.1 + 0.2)*10");
+    const Result exact = s.evaluate("a", as(NumberType::Exact));  // recomputed in the new type
+    EXPECT_EQ(exact.exact->numerator, "3");
+    EXPECT_EQ(exact.exact->denominator, "10");
+    s.evaluate("b := a*2");
+    EXPECT_EQ(s.variables().at("b"), "(0.1 + 0.2)*2");  // names already expanded
+    s.evaluate("a := 1");
+    EXPECT_EQ(s.evaluate("b").value.digits.substr(0, 4), "6000");  // b keeps its own text: 0.6000000000000000888…
+    EXPECT_TRUE(s.forget("a"));
+    EXPECT_FALSE(s.forget("a"));
+    EXPECT_EQ(s.evaluate("a").error->code, ErrorCode::UnknownName);
+    s.evaluate("x := 100");
+    EXPECT_EQ(s.evaluate("sum(x, 1, 3)").value.digits, "6");  // the bound variable wins inside the sum
+    EXPECT_EQ(s.evaluate("x").value.exponent10, 2);
+    EXPECT_EQ(evaluate("c := 2").assigned, "c");  // without a session nothing is stored
+    s.clearVariables();
+    EXPECT_TRUE(s.variables().empty());
+}
+
+TEST(Api, NotationTargetsShowEveryDigitWithTheBar) {
+    const Result sci = evaluate("0.1 to sci");
+    ASSERT_TRUE(sci.conversion && sci.conversion->parts);
+    EXPECT_EQ(sci.conversion->text, "1.000000000000000|055511151231257827021181583404541015625e-1");
+    EXPECT_EQ(sci.conversion->parts->trusted, "1.000000000000000");
+    EXPECT_EQ(evaluate("123456.789 to eng").conversion->text, "123.4567890000000|04307366907596588134765625e+3");
+    EXPECT_EQ(evaluate("1e25 to simple").conversion->text, "1000000000000000|0905969664");
+    EXPECT_EQ(evaluate("0.125 to sci").conversion->text, "1.25e-1");  // exact: no bar
+    EXPECT_EQ(evaluate("7/3 to sci", as(NumberType::Exact)).conversion->text, "2.(3)e+0");
+    EXPECT_EQ(evaluate("1/7 to sci", as(NumberType::Exact)).conversion->text, "1.(428571)e-1");
+    EXPECT_EQ(evaluate("1/30 to eng", as(NumberType::Exact)).conversion->text, "33.(3)e-3");
+    EXPECT_EQ(evaluate("1/8 to simple", as(NumberType::Exact)).conversion->text, "0.125");
+    EXPECT_EQ(evaluate("0.1 to sci 3").error->code, ErrorCode::UnexpectedToken);
+}
+
+TEST(Api, AnExactPeriodStartsAsEarlyAsItCan) {
+    EXPECT_EQ(evaluate("100/3 to sci", as(NumberType::Exact)).conversion->text, "3.(3)e+1");
+    EXPECT_EQ(evaluate("1/13 to sci", as(NumberType::Exact)).conversion->text, "7.(692307)e-2");  // rotated from 0.(076923)
+    EXPECT_EQ(evaluate("1/7 to eng", as(NumberType::Exact)).conversion->text, "142.(857142)e-3");
+}
+
+TEST(Api, MixedNumbersAndPercentages) {
+    EXPECT_EQ(evaluate("7/3 to mixed", as(NumberType::Exact)).conversion->text, "2 + 1/3");
+    EXPECT_EQ(evaluate("-7/3 to mixed", as(NumberType::Exact)).conversion->text, "-(2 + 1/3)");
+    EXPECT_EQ(evaluate("1/3 to mixed", as(NumberType::Exact)).conversion->text, "1/3");
+    EXPECT_EQ(evaluate("6 to mixed", as(NumberType::Exact)).conversion->text, "6");
+    EXPECT_EQ(evaluate("2.7 to mixed").conversion->text, "2 + 788129934789837/1125899906842624");  // the stored value
+    EXPECT_EQ(evaluate("0.125 to percent").conversion->text, "12.5%");
+    const Result tenth = evaluate("0.1 to percent");
+    EXPECT_EQ(tenth.conversion->text, "10.00000000000000|055511151231257827021181583404541015625%");
+    EXPECT_EQ(tenth.conversion->parts->suffix, "%");
+    EXPECT_EQ(evaluate("1/3 to percent", as(NumberType::Exact)).conversion->text, "33.(3)%");
+}
+
+TEST(Api, AFixedDenominatorSaysHowFarItIs) {
+    const Result r = evaluate("2.7 to 1/3");
+    ASSERT_TRUE(r.conversion);
+    EXPECT_EQ(r.conversion->target, "1/n");
+    EXPECT_EQ(r.conversion->text, "8/3");
+    EXPECT_EQ(r.conversion->note, "off by 3.3e-2");
+    EXPECT_EQ(evaluate("2.7 to 1/4").conversion->text, "11/4");
+    EXPECT_EQ(evaluate("2.7 to 1/4").conversion->note, "off by -5e-2");
+    EXPECT_EQ(evaluate("2.5 to 1/2").conversion->note, "");  // exact: nothing to say
+    EXPECT_EQ(evaluate("-2.5 to 1/1").conversion->text, "-3/1");  // halves away from zero
+    EXPECT_EQ(evaluate("1 to 1/0").error->code, ErrorCode::UnexpectedToken);
+    EXPECT_EQ(evaluate("1 to 1/x").error->code, ErrorCode::UnexpectedToken);
+    bool listed = false;
+    for (const TargetDescription& t : conversionTargets()) listed = listed || t.name == "1/n";
+    EXPECT_TRUE(listed);
+}

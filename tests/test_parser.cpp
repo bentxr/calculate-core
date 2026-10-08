@@ -244,22 +244,22 @@ TEST(Parser, ExactArithmeticRefusesTranscendentals) {
 
 namespace {
 
-// Text to report, the way the facade will do it: parse, check exactness, evaluate.
+// Text to report, the way the facade does it: parse, check exactness, evaluate. (Plan 3 uses it too.)
 template <class T>
-Evaluation<T> evaluateText(std::string_view text, AngleUnit angle = AngleUnit::Radians) {
+Evaluation<T> evaluateText(std::string_view text, const Options& options = {}) {
     Evaluation<T> ev;
-    const Parsed p = parse(text, angle);
+    const Parsed p = parse(text, options);
     if (p.error) { ev.error = p.error; return ev; }
     if constexpr (isExact<T>) {
         if (auto e = checkExact(p.ast)) { ev.error = e; return ev; }
     }
-    return evaluate<T>(p.ast);
+    return detail::evaluate<T>(p.ast, options);
 }
 
 }  // namespace
 
 TEST(EndToEnd, SineOfOneEightyDegreesIsNotZeroAndSaysWhy) {
-    const Evaluation<double> ev = evaluateText<double>("sin(180)", AngleUnit::Degrees);
+    const Evaluation<double> ev = evaluateText<double>("sin(180)", [] { Options o; o.angle = AngleUnit::Degrees; return o; }());
     ASSERT_FALSE(ev.error);
     EXPECT_NE(ev.value, 0.0);
     EXPECT_LT(std::abs(ev.value), 1e-15);
@@ -365,4 +365,362 @@ TEST(Parser, OtherSpellingsNameTheFunctionItself) {
     EXPECT_EQ(p.ast.nodes[1].written, "sen");  // 1, sin, 2, log10, +
     EXPECT_EQ(p.ast.nodes[3].written, "log10");
     EXPECT_EQ(p.ast.nodes[4].written, "");     // operators have no name
+}
+
+TEST(Parser, RemIsTheTruncatedRemainderAndModSpellsIt) {
+    EXPECT_EQ(tree("rem(-7, 3)"), "(rem (neg 7) 3)");
+    EXPECT_EQ(tree("mod(-7, 3)"), "(rem (neg 7) 3)");  // the default convention; 1.04 makes it a setting
+}
+
+namespace {
+
+std::string treeWith(std::string_view text, const Options& options, const Names& names = {}) {
+    const Parsed p = parse(text, options, names);
+    if (p.error) return "error: " + p.error->message;
+    return sexpr(p.ast, p.ast.root());
+}
+
+Options conventions(Conventions::Log log, Conventions::Mod mod) {
+    Options o;
+    o.conventions.log = log;
+    o.conventions.mod = mod;
+    return o;
+}
+
+}  // namespace
+
+TEST(Parser, ConventionsDecideWhatLogAndModMean) {
+    const Options base10 = conventions(Conventions::Log::Base10, Conventions::Mod::Truncated);
+    const Options natural = conventions(Conventions::Log::Natural, Conventions::Mod::Floored);
+    EXPECT_EQ(treeWith("log(100)", base10), "(log 100)");
+    EXPECT_EQ(treeWith("log(100)", natural), "(ln 100)");
+    EXPECT_EQ(treeWith("log(8, 2)", natural), "(logb 8 2)");  // two arguments: always the base
+    EXPECT_EQ(treeWith("log10(100)", natural), "(log 100)");  // explicit names never change
+    EXPECT_EQ(treeWith("mod(-7, 3)", base10), "(rem (neg 7) 3)");
+    EXPECT_EQ(treeWith("mod(-7, 3)", natural), "(floormod (neg 7) 3)");
+    EXPECT_EQ(treeWith("rem(-7, 3)", natural), "(rem (neg 7) 3)");
+}
+
+TEST(Parser, StoredTextsUseTheCanonicalSpelling) {
+    const Options base10 = conventions(Conventions::Log::Base10, Conventions::Mod::Truncated);
+    const Options natural = conventions(Conventions::Log::Natural, Conventions::Mod::Floored);
+    EXPECT_EQ(parse("log(100) + mod(7, 3)", base10).expanded, "log10(100) + rem(7, 3)");
+    EXPECT_EQ(parse("log(100) + mod(7, 3)", natural).expanded, "ln(100) + floormod(7, 3)");
+    EXPECT_EQ(parse("log(8, 2) + sen(1)", natural).expanded, "log(8, 2) + sen(1)");  // nothing ambiguous
+    EXPECT_EQ(parse("Ans*log(2)", natural, {{"Ans", "log10(5)"}}).expanded, "(log10(5))*ln(2)");
+}
+
+TEST(Parser, APercentageOfTheValueWhenTheConventionSaysSo) {
+    Options of;
+    of.conventions.percent = Conventions::Percent::OfValue;
+    EXPECT_EQ(treeWith("200+10%", of), "(+ 200 (/ (* 200 10) 100))");
+    EXPECT_EQ(treeWith("200-10%", of), "(- 200 (/ (* 200 10) 100))");
+    EXPECT_EQ(treeWith("200+(10%)", of), "(+ 200 (% 10))");   // parentheses block it
+    EXPECT_EQ(treeWith("200/10%", of), "(/ 200 (% 10))");     // only + and −
+    EXPECT_EQ(treeWith("200+2*10%", of), "(+ 200 (* 2 (% 10)))");  // only a whole percentage operand
+    EXPECT_EQ(treeWith("10%+200", of), "(+ (% 10) 200)");
+    EXPECT_EQ(tree("200+10%"), "(+ 200 (% 10))");             // the default divides
+    const Parsed p = parse("200+10%", of);
+    ASSERT_FALSE(p.error);
+    EXPECT_EQ(p.ast.nodes.size(), 6u);  // 200, 10, *, 100, /, +: 200 is shared and no % node is left behind
+}
+
+TEST(Parser, PercentagesAreWrittenOutInStoredTexts) {
+    Options of;
+    of.conventions.percent = Conventions::Percent::OfValue;
+    EXPECT_EQ(parse("200+10%", of).expanded, "200+((200)×(10))÷100");
+    EXPECT_EQ(parse("200+10%", AngleUnit::Radians).expanded, "200+(10%)");
+    EXPECT_EQ(parse("1+2-5%", of).expanded, "1+2-((1+2)×(5))÷100");
+    EXPECT_EQ(parse("Ans+10%", of, {{"Ans", "50"}}).expanded, "(50)+(((50))×(10))÷100");
+    EXPECT_EQ(parse("200*10%", of).expanded, "200*10%");  // nothing ambiguous
+}
+
+TEST(Parser, AnInfixPercentSuggestsRem) {
+    const Error e = parseError("3%2");
+    EXPECT_EQ(e.code, ErrorCode::MissingOperator);
+    EXPECT_NE(e.message.find("rem(3, 2)"), std::string::npos);
+}
+
+TEST(Lexer, ACommentEndsTheExpression) {
+    const Lexed l = lex("(5×2)/2 # triangle area");
+    ASSERT_FALSE(l.error);
+    EXPECT_EQ(kinds(l), (std::vector<TokenKind>{TokenKind::LeftParen, TokenKind::Number, TokenKind::Star, TokenKind::Number,
+                                                TokenKind::RightParen, TokenKind::Slash, TokenKind::Number, TokenKind::End}));
+    EXPECT_EQ(l.tokens.back().span.begin, 9u);  // End sits where the comment starts
+    ASSERT_TRUE(l.comment);
+    EXPECT_EQ(l.comment->begin, 11u);  // "triangle area", without the spaces around it
+    EXPECT_EQ(l.comment->end, 24u);
+    const Lexed bare = lex("1 + 2 #");
+    ASSERT_TRUE(bare.comment);
+    EXPECT_EQ(bare.comment->begin, bare.comment->end);
+    EXPECT_FALSE(lex("1 + 2").comment);
+    const Lexed note = lex("# only $ € here");  // nothing after # is lexed
+    ASSERT_FALSE(note.error);
+    EXPECT_EQ(kinds(note), (std::vector<TokenKind>{TokenKind::End}));
+}
+
+TEST(Parser, ACommentIsKeptApart) {
+    const Parsed p = parse("Ans*2 # twice", AngleUnit::Radians, {{"Ans", "1+2"}});
+    ASSERT_FALSE(p.error);
+    EXPECT_EQ(p.expanded, "(1+2)*2");  // the expression only, without the space before '#'
+    EXPECT_EQ(p.comment, "twice");
+    EXPECT_FALSE(p.commentOnly);
+    const Parsed note = parse("  # just a note ", AngleUnit::Radians);
+    ASSERT_FALSE(note.error);
+    EXPECT_TRUE(note.commentOnly);
+    EXPECT_EQ(note.comment, "just a note");
+    EXPECT_TRUE(note.ast.nodes.empty());
+    EXPECT_EQ(parseError("1 + # oops").code, ErrorCode::UnexpectedEnd);
+}
+
+TEST(Lexer, ToEndsTheExpressionAndKeepsItsTarget) {
+    const Lexed l = lex("0.1 to fraction # tenth");
+    ASSERT_FALSE(l.error);
+    EXPECT_EQ(kinds(l), (std::vector<TokenKind>{TokenKind::Number, TokenKind::End}));
+    ASSERT_TRUE(l.keyword);
+    EXPECT_EQ(l.keyword->begin, 4u);
+    EXPECT_EQ(l.keyword->end, 6u);
+    EXPECT_EQ(l.target.begin, 7u);
+    EXPECT_EQ(l.target.end, 15u);
+    ASSERT_TRUE(l.comment);
+    EXPECT_EQ(l.comment->begin, 18u);
+    EXPECT_EQ(l.tokens.back().span.begin, 4u);
+    for (const char* text : {"0.1 -> fraction", "0.1 → fraction", "0.1to fraction"}) {
+        const Lexed a = lex(text);
+        ASSERT_FALSE(a.error) << text;
+        EXPECT_TRUE(a.keyword) << text;
+    }
+    EXPECT_FALSE(lex("total + 1").keyword);  // only the whole word
+    const Lexed inside = lex("(1 to fraction)");
+    ASSERT_TRUE(inside.error);
+    EXPECT_EQ(inside.error->code, ErrorCode::UnexpectedToken);
+    EXPECT_EQ(inside.error->begin, 3u);
+    EXPECT_EQ(inside.error->end, 5u);
+}
+
+TEST(Parser, ATargetFollowsTheExpression) {
+    const Parsed p = parse("0.1 + 0.2 to base 32 # x", AngleUnit::Radians);
+    ASSERT_FALSE(p.error);
+    EXPECT_EQ(sexpr(p.ast, p.ast.root()), "(+ 0.1 0.2)");
+    EXPECT_EQ(p.expanded, "0.1 + 0.2");
+    ASSERT_TRUE(p.target);
+    EXPECT_EQ(p.target->name, "base");
+    EXPECT_EQ(p.target->argument, "32");
+    EXPECT_EQ(p.target->span.begin, 13u);
+    EXPECT_EQ(p.target->span.end, 20u);
+    EXPECT_EQ(p.comment, "x");
+    EXPECT_FALSE(parse("0.1", AngleUnit::Radians).target);
+    EXPECT_EQ(parseError("1 + 2 to").code, ErrorCode::UnexpectedEnd);
+    EXPECT_EQ(parseError("1 + to fraction").code, ErrorCode::UnexpectedEnd);
+}
+
+TEST(Parser, ATargetAloneConvertsThePreviousResult) {
+    const Parsed p = parse("to fraction", AngleUnit::Radians, {{"Ans", "1+2"}});
+    ASSERT_FALSE(p.error);
+    EXPECT_EQ(sexpr(p.ast, p.ast.root()), "(+ 1 2)");
+    EXPECT_EQ(p.expanded, "(1+2)");
+    EXPECT_EQ(p.ast.nodes[0].span.begin, 0u);  // its nodes point at the keyword
+    EXPECT_EQ(p.ast.nodes[0].span.end, 2u);
+    EXPECT_EQ(parseError("→ fraction").code, ErrorCode::UnknownName);  // no Ans yet
+}
+
+TEST(Parser, SumsAndProductsAreWrittenOutTermByTerm) {
+    EXPECT_EQ(tree("sum(x^2, 1, 3)"), "(+ (+ (^ 1 2) (^ 2 2)) (^ 3 2))");
+    EXPECT_EQ(tree("product(k, 1, 3, k)"), "(* (* 1 2) 3)");
+    EXPECT_EQ(tree("sum(x, -1, 1)"), "(+ (+ (neg 1) 0) 1)");
+    EXPECT_EQ(tree("sum(1, 1, 1)"), "1");
+    EXPECT_EQ(tree("sum(x, 5, 1)"), "0");  // an empty range
+    EXPECT_EQ(tree("product(x, 5, 1)"), "1");
+    EXPECT_EQ(tree("sum(x, 1, 2) + x"), "error: Unknown name 'x'");  // the variable lives inside only
+    EXPECT_EQ(tree("sum(sum(y, 1, x, y), 1, 3)"), "(+ (+ 1 (+ 1 2)) (+ (+ 1 2) 3))");  // a limit may use an outer variable
+}
+
+TEST(Parser, ATermPointsAtItsPlaceInTheBody) {
+    const Parsed p = parse("sum(1/x, 1, 2)", AngleUnit::Radians);
+    ASSERT_FALSE(p.error);
+    const Node& divide = p.ast.nodes[2];  // 1, x = 1, /: the limits' nodes were dropped after use
+    EXPECT_EQ(divide.function, FunctionId::Divide);
+    EXPECT_EQ(divide.span.begin, 4u);
+    EXPECT_EQ(divide.span.end, 7u);
+    EXPECT_EQ(p.expanded, "sum(1/x, 1, 2)");
+}
+
+TEST(Parser, LimitsAreExactWholeNumbers) {
+    EXPECT_EQ(tree("sum(x, 1, 2+1)"), "(+ (+ 1 2) 3)");
+    EXPECT_EQ(tree("sum(x, 1, 0.1*30)"), "(+ (+ 1 2) 3)");  // exactly 3, whatever the number type
+    const Error half = parseError("sum(x, 1, 5/2)");
+    EXPECT_EQ(half.code, ErrorCode::NotAnInteger);
+    EXPECT_EQ(half.begin, 10u);
+    EXPECT_EQ(half.end, 13u);
+    EXPECT_EQ(half.message, "The limits of sum must be exact whole numbers");
+    EXPECT_EQ(parseError("sum(x, 1, pi)").code, ErrorCode::NotAnInteger);
+    EXPECT_EQ(parseError("sum(x, 1, sqrt(2))").code, ErrorCode::IrrationalResult);
+    EXPECT_EQ(parseError("sum(x, 1, 1/0)").code, ErrorCode::DivisionByZero);
+    std::atomic<bool> stop{true};
+    Options cancelled;
+    cancelled.cancel = &stop;
+    EXPECT_EQ(parse("sum(x; 1; 2)", cancelled).error->code, ErrorCode::Cancelled);
+}
+
+TEST(Parser, SumArgumentErrors) {
+    EXPECT_EQ(parseError("sum(x, 1)").code, ErrorCode::WrongArgumentCount);
+    EXPECT_EQ(parseError("sum(x, 1, 2, 3)").code, ErrorCode::UnexpectedToken);    // the 4th is a name
+    EXPECT_EQ(parseError("sum(x, 1, 2, pi)").code, ErrorCode::UnexpectedToken);   // not a constant
+    EXPECT_EQ(parseError("sum(x, 1, 2, sin)").code, ErrorCode::UnexpectedToken);  // nor a function
+    EXPECT_EQ(parseError("sum(sum(x, 1, 2), 1, 3)").code, ErrorCode::UnexpectedToken);  // x is taken by the outer sum
+    EXPECT_EQ(parseError("sum(x+, 1, 2)").code, ErrorCode::UnexpectedToken);
+    EXPECT_EQ(parseError("sum(x+, 5, 1)").code, ErrorCode::UnexpectedToken);  // an empty range still checks its body
+    EXPECT_EQ(parseError("sum(x, 1, 2").code, ErrorCode::MissingClosingParenthesis);
+    EXPECT_EQ(parseError("sum + 1").code, ErrorCode::UnexpectedToken);  // needs its arguments in parentheses
+}
+
+TEST(Parser, NamesInsideASumExpandOnce) {
+    const Parsed p = parse("sum(Ans*x, 1, Ans)", AngleUnit::Radians, {{"Ans", "2"}});
+    ASSERT_FALSE(p.error);
+    EXPECT_EQ(p.expanded, "sum((2)*x, 1, (2))");
+    EXPECT_EQ(sexpr(p.ast, p.ast.root()), "(+ (* 2 1) (* 2 2))");
+}
+
+TEST(Parser, SumsHaveATermLimit) {
+    const Parsed p = parse("sum(x, 1, 10000)", AngleUnit::Radians);
+    ASSERT_FALSE(p.error);
+    EXPECT_EQ(p.ast.nodes.size(), 19999u);  // 10000 literals and 9999 additions
+    const Error e = parseError("sum(x, 1, 10001)");
+    EXPECT_EQ(e.code, ErrorCode::TooManyTerms);
+    EXPECT_EQ(e.begin, 0u);
+    EXPECT_EQ(e.end, 16u);
+    EXPECT_EQ(e.message, "sum is limited to 10000 terms");
+    EXPECT_EQ(parseError("sum(sum(y, 1, 100, y), 1, 101)").code, ErrorCode::TooManyTerms);  // inner terms count too
+}
+
+TEST(Lexer, SumAndProductSymbolsAreNames) {
+    const Lexed l = lex("Σ(x, 1, 2)");
+    ASSERT_FALSE(l.error);
+    EXPECT_EQ(l.tokens[0].kind, TokenKind::Identifier);
+    EXPECT_EQ(l.tokens[0].text, "Σ");
+}
+
+TEST(Parser, SumAndProductSymbols) {
+    EXPECT_EQ(tree("Σ(x, 1, 3)"), tree("sum(x, 1, 3)"));
+    EXPECT_EQ(tree("∑(x, 1, 3)"), tree("sum(x, 1, 3)"));
+    EXPECT_EQ(tree("Π(x, 1, 3)"), tree("product(x, 1, 3)"));
+    EXPECT_EQ(tree("∏(x, 1, 3)"), tree("product(x, 1, 3)"));
+    EXPECT_NE(tree("π"), tree("Π(x, 1, 3)"));  // π is pi, Π is a product
+}
+
+template <class T>
+class SumTest : public ::testing::Test {};
+TYPED_TEST_SUITE(SumTest, test::FloatingTypes, test::TypeNames);
+
+// Against the exact rational sum: the bound covers the true error, and grows with the count.
+TYPED_TEST(SumTest, TheBoundCoversTheTrueErrorAndGrowsWithTheCount) {
+    using T = TypeParam;
+    using std::abs;
+    Ruler previous = 0;
+    for (const char* text : {"sum(1/x, 1, 10)", "sum(1/x, 1, 100)", "sum(1/x, 1, 1000)"}) {
+        const Evaluation<T> ev = evaluateText<T>(text);
+        const Evaluation<Rational> exact = evaluateText<Rational>(text);
+        ASSERT_FALSE(ev.error) << text;
+        ASSERT_FALSE(exact.error) << text;
+        const Ruler error = fromRational<Ruler>(abs(toRational(ev.value) - exact.value));
+        EXPECT_TRUE(test::covers(ev.report.bound, error)) << text;
+        EXPECT_GT(ev.report.bound, previous) << text;
+        previous = ev.report.bound;
+    }
+}
+
+// Mutation survivors of Plan 1's checkpoint 1.29.
+TEST(Lexer, ANumberMayStartWithItsPoint) {
+    EXPECT_EQ(tree(".5"), ".5");
+    EXPECT_EQ(tree("1+.5"), "(+ 1 .5)");
+}
+
+TEST(Lexer, AStrayClosingParenthesisDoesNotHideAnOpenOne) {
+    const Lexed l = lex("2)+(3 to fraction");  // `to` is inside the second pair
+    ASSERT_TRUE(l.error);
+    EXPECT_EQ(l.error->code, ErrorCode::UnexpectedToken);
+    EXPECT_EQ(l.error->begin, 6u);
+}
+
+TEST(Parser, ANameExpandsAfterEarlierNodes) {
+    EXPECT_EQ(sexpr(parse("2*Ans", AngleUnit::Radians, {{"Ans", "1+2"}}).ast,
+                    parse("2*Ans", AngleUnit::Radians, {{"Ans", "1+2"}}).ast.root()),
+              "(* 2 (+ 1 2))");
+}
+
+TEST(Parser, AnEmptyVariableArgumentPointsAtTheCall) {
+    const Error e = parseError("sum(x, 1, 2, )");
+    EXPECT_EQ(e.code, ErrorCode::UnexpectedToken);
+    EXPECT_EQ(e.begin, 0u);
+    EXPECT_EQ(e.end, 14u);
+}
+
+TEST(Lexer, AssignmentIsOneToken) {
+    const Lexed l = lex("a := 1");
+    ASSERT_FALSE(l.error);
+    EXPECT_EQ(kinds(l), (std::vector<TokenKind>{TokenKind::Identifier, TokenKind::Assign, TokenKind::Number, TokenKind::End}));
+    EXPECT_EQ(l.tokens[1].span.begin, 2u);
+    EXPECT_EQ(l.tokens[1].span.end, 4u);
+    EXPECT_TRUE(lex("a : 1").error);  // ':' alone is not part of the language
+}
+
+TEST(Parser, AnAssignmentNamesTheExpression) {
+    const Parsed p = parse("a := 0.1 + 0.2 # sum", AngleUnit::Radians);
+    ASSERT_FALSE(p.error);
+    EXPECT_EQ(p.assigned, "a");
+    EXPECT_EQ(sexpr(p.ast, p.ast.root()), "(+ 0.1 0.2)");
+    EXPECT_EQ(p.expanded, "0.1 + 0.2");  // what is stored: the expression only
+    EXPECT_EQ(parse("x := 2", AngleUnit::Radians).assigned, "x");
+    for (const char* text : {"pi := 3", "e := 3", "sin := 1", "sen := 1", "mean := 1", "sum := 1", "Ans := 1", "M := 1"})
+        EXPECT_EQ(parseError(text).code, ErrorCode::ReservedName) << text;
+    EXPECT_EQ(parseError("1 := 2").code, ErrorCode::UnexpectedToken);
+    EXPECT_EQ(parseError("(a := 1)").code, ErrorCode::UnexpectedToken);
+    EXPECT_EQ(parseError("a := b := 1").code, ErrorCode::UnexpectedToken);
+    EXPECT_EQ(parseError("a := ").code, ErrorCode::UnexpectedEnd);
+}
+
+TEST(Parser, OtherSpellingsOfPowerAndProduct) {
+    EXPECT_EQ(tree("2**3"), "(^ 2 3)");
+    EXPECT_EQ(tree("2**3**2"), "(^ 2 (^ 3 2))");  // right to left, like ^
+    EXPECT_EQ(tree("2·3"), "(* 2 3)");
+    EXPECT_EQ(tree("2⋅3"), "(* 2 3)");
+    const Lexed l = lex("2**3");
+    ASSERT_FALSE(l.error);
+    EXPECT_EQ(kinds(l), (std::vector<TokenKind>{TokenKind::Number, TokenKind::Caret, TokenKind::Number, TokenKind::End}));
+    EXPECT_EQ(l.tokens[1].span.end - l.tokens[1].span.begin, 2u);
+    EXPECT_EQ(tree("2*-3"), "(* 2 (neg 3))");  // a single * stays a product
+}
+
+TEST(Parser, RemaindersBetweenTheirOperands) {
+    EXPECT_EQ(tree("7 mod 3"), "(rem 7 3)");
+    EXPECT_EQ(tree("-7 rem 3 * 2"), "(* (rem (neg 7) 3) 2)");  // binds like ×, after the sign
+    EXPECT_EQ(tree("7 floormod -3"), "(floormod 7 (neg 3))");
+    EXPECT_EQ(tree("2 + 7 mod 3"), "(+ 2 (rem 7 3))");
+    EXPECT_EQ(tree("mod(7, 3)"), "(rem 7 3)");  // the call still works
+    EXPECT_EQ(parse("7 mod 3", AngleUnit::Radians).expanded, "7 rem 3");
+    Options floored;
+    floored.conventions.mod = Conventions::Mod::Floored;
+    EXPECT_EQ(treeWith("-7 mod 3", floored), "(floormod (neg 7) 3)");
+    EXPECT_EQ(parse("-7 mod 3", floored).expanded, "-7 floormod 3");
+    EXPECT_EQ(parseError("7 mod").code, ErrorCode::UnexpectedEnd);
+    EXPECT_EQ(parseError("mod 3").code, ErrorCode::UnexpectedToken);  // a word operator needs a left operand
+}
+
+TEST(Parser, TheCanonicalReading) {
+    const auto reading = [](std::string_view text, const Options& o = Options{}) { return parse(text, o).reading; };
+    EXPECT_EQ(reading("2^3^2"), "(2 ^ (3 ^ 2))");
+    EXPECT_EQ(reading("1+2*3"), "(1 + (2 × 3))");
+    EXPECT_EQ(reading("-2^2"), "-(2 ^ 2)");
+    EXPECT_EQ(reading("200+10%"), "(200 + (10%))");
+    Options of;
+    of.conventions.percent = Conventions::Percent::OfValue;
+    EXPECT_EQ(reading("200+10%", of), "(200 + ((200 × 10) ÷ 100))");
+    EXPECT_EQ(reading("log(100)"), "log10(100)");
+    EXPECT_EQ(reading("mod(7, 3)"), "rem(7; 3)");
+    EXPECT_EQ(reading("sum(1/x; 1; 3)"), "Σ((1 ÷ x); 1; 3; x)");
+    Options degrees;
+    degrees.angle = AngleUnit::Degrees;
+    EXPECT_EQ(reading("sin(90)", degrees), "sin(90)");  // the angle conversion stays hidden
+    EXPECT_EQ(reading("5!+√4"), "(5! + √(4))");
+    EXPECT_EQ(parse("Ans*2", Options{}, {{"Ans", "1+2"}}).reading, "((1 + 2) × 2)");
 }

@@ -82,7 +82,8 @@ inline const FunctionInfo& functionInfo(FunctionId id) {
         {F::Acosh, "acosh", 1, 1, C::Library, K::Continuous, false},
         {F::Atanh, "atanh", 1, 1, C::Library, K::Continuous, false},
         {F::Abs, "abs", 1, 1, C::Exact, K::Continuous, true},
-        {F::Mod, "mod", 2, 2, C::Exact, K::Piecewise, true},
+        {F::Rem, "rem", 2, 2, C::Exact, K::Piecewise, true},
+        {F::FloorMod, "floormod", 2, 2, C::Checked, K::Piecewise, true},  // can round: -1e-30 floormod 1
         {F::Gcd, "gcd", 2, 2, C::Exact, K::Discrete, true},
         {F::Lcm, "lcm", 2, 2, C::Checked, K::Discrete, true},
         {F::Ncr, "nCr", 2, 2, C::Counted, K::Discrete, true},
@@ -167,18 +168,14 @@ bool isInteger(const T& x) {
     }
 }
 
-// x must be an integer. Values of at least 2^p are all even.
+// x must be an integer of an inexact type (the kernels' only use). Values of at least 2^p are all even.
 template <class T>
 bool isOdd(const T& x) {
-    if constexpr (isExact<T>) {
-        return (numerator(x) & 1) != 0;
-    } else {
-        using std::abs;
-        using std::ldexp;
-        using std::trunc;
-        if (abs(x) >= ldexp(T(1), precisionBits<T>())) return false;
-        return trunc(x / 2) * 2 != x;
-    }
+    using std::abs;
+    using std::ldexp;
+    using std::trunc;
+    if (abs(x) >= ldexp(T(1), precisionBits<T>())) return false;
+    return trunc(x / 2) * 2 != x;
 }
 
 inline bool cancelled(const std::atomic<bool>* cancel) {
@@ -317,6 +314,25 @@ Applied<T> kernel(FunctionId id, const std::vector<T>& a) {
         if (e.underflow) return ok<T>(T(0));
         return ok<T>(withSign(toValue(expValue(e)), negative));
     };
+    // The odd functions with f(x) = x (1 + c x²), |c| <= 1/3: below 2^-(p/2+1) the relative difference from x is under
+    // u/6, so x itself is within the claim. The kernels below scale their argument, which would drop the low bits of
+    // a subnormal one.
+    switch (id) {
+    case FunctionId::Sin:
+    case FunctionId::Tan:
+    case FunctionId::Asin:
+    case FunctionId::Atan:
+    case FunctionId::Sinh:
+    case FunctionId::Tanh:
+    case FunctionId::Asinh:
+    case FunctionId::Atanh: {
+        using std::abs;
+        using std::ldexp;
+        if (abs(x) < ldexp(T(1), -(precisionBits<T>() / 2 + 1))) return ok<T>(x);
+        break;
+    }
+    default: break;
+    }
     switch (id) {
     case FunctionId::Exp: return fromExp(expParts(dw(x)), false);
     case FunctionId::Sqrt: {
@@ -460,12 +476,14 @@ Applied<T> applyFunction(FunctionId id, const std::vector<T>& a, const std::atom
         r.value = abs(a[0]);
         break;
     }
-    case FunctionId::Mod: {  // truncated, like fmod, and exact
+    case FunctionId::FloorMod:  // floored: the sign of the divisor
+    case FunctionId::Rem: {     // truncated: the sign of the dividend, like fmod
         if (a[1] == 0) return impl::fail<T>(ErrorCode::DivisionByZero);
         const Rational x = toRational(a[0]);
         const Rational y = toRational(a[1]);
         const Rational q = x / y;
-        r.value = fromRational<T>(x - y * Rational(numerator(q) / denominator(q)));
+        const Integer whole = id == FunctionId::FloorMod ? floorOf(q) : Integer(numerator(q) / denominator(q));
+        r.value = fromRational<T>(x - y * Rational(whole));  // exact, then one correct rounding into T
         break;
     }
     case FunctionId::Median: {
@@ -546,7 +564,11 @@ std::vector<R> partials(FunctionId id, const std::vector<R>& a, const R& v) {
     case FunctionId::Acosh: return {x == 1 ? inf : R(R(1) / sqrt(x * x - 1))};
     case FunctionId::Atanh: return {R(1) / (R(1) - x * x)};
     case FunctionId::Abs: return {x < 0 ? R(-1) : R(1)};
-    case FunctionId::Mod: return {R(1), R(-trunc(a[0] / a[1]))};
+    case FunctionId::Rem: return {R(1), R(-trunc(a[0] / a[1]))};
+    case FunctionId::FloorMod: {
+        using std::floor;
+        return {R(1), R(-floor(a[0] / a[1]))};
+    }
     case FunctionId::Median: {  // the selected element (or the two middle ones) gets the weight
         std::vector<int> order(a.size());
         for (std::size_t i = 0; i < a.size(); ++i) order[i] = static_cast<int>(i);
@@ -742,9 +764,21 @@ inline std::vector<Ruler> slopes(FunctionId id, const std::vector<Ruler>& a, con
     case FunctionId::Square: return {2 * (abs(a[0]) + b[0])};
     case FunctionId::Cube: return {3 * (abs(a[0]) + b[0]) * (abs(a[0]) + b[0])};
     case FunctionId::Power: return impl::powerSlopes(a, b);
-    case FunctionId::Mod: {  // between its jumps: |trunc(x/y)| is largest at the largest |x| over the smallest |y|
+    case FunctionId::Rem: {  // between its jumps: |trunc(x/y)| is largest at the largest |x| over the smallest |y|
         const Ruler nearest = abs(a[1]) - b[1];
         return {Ruler(1), nearest > 0 ? Ruler(floor((abs(a[0]) + b[0]) / nearest)) : inf};
+    }
+    case FunctionId::FloorMod: {  // floor is monotonic: |floor(x/y)| is largest at an end of the quotient's interval
+        if (abs(a[1]) - b[1] <= 0) return {Ruler(1), inf};
+        Ruler low = inf, high = -inf;
+        for (const int sx : {-1, 1})
+            for (const int sy : {-1, 1}) {
+                const Ruler q = (a[0] + sx * b[0]) / (a[1] + sy * b[1]);
+                low = q < low ? q : low;
+                high = q > high ? q : high;
+            }
+        const Ruler l = abs(floor(low)), h = abs(floor(high));
+        return {Ruler(1), l > h ? l : h};
     }
     case FunctionId::Root: return impl::rootSlopes(a, b);
     case FunctionId::LogBase: return impl::logBaseSlopes(a, b);
@@ -779,6 +813,7 @@ inline std::optional<Rational> exactResult(FunctionId id, const std::vector<Rati
     case FunctionId::Subtract: return a[0] - a[1];
     case FunctionId::Multiply: return a[0] * a[1];
     case FunctionId::Divide: return a[1] == 0 ? std::optional<Rational>() : a[0] / a[1];
+    case FunctionId::FloorMod: return a[1] == 0 ? std::optional<Rational>() : a[0] - a[1] * Rational(floorOf(a[0] / a[1]));
     case FunctionId::Percent: return a[0] / 100;
     case FunctionId::Square: return a[0] * a[0];
     case FunctionId::Cube: return a[0] * a[0] * a[0];
@@ -816,6 +851,38 @@ bool exactRootResult(FunctionId id, const std::vector<T>& a, const T& value) {
     return false;
 }
 
+// The value of a one-argument elementary function where it is a known rational: ln 1 = 0, exp 0 = 1, sin 0 = 0,
+// cos 0 = 1, acos 1 = 0, log10 10^k = k…; nothing elsewhere.
+inline std::optional<Rational> exactPoint(FunctionId id, const Rational& x) {
+    switch (id) {
+    case FunctionId::Exp: return x == 0 ? std::optional<Rational>(1) : std::nullopt;
+    case FunctionId::Cos:
+    case FunctionId::Cosh: return x == 0 ? std::optional<Rational>(1) : std::nullopt;
+    case FunctionId::Sin:
+    case FunctionId::Tan:
+    case FunctionId::Asin:
+    case FunctionId::Atan:
+    case FunctionId::Sinh:
+    case FunctionId::Tanh:
+    case FunctionId::Asinh:
+    case FunctionId::Atanh: return x == 0 ? std::optional<Rational>(0) : std::nullopt;
+    case FunctionId::Ln:
+    case FunctionId::Acos:
+    case FunctionId::Acosh: return x == 1 ? std::optional<Rational>(0) : std::nullopt;
+    case FunctionId::Log10: {  // a whole power of ten (a binary type holds no negative ones)
+        if (x < 1 || denominator(x) != 1) return std::nullopt;
+        Integer n = numerator(x);
+        int k = 0;
+        while (n % 10 == 0) {
+            n /= 10;
+            ++k;
+        }
+        return n == 1 ? std::optional<Rational>(k) : std::nullopt;
+    }
+    default: return std::nullopt;
+    }
+}
+
 }  // namespace impl
 
 // A bound on |exact f(args) - computed value| for one node, with its arguments taken as exact.
@@ -835,6 +902,8 @@ Ruler localError(FunctionId id, const std::vector<T>& args, const Applied<T>& ap
                 return fromRational<Ruler>(abs(exact - toRational(applied.value)));
         }
         if (impl::exactRootResult(id, args, applied.value)) return Ruler(0);
+        if (args.size() == 1)
+            if (const auto exact = impl::exactPoint(id, exactArgs[0])) return fromRational<Ruler>(abs(*exact - toRational(applied.value)));
         switch (functionInfo(id).errorClass) {
         case ErrorClass::Exact: return Ruler(0);
         case ErrorClass::Checked: {
