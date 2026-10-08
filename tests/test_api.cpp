@@ -1053,3 +1053,12 @@ TEST(Api, AValueTooLongToWriteOutIsShownInBinary) {
     EXPECT_EQ(r.trustedDigits, 0);
     EXPECT_FALSE(evaluate("0.1").binaryValue);  // short values stay decimal
 }
+
+// Mutation survivors (Plan 3's checkpoint).
+TEST(Units, ACubeCubesTheUnit) {
+    EXPECT_EQ(evaluate("c³").unit, "m³·s⁻³");
+}
+
+TEST(Api, AWholePowerOfAnArgumentNearZeroIsAllowed) {
+    EXPECT_FALSE(evaluate("(0.1+0.2-0.3)^2").error);  // smooth at 0: only fractional exponents meet an edge there
+}

@@ -43,3 +43,10 @@ TEST(Units, NamesOfUnits) {
     half.exponents[0] = Rational(1, 2);
     EXPECT_EQ(unitName(half), "m^(1/2)");                       // fractional exponents are written out
 }
+
+// Mutation survivors (Plan 3's checkpoint): the named units past the first few.
+TEST(Units, MoreNamedUnits) {
+    EXPECT_EQ(unitName(of({-1, 1, -2})), "Pa");
+    EXPECT_EQ(unitName(of({-2, -1, 4, 2})), "F");
+    EXPECT_EQ(unitName(of({2, 1, -3, -2})), "\xCE\xA9");
+}
