@@ -1022,3 +1022,18 @@ TEST(Uncertainty, ToConciseAndToPlusMinus) {
     for (const TargetDescription& t : conversionTargets()) listed = listed || t.name == "concise";
     EXPECT_TRUE(listed);
 }
+
+TEST(Api, PhysicalConstantsComeInGroups) {
+    const std::set<std::string> groups{"Universal", "Electromagnetic", "Atomic and nuclear", "Physico-chemical", "Particle masses",
+                                       "Planck units"};
+    for (const ConstantDescription& c : constants()) {
+        if (c.category == "physical") {
+            EXPECT_TRUE(groups.count(c.group)) << c.name;
+        } else {
+            EXPECT_EQ(c.group, "") << c.name;
+        }
+        if (c.name == "G") {
+            EXPECT_EQ(c.group, "Universal");
+        }
+    }
+}

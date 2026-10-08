@@ -237,11 +237,11 @@ std::vector<ConstantDescription> constants() {
                                       {"sqrt2", "square root of 2"}, {"phi", "golden ratio"}, {"egamma", "Euler–Mascheroni constant"},
                                       {"catalan", "Catalan's constant"}, {"apery", "Apéry's constant, ζ(3)"},
                                       {"plastic", "plastic ratio"}, {"omega", "omega constant, W(1)"}})
-        list.push_back({name, title, "mathematical", "", "", "", "", false});
+        list.push_back({name, title, "mathematical", "", "", "", "", false, ""});
     for (const NumberName& n : numberNames)
-        list.push_back({std::string(n.name), std::string(n.title), "number name", std::string(n.literal), "", "", "", true});
+        list.push_back({std::string(n.name), std::string(n.title), "number name", std::string(n.literal), "", "", "", true, ""});
     for (const PhysicalConstant& c : physicalConstants) {
-        ConstantDescription d{std::string(c.name), std::string(c.quantity), "physical", std::string(c.nistValue), "", "", "", false};
+        ConstantDescription d{std::string(c.name), std::string(c.quantity), "physical", std::string(c.nistValue), "", "", "", false, ""};
         if (const std::size_t pm = c.definition.find("+/-"); pm != std::string_view::npos) {
             d.uncertainty = std::string(c.definition.substr(pm + 3));
             d.limit = formatScientific(fromRational<Ruler>(Rational(3) * toRational(*parseDecimal(d.uncertainty))));
@@ -255,6 +255,7 @@ std::vector<ConstantDescription> constants() {
         }
         const Parsed p = parse(c.name, Options{});
         d.exact = !p.error && !checkExact(p.ast);
+        d.group = std::string(c.group);
         list.push_back(std::move(d));
     }
     return list;

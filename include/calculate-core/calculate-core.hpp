@@ -109,6 +109,7 @@ struct ConstantDescription {
     std::string limit;        // the ± the calculator uses, three standard uncertainties: "4.5e-15"; "" when exact
     std::string unit;         // the SI unit ("m³·kg⁻¹·s⁻²"), NIST's text when not SI ("MeV"); "" for pure numbers
     bool exact = false;       // usable in the Exact type
+    std::string group;        // physical ones, for lists: "Universal", "Electromagnetic", "Particle masses"…; "" otherwise
 };
 
 std::vector<ConstantDescription> constants();

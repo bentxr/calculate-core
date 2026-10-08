@@ -60,7 +60,7 @@ def generate():
     for line in open(os.path.join(here, 'physical-constants.tsv'), encoding='utf-8'):
         if line.startswith('#') or not line.strip():
             continue
-        name, quantity, definition = (line.rstrip('\n').split('\t') + [''])[:3]
+        name, quantity, definition, group = (line.rstrip('\n').split('\t') + ['', ''])[:4]
         if quantity not in codata:
             sys.exit(f'{name}: no quantity "{quantity}" in codata-2022.txt')
         if name in names:
@@ -75,7 +75,7 @@ def generate():
         coherent, exponents = dimension(name, unit)
         rows.append(f'    {{{literal(name)}, {literal(quantity)}, {literal(definition)}, {literal(value)}, '
                     f'{literal(unit)}, {{{", ".join(str(e) for e in exponents)}}}, {"true" if coherent else "false"}, '
-                    f'{"true" if exact else "false"}}},')
+                    f'{"true" if exact else "false"}, {literal(group)}}},')
     return '\n'.join([
         '#pragma once',
         '',
@@ -96,6 +96,7 @@ def generate():
         '    std::array<signed char, 7> dimension;  // exponents of m, kg, s, A, K, mol, cd; zeros when not coherent',
         '    bool coherent;                // its unit is SI (MeV, u, eV… are not: no dimension then)',
         '    bool exact;                   // exact by the definition of the SI',
+        '    std::string_view group;       // for lists: "Universal", "Electromagnetic", "Particle masses"…',
         '};',
         '',
         f'inline constexpr std::array<PhysicalConstant, {len(rows)}> physicalConstants{{{{',
