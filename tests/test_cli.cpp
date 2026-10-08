@@ -237,3 +237,60 @@ TEST(Cli, DescribesOptionalAndRepeatedArguments) {
     EXPECT_EQ(invoke({"--info", "log"}).out.rfind("log(x[, base]) ", 0), 0u);
     EXPECT_EQ(invoke({"--info", "var"}).out.rfind("var(value, value, …) ", 0), 0u);
 }
+
+TEST(Cli, ResultsShowTheirUnit) {
+    EXPECT_NE(invoke({"--color", "never", "c"}).out.find("\n= 299792458 m·s⁻¹\n"), std::string::npos);
+    EXPECT_NE(invoke({"--json", "c"}).out.find(",\"unit\":\"m·s⁻¹\""), std::string::npos);
+    EXPECT_EQ(invoke({"--json", "2+2"}).out.find("\"unit\""), std::string::npos);  // only when there is one
+    EXPECT_NE(invoke({"--color", "never", "c+1"}).out.find("\n  note: the units of c (m·s⁻¹) and 1 (none) differ\n"),
+              std::string::npos);
+}
+
+TEST(Cli, UncertainInputs) {
+    const Outcome r = invoke({"--color", "never", "(3±0.4)*(4±0.3)"});
+    EXPECT_EQ(r.out,
+              "(3±0.4)*(4±0.3)\n"
+              "= |12\n"
+              "  ± 0  input 0 · rounding 0 · library 0\n"
+              "  measured 0 · κ 2e+0 · all digits trusted\n"
+              "  uncertainty ± 2.5e+0 worst case · ± 1.8e+0 statistical · 12.0(25) · 0 trusted digits with it\n"
+              "  from 3±0.4: 1.6e+0 · 4±0.3: 9e-1\n");
+    const Outcome q = invoke({"--color", "never", "--uncertainty", "statistical", "(3±0.4)*(4±0.3)"});
+    EXPECT_NE(q.out.find("  uncertainty ± 1.8e+0 statistical · ± 2.5e+0 worst case · 12.0(18) · 0 trusted digits with it\n"),
+              std::string::npos);
+    const Outcome p = invoke({"--color", "never", "--read-precision", "decimals", "1.1*3.20"});
+    EXPECT_NE(p.out.find("  from 1.1: 1.6e-1 · 3.20: 5.5e-3\n"), std::string::npos);
+    EXPECT_NE(invoke({"--color", "never", "(0±1)^2"}).out.find("  note: first order unreliable: at the corners the result moved by 1e+0\n"),
+              std::string::npos);
+    // sqrt(0.05±0.1): the limit reaches below 0, where sqrt is undefined: refused, as every edge.
+    EXPECT_NE(invoke({"--color", "never", "sqrt(0.05±0.1)"}).err.find("not defined or not smooth"), std::string::npos);
+    const Outcome e = invoke({"--type", "exact", "1/3±0.1"});  // 1/(3±0.1): ± binds tighter than ÷
+    EXPECT_EQ(e.out, "1/3±0.1\n= 1/3 = 0.(3)\n  exact, no rounding error · κ 2e+0\n"
+                     "  uncertainty ± 1.1e-2 worst case · ± 1.1e-2 statistical · 0.333(11)\n"
+                     "  from 3±0.1: 1.1e-2\n");
+    EXPECT_EQ(invoke({"--uncertainty", "sometimes", "1"}).code, 2);
+    EXPECT_EQ(invoke({"--read-precision", "some", "1"}).code, 2);
+}
+
+TEST(Cli, JsonUncertainty) {
+    const Outcome r = invoke({"--json", "(3±0.4)*(4±0.3)"});
+    EXPECT_NE(r.out.find(",\"uncertainty\":{\"rule\":\"worst\",\"worst\":\"2.5e+0\",\"statistical\":\"1.8e+0\","
+                         "\"trustedDigits\":0,\"concise\":\"12.0(25)\",\"plusMinus\":\"12.0 ± 2.5\","
+                         "\"firstOrderReliable\":true,\"firstOrderObserved\":\"2.6e+0\",\"inputs\":["
+                         "{\"name\":\"3±0.4\",\"uncertainty\":\"4e-1\",\"sensitivity\":\"4e+0\",\"contribution\":\"1.6e+0\"},"
+                         "{\"name\":\"4±0.3\",\"uncertainty\":\"3e-1\",\"sensitivity\":\"3e+0\",\"contribution\":\"9e-1\"}]}"),
+              std::string::npos);
+    EXPECT_EQ(invoke({"--json", "2+2"}).out.find("uncertainty"), std::string::npos);
+}
+
+TEST(Cli, ListsTheConstants) {
+    const Outcome r = invoke({"--list-constants"});
+    EXPECT_EQ(r.code, 0);
+    EXPECT_EQ(r.out.substr(0, r.out.find('\n')), "± is the limit the calculator uses: three of CODATA's standard uncertainties");
+    EXPECT_NE(r.out.find("G = 6.67430e-11 ± 4.5e-15 m³·kg⁻¹·s⁻²  (Newtonian constant of gravitation)\n"),
+              std::string::npos);
+    EXPECT_NE(r.out.find("c = 299792458 m·s⁻¹  (speed of light in vacuum)\n"), std::string::npos);
+    EXPECT_NE(r.out.find("phi  (golden ratio)\n"), std::string::npos);
+    EXPECT_NE(r.out.find("dozen = 12  (one dozen (12))\n"), std::string::npos);
+    EXPECT_NE(r.out.find("billion = 1e12  (one billion (10^12))\n"), std::string::npos);
+}

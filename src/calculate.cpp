@@ -38,12 +38,29 @@ std::string longDoubleNote() {
     return "";
 }
 
+// An uncertain input's name: its source text, without parentheses that enclose all of it ("(3±0.4)" → "3±0.4").
+std::string sourceName(std::string_view text, Span span) {
+    std::string_view name = text.substr(span.begin, span.end - span.begin);
+    while (name.size() >= 2 && name.front() == '(' && name.back() == ')') {
+        int depth = 0;
+        bool whole = true;  // the first '(' closes at the last byte
+        for (std::size_t i = 0; i + 1 < name.size(); ++i) {
+            depth += name[i] == '(' ? 1 : name[i] == ')' ? -1 : 0;
+            if (depth == 0) whole = false;
+        }
+        if (!whole) break;
+        name = name.substr(1, name.size() - 2);
+    }
+    return std::string(name);
+}
+
 template <class T>
-Result build(const Parsed& parsed, const Options& options) {
+Result build(const Parsed& parsed, const Options& options, std::string_view text) {
     using std::abs;
     Result r;
     r.type = options.type;
-    const Evaluation<T> ev = detail::evaluate<T>(parsed.ast, options);
+    r.uncertaintyRule = options.uncertaintyRule;
+    const Evaluation<T> ev = detail::evaluate<T>(parsed.ast, options, text);
     if (ev.error) {
         r.error = ev.error;
         return r;
@@ -60,6 +77,9 @@ Result build(const Parsed& parsed, const Options& options) {
         const int count = static_cast<int>(d.digits.size());
         r.trustedDigits = trustedDigits(magnitude, report.bound, count);
         if (report.measuredAvailable) r.trustedDigitsMeasured = trustedDigits(magnitude, report.measured, count);
+        const Uncertainty& u = report.uncertainty;
+        const Ruler lead = options.uncertaintyRule == UncertaintyRule::Linear ? u.linear : u.quadrature;
+        r.trustedDigitsWithUncertainty = trustedDigits(magnitude, report.bound + lead, count);
     }
     r.bound = formatScientific(report.bound);
     r.inputError = formatScientific(report.input);
@@ -76,6 +96,32 @@ Result build(const Parsed& parsed, const Options& options) {
     r.warnings = parsed.warnings;
     r.assigned = parsed.assigned;
     r.reading = parsed.reading;
+    const Uncertainty& u = report.uncertainty;
+    const Ruler lead = options.uncertaintyRule == UncertaintyRule::Linear ? u.linear : u.quadrature;
+    const UncertainForms forms = uncertainForms(toRational(ev.value), report.bound + lead);
+    r.uncertaintyShown = Digits{forms.shown.negative, forms.shown.digits, forms.shown.exponent10};
+    r.concise = forms.concise;
+    r.plusMinus = forms.plusMinus;
+    if (!u.sources.empty()) {
+        for (const UncertainSource& source : u.sources)
+            r.uncertainInputs.push_back({sourceName(text, parsed.ast.nodes[static_cast<std::size_t>(source.node)].span),
+                                         formatScientific(source.uncertainty), formatScientific(source.sensitivity),
+                                         formatScientific(source.contribution)});
+        r.uncertaintyLinear = formatScientific(u.linear);
+        r.uncertaintyQuadrature = formatScientific(u.quadrature);
+    }
+    r.unitKnown = report.unit.kind == UnitState::Kind::Known;
+    if (r.unitKnown) r.unit = unitName(report.unit.dimension);
+    r.warnings.insert(r.warnings.end(), report.unitNotes.begin(), report.unitNotes.end());
+    r.firstOrderChecked = u.checked;
+    r.firstOrderReliable = u.reliable;
+    if (u.checked) r.firstOrderObserved = formatScientific(u.observed);
+    if (u.checked && !u.reliable) {
+        const std::string message = r.firstOrderObserved == "inf"
+                                        ? "first order unreliable: an input shifted by its limit leaves a function's domain"
+                                        : "first order unreliable: at the corners the result moved by " + r.firstOrderObserved;
+        r.warnings.push_back({WarningCode::FirstOrderUnreliable, message, 0, text.size()});
+    }
     if (parsed.target) {
         const Rational value = toRational(ev.value);
         const TargetInput in{parsed, options, value, report};
@@ -114,13 +160,13 @@ Result evaluateWithNames(std::string_view text, const Options& options, const Na
         }
     }
     switch (options.type) {  // the one place where a runtime type meets a compile-time T
-    case NumberType::Float: return build<float>(parsed, options);
-    case NumberType::Double: return build<double>(parsed, options);
-    case NumberType::LongDouble: return build<long double>(parsed, options);
-    case NumberType::Exact: return build<Rational>(parsed, options);
-    case NumberType::Binary128: return build<Binary128>(parsed, options);
-    case NumberType::Binary256: return build<Binary256>(parsed, options);
-    case NumberType::Binary512: return build<Binary512>(parsed, options);
+    case NumberType::Float: return build<float>(parsed, options, text);
+    case NumberType::Double: return build<double>(parsed, options, text);
+    case NumberType::LongDouble: return build<long double>(parsed, options, text);
+    case NumberType::Exact: return build<Rational>(parsed, options, text);
+    case NumberType::Binary128: return build<Binary128>(parsed, options, text);
+    case NumberType::Binary256: return build<Binary256>(parsed, options, text);
+    case NumberType::Binary512: return build<Binary512>(parsed, options, text);
     }
     return r;
 }
@@ -184,6 +230,36 @@ std::vector<FunctionDescription> functions() {
 }
 
 std::vector<std::string> functionCategories() { return categories(); }
+
+std::vector<ConstantDescription> constants() {
+    std::vector<ConstantDescription> list;
+    for (const auto& [name, title] : {std::pair<const char*, const char*>{"pi", "pi"}, {"e", "Euler's number"}, {"tau", "tau, 2π"},
+                                      {"sqrt2", "square root of 2"}, {"phi", "golden ratio"}, {"egamma", "Euler–Mascheroni constant"},
+                                      {"catalan", "Catalan's constant"}, {"apery", "Apéry's constant, ζ(3)"},
+                                      {"plastic", "plastic ratio"}, {"omega", "omega constant, W(1)"}})
+        list.push_back({name, title, "mathematical", "", "", "", "", false, ""});
+    for (const NumberName& n : numberNames)
+        list.push_back({std::string(n.name), std::string(n.title), "number name", std::string(n.literal), "", "", "", true, ""});
+    for (const PhysicalConstant& c : physicalConstants) {
+        ConstantDescription d{std::string(c.name), std::string(c.quantity), "physical", std::string(c.nistValue), "", "", "", false, ""};
+        if (const std::size_t pm = c.definition.find("+/-"); pm != std::string_view::npos) {
+            d.uncertainty = std::string(c.definition.substr(pm + 3));
+            d.limit = formatScientific(fromRational<Ruler>(Rational(3) * toRational(*parseDecimal(d.uncertainty))));
+        }
+        if (c.coherent) {
+            Dimension dimension;
+            for (std::size_t i = 0; i < dimension.exponents.size(); ++i) dimension.exponents[i] = c.dimension[i];
+            d.unit = unitName(dimension);
+        } else {
+            d.unit = std::string(c.unit);
+        }
+        const Parsed p = parse(c.name, Options{});
+        d.exact = !p.error && !checkExact(p.ast);
+        d.group = std::string(c.group);
+        list.push_back(std::move(d));
+    }
+    return list;
+}
 
 Result evaluate(std::string_view expression, const Options& options) {
     return evaluateWithNames(expression, options, {});

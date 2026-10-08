@@ -4,6 +4,7 @@
 #include "functions.hpp"
 #include "numbers.hpp"
 #include "uncertainty.hpp"
+#include "units.hpp"
 
 #include <calculate-core/calculate-core.hpp>
 
@@ -153,50 +154,6 @@ inline bool zeroPowerNearJump(const std::vector<Rational>& x, const std::vector<
 
 }  // namespace impl
 
-// Evaluates every node in T. The first error stops the pass and carries the failing node's span.
-template <class T>
-// `shifts` (when given) moves nodes' values by that much as they are computed (an uncertain quantity at a corner).
-Forward<T> forward(const Ast& ast, const std::atomic<bool>* cancel = nullptr, const std::vector<Rational>* shifts = nullptr) {
-    Forward<T> fw;
-    fw.values.resize(ast.nodes.size());
-    fw.roundings.assign(ast.nodes.size(), 0);
-    fw.scales.assign(ast.nodes.size(), T(0));
-    for (std::size_t i = 0; i < ast.nodes.size(); ++i) {
-        const Node& node = ast.nodes[i];
-        if (cancel && cancel->load(std::memory_order_relaxed)) {
-            fw.error = impl::nodeError(node, ErrorCode::Cancelled, errorMessage(ErrorCode::Cancelled, ""));
-            return fw;
-        }
-        if (node.function == FunctionId::Literal) {
-            // An exact literal beyond 10^±1000000 cannot be materialized in reasonable time or memory.
-            const auto literal = parseDecimal(node.text);
-            const bool outOfRange = !literal || (isExact<T> && (literal->exponent10 > exactDigitsLimit
-                                                                || literal->exponent10 < -exactDigitsLimit));
-            if (!outOfRange) fw.values[i] = decimalTo<T>(*literal);
-            if (outOfRange || !isFinite(fw.values[i])) {
-                fw.error = impl::nodeError(node, ErrorCode::LiteralOutOfRange,
-                                           errorMessage(ErrorCode::LiteralOutOfRange, ""));
-                return fw;
-            }
-            continue;
-        }
-        std::vector<T> args;
-        for (const int a : node.args) args.push_back(fw.values[a]);
-        const Applied<T> r = applyFunction<T>(node.function, args, cancel);
-        if (r.error) {
-            // A lowering's division by zero is a point where the written function is not defined.
-            const ErrorCode code = node.lowered && *r.error == ErrorCode::DivisionByZero ? ErrorCode::DomainError : *r.error;
-            fw.error = impl::nodeError(node, code, errorMessage(code, nameOf(node)));
-            return fw;
-        }
-        fw.values[i] = r.value;
-        if (shifts && (*shifts)[i] != 0) fw.values[i] = fromRational<T>(toRational(r.value) + (*shifts)[i]);
-        fw.roundings[i] = r.roundings;
-        fw.scales[i] = r.scale;
-    }
-    return fw;
-}
-
 // Each node's own error: input error for literals and constants, rounding or library error otherwise.
 template <class T>
 std::vector<Ruler> localErrors(const Ast& ast, const Forward<T>& fw) {
@@ -206,9 +163,8 @@ std::vector<Ruler> localErrors(const Ast& ast, const Forward<T>& fw) {
         const Node& node = ast.nodes[i];
         if (node.function == FunctionId::Literal) {
             locals[i] = fromRational<Ruler>(abs(toRational(*parseDecimal(node.text)) - toRational(fw.values[i])));
-        } else if (node.function == FunctionId::Pi || node.function == FunctionId::E) {
-            const ConstantId c = node.function == FunctionId::Pi ? ConstantId::Pi : ConstantId::E;
-            locals[i] = fromRational<Ruler>(abs(constantRational(c) - toRational(fw.values[i])));
+        } else if (const auto c = tableConstant(node.function)) {
+            locals[i] = fromRational<Ruler>(abs(constantRational(*c) - toRational(fw.values[i])));
         } else {
             std::vector<T> args;
             for (const int a : node.args) args.push_back(fw.values[a]);
@@ -268,6 +224,63 @@ inline Adjoints adjoints(const Ast& ast, const std::vector<std::vector<Ruler>>& 
     return adjoints(ast, partials, magnitudes);
 }
 
+// Evaluates every node in T. The first error stops the pass and carries the failing node's span.
+template <class T>
+// `shifts` (when given) moves nodes' values by that much as they are computed (an uncertain quantity at a corner).
+Forward<T> forward(const Ast& ast, const std::atomic<bool>* cancel = nullptr, const std::vector<Rational>* shifts = nullptr) {
+    Forward<T> fw;
+    fw.values.resize(ast.nodes.size());
+    fw.roundings.assign(ast.nodes.size(), 0);
+    fw.scales.assign(ast.nodes.size(), T(0));
+    for (std::size_t i = 0; i < ast.nodes.size(); ++i) {
+        const Node& node = ast.nodes[i];
+        if (cancel && cancel->load(std::memory_order_relaxed)) {
+            fw.error = impl::nodeError(node, ErrorCode::Cancelled, errorMessage(ErrorCode::Cancelled, ""));
+            return fw;
+        }
+        if (node.function == FunctionId::Literal) {
+            // An exact literal beyond 10^±1000000 cannot be materialized in reasonable time or memory.
+            const auto literal = parseDecimal(node.text);
+            const bool outOfRange = !literal || (isExact<T> && (literal->exponent10 > exactDigitsLimit
+                                                                || literal->exponent10 < -exactDigitsLimit));
+            if (!outOfRange) fw.values[i] = decimalTo<T>(*literal);
+            if (outOfRange || !isFinite(fw.values[i])) {
+                fw.error = impl::nodeError(node, ErrorCode::LiteralOutOfRange,
+                                           errorMessage(ErrorCode::LiteralOutOfRange, ""));
+                return fw;
+            }
+            continue;
+        }
+        if (node.function == FunctionId::ErrorPart) {  // its argument's worst-case uncertainty, as a number
+            const std::size_t a = static_cast<std::size_t>(node.args[0]);
+            Ast sub;
+            sub.nodes.assign(ast.nodes.begin(), ast.nodes.begin() + static_cast<std::ptrdiff_t>(a + 1));
+            Forward<T> prefix;
+            prefix.values.assign(fw.values.begin(), fw.values.begin() + static_cast<std::ptrdiff_t>(a + 1));
+            prefix.roundings.assign(fw.roundings.begin(), fw.roundings.begin() + static_cast<std::ptrdiff_t>(a + 1));
+            prefix.scales.assign(fw.scales.begin(), fw.scales.begin() + static_cast<std::ptrdiff_t>(a + 1));
+            const Adjoints adj = adjoints(sub, nodePartials<T>(sub, prefix));
+            fw.values[i] = fromRational<T>(toRational(combine(sub, adj.signedAdj, userUncertainties(sub, prefix.values)).linear));
+            continue;
+        }
+        std::vector<T> args;
+        for (const int a : node.args) args.push_back(fw.values[a]);
+        const Applied<T> r = applyFunction<T>(node.function, args, cancel);
+        if (r.error) {
+            // A lowering's division by zero is a point where the written function is not defined.
+            const ErrorCode code = node.lowered && *r.error == ErrorCode::DivisionByZero ? ErrorCode::DomainError : *r.error;
+            fw.error = impl::nodeError(node, code, errorMessage(code, nameOf(node)));
+            return fw;
+        }
+        fw.values[i] = r.value;
+        if (shifts && (*shifts)[i] != 0) fw.values[i] = fromRational<T>(toRational(r.value) + (*shifts)[i]);
+        fw.roundings[i] = r.roundings;
+        fw.scales[i] = r.scale;
+    }
+    return fw;
+}
+
+
 // First-order error bound of every node's value, computed forwards (Higham's running error bound).
 // The user's uncertainties (when given) add to their nodes' bounds.
 inline std::vector<Ruler> forwardBounds(const Ast& ast, const std::vector<std::vector<Ruler>>& partials,
@@ -325,23 +338,14 @@ inline std::string formatScientific(const Ruler& x, int significant = 2) {
     using std::frexp;
     if (x == 0) return "0";
     if (!isFinite(x)) return x < 0 ? "-inf" : "inf";
-    const auto power10 = [](long long n) {
-        Ruler result = 1;
-        Ruler base = 10;
-        for (unsigned long long k = static_cast<unsigned long long>(n < 0 ? -n : n); k; k >>= 1) {
-            if (k & 1) result *= base;
-            base *= base;
-        }
-        return result;
-    };
     const Ruler a = abs(x);
     int e2;
     frexp(a, &e2);
     long long e10 = (static_cast<long long>(e2) - 1) * 30103 / 100000;
-    Ruler scaled = e10 >= 0 ? Ruler(a / power10(e10)) : Ruler(a * power10(-e10));
+    Ruler scaled = e10 >= 0 ? Ruler(a / powerOfTen(e10)) : Ruler(a * powerOfTen(-e10));
     for (; scaled >= 10; ++e10) scaled /= 10;
     for (; scaled < 1; --e10) scaled *= 10;
-    Integer m(floor(scaled * power10(significant - 1) + Ruler(0.5)).convert_to<long long>());
+    Integer m(floor(scaled * powerOfTen(significant - 1) + Ruler(0.5)).convert_to<long long>());
     if (m == pow(Integer(10), static_cast<unsigned>(significant))) {
         m /= 10;
         ++e10;
@@ -402,6 +406,8 @@ inline int trustedDigits(const Ruler& absValue, const Ruler& error, int digitCou
 
 struct Report {
     Uncertainty uncertainty;  // the user's uncertain inputs: apart from the bound, which stays computational
+    UnitState unit;                 // the result's unit
+    std::vector<Warning> unitNotes;  // units that differ (spans in the source text)
     Ruler input = 0;
     Ruler rounding = 0;
     Ruler library = 0;
@@ -423,8 +429,9 @@ struct Evaluation {
 
 // The value in T and its error report: local errors weighted by the adjoints, the shadow
 // evaluations for the measured error, and the condition number.
+// `text` (the source, when known) names the arguments in the notes about units.
 template <class T>
-Evaluation<T> evaluate(const Ast& ast, const Options& options = {}) {
+Evaluation<T> evaluate(const Ast& ast, const Options& options = {}, std::string_view text = {}) {
     using std::abs;
     Evaluation<T> ev;
     const Forward<T> fw = forward<T>(ast, options.cancel);
@@ -542,6 +549,13 @@ Evaluation<T> evaluate(const Ast& ast, const Options& options = {}) {
         }
     }
     r.bound = r.input + r.rounding + r.library;
+
+    // Units: followed through the tree; exponents and orders must be exactly known.
+    const auto exactValue = [&](int i) -> std::optional<Rational> {
+        if (bounds[static_cast<std::size_t>(i)] != 0) return std::nullopt;
+        return toRational(fw.values[static_cast<std::size_t>(i)]);
+    };
+    r.unit = unitsOf(ast, exactValue, r.unitNotes, text).back();
 
     // Is first order good enough? Every quantity at its worst-case corner, both ways, in the ruler.
     Uncertainty& u = r.uncertainty;

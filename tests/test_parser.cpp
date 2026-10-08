@@ -730,3 +730,216 @@ TEST(Lexer, ZIsALetter) {
     EXPECT_EQ(parse("z := 2", AngleUnit::Radians).assigned, "z");
     EXPECT_EQ(parse("Z := 2", AngleUnit::Radians).assigned, "Z");
 }
+
+TEST(Lexer, PlusMinus) {
+    const Lexed l = lex("5±0.2 + 5+/-0.2");
+    ASSERT_FALSE(l.error);
+    EXPECT_EQ(kinds(l), (std::vector<TokenKind>{TokenKind::Number, TokenKind::PlusMinus, TokenKind::Number,
+                                                TokenKind::Plus, TokenKind::Number, TokenKind::PlusMinus,
+                                                TokenKind::Number, TokenKind::End}));
+    EXPECT_EQ(l.tokens[1].span.end - l.tokens[1].span.begin, 2u);  // ± is two bytes
+    EXPECT_EQ(l.tokens[5].text, "+/-");
+}
+
+TEST(Parser, PlusMinusBindsTighterThanTimes) {
+    EXPECT_EQ(tree("5±0.2"), "(uncertainty 5 0.2)");
+    EXPECT_EQ(tree("5+/-0.2"), "(uncertainty 5 0.2)");
+    EXPECT_EQ(tree("2*5±0.2"), "(* 2 (uncertainty 5 0.2))");
+    EXPECT_EQ(tree("5±0.2*2"), "(* (uncertainty 5 0.2) 2)");
+    EXPECT_EQ(tree("1+2±0.1"), "(+ 1 (uncertainty 2 0.1))");
+    EXPECT_EQ(tree("-5±0.2"), "(uncertainty (neg 5) 0.2)");
+    EXPECT_EQ(tree("5±0.2^2"), "(uncertainty 5 (^ 0.2 2))");
+    EXPECT_EQ(tree("5±20%"), "(uncertainty 5 (* (abs 5) (% 20)))");  // relative: 20% of |5|
+    EXPECT_EQ(parseError("5±").code, ErrorCode::UnexpectedEnd);
+}
+
+TEST(EndToEnd, PlusMinus) {
+    EXPECT_EQ(evaluateText<double>("5±-0.2").error->code, ErrorCode::DomainError);
+    EXPECT_EQ(evaluateText<double>("5±20%").report.uncertainty.linear, 1);
+    const Evaluation<Rational> exact = evaluateText<Rational>("1/3±0.1");
+    ASSERT_FALSE(exact.error);
+    EXPECT_EQ(exact.value, Rational(1, 3));
+}
+
+TEST(Parser, TheUncertaintyFunction) {
+    EXPECT_EQ(tree("uncertainty(5, 0.2)"), "(uncertainty 5 0.2)");
+    EXPECT_EQ(tree("uncertainty(5, 20%)"), "(uncertainty 5 (* (abs 5) (% 20)))");
+    EXPECT_EQ(parseError("uncertainty(5)").code, ErrorCode::WrongArgumentCount);
+}
+
+TEST(Parser, AnUncertainValueStoredInAnsIsOneQuantity) {
+    const Parsed p = parse("Ans-Ans", AngleUnit::Radians, {{"Ans", "5±0.2"}});
+    ASSERT_FALSE(p.error);
+    int keyed = 0;
+    for (const Node& n : p.ast.nodes) {
+        if (n.function != FunctionId::Uncertain) continue;
+        EXPECT_EQ(n.text, "Ans#0");
+        ++keyed;
+    }
+    EXPECT_EQ(keyed, 2);
+    const Evaluation<double> ev = evaluate<double>(p.ast);
+    ASSERT_EQ(ev.report.uncertainty.sources.size(), 1u);
+    EXPECT_EQ(ev.report.uncertainty.linear, 0);
+}
+
+TEST(EndToEnd, TypedUncertainValuesStayApart) {
+    const Evaluation<double> ev = evaluateText<double>("(5±0.2)-(5±0.2)");
+    EXPECT_EQ(ev.report.uncertainty.sources.size(), 2u);
+    EXPECT_EQ(ev.report.uncertainty.linear, Ruler(2) * exactCast<Ruler>(0.2));
+}
+
+namespace {
+
+std::string readTree(std::string_view text, ReadPrecision mode, AngleUnit angle = AngleUnit::Radians) {
+    Options o;
+    o.angle = angle;
+    o.readPrecision = mode;
+    const Parsed p = parse(text, o);
+    if (p.error) return "error: " + p.error->message;
+    EXPECT_TRUE(isPostOrder(p.ast)) << text;
+    return sexpr(p.ast, p.ast.root());
+}
+
+}  // namespace
+
+TEST(Parser, ReadPrecision) {
+    EXPECT_EQ(readTree("1.1", ReadPrecision::Decimals), "(uncertainty 1.1 5e-2)");
+    EXPECT_EQ(readTree("3.20", ReadPrecision::Decimals), "(uncertainty 3.20 5e-3)");
+    EXPECT_EQ(readTree("3", ReadPrecision::Decimals), "3");
+    EXPECT_EQ(readTree("3", ReadPrecision::All), "(uncertainty 3 5e-1)");
+    EXPECT_EQ(readTree("1e3", ReadPrecision::All), "(uncertainty 1e3 5e2)");
+    EXPECT_EQ(readTree("1.1", ReadPrecision::Off), "1.1");
+    EXPECT_EQ(readTree("1.1±0.2", ReadPrecision::Decimals), "(uncertainty 1.1 0.2)");  // the user said
+    EXPECT_EQ(readTree("sin(30)", ReadPrecision::All, AngleUnit::Degrees),
+              "(sin (* (uncertainty 30 5e-1) (/ pi 180)))");  // the engine's own 180 is exact
+}
+
+TEST(Parser, ReadPrecisionYieldsToTheUncertaintyFunction) {
+    EXPECT_EQ(readTree("uncertainty(1.1, 0.2)", ReadPrecision::Decimals), "(uncertainty 1.1 0.2)");
+}
+
+TEST(Parser, MathematicalConstants) {
+    EXPECT_EQ(tree("phi"), "phi");
+    EXPECT_EQ(tree("φ"), "phi");
+    EXPECT_EQ(tree("2*τ"), "(* 2 tau)");
+    EXPECT_EQ(tree("γ+egamma"), "(+ egamma egamma)");
+    EXPECT_EQ(tree("catalan*apery*plastic*omega*sqrt2"), "(* (* (* (* catalan apery) plastic) omega) sqrt2)");
+    EXPECT_EQ(parseError("phi(2)").code, ErrorCode::UnknownName);
+}
+
+TEST(EndToEnd, MathematicalConstantsAreRoundedOnceAndCarryTheirInputError) {
+    EXPECT_EQ(evaluateText<double>("phi").value, 0x1.9e3779b97f4a8p+0);
+    EXPECT_EQ(evaluateText<double>("tau").value, 0x1.921fb54442d18p+2);  // 2 * pi, exactly twice the double pi
+    EXPECT_EQ(evaluateText<float>("egamma").value, 0x1.2788dp-1f);
+    const Evaluation<double> g = evaluateText<double>("egamma");
+    EXPECT_EQ(g.report.input, fromRational<Ruler>(abs(constantRational(ConstantId::EulerGamma) - toRational(g.value))));
+    EXPECT_EQ(evaluateText<Rational>("catalan").error->code, ErrorCode::NotAvailableInExact);
+}
+
+TEST(Parser, MathematicalConstantsReadAsTheirNames) {
+    EXPECT_EQ(parse("2*catalan", AngleUnit::Radians).reading, "(2 × catalan)");
+    EXPECT_EQ(parse("phi+tau", AngleUnit::Radians).reading, "(φ + τ)");
+}
+
+TEST(Lexer, NamesMayHoldSpanishLetters) {
+    const Lexed l = lex("billón+año");
+    ASSERT_FALSE(l.error);
+    EXPECT_EQ(kinds(l), (std::vector<TokenKind>{TokenKind::Identifier, TokenKind::Plus, TokenKind::Identifier, TokenKind::End}));
+    EXPECT_EQ(l.tokens[0].text, "billón");
+    EXPECT_EQ(l.tokens[2].text, "año");
+    EXPECT_TRUE(lex("€").error);  // other symbols are still not letters
+}
+
+TEST(Parser, NumberNamesAreExactLiterals) {
+    EXPECT_EQ(tree("3*dozen"), "(* 3 12)");
+    EXPECT_EQ(tree("million"), "1e6");
+    EXPECT_EQ(tree("milliard"), "1e9");
+    EXPECT_EQ(tree("billion"), "1e12");   // the long scale, in every language
+    EXPECT_EQ(tree("trillion"), "1e18");
+    EXPECT_EQ(tree("quadrillion"), "1e24");
+    EXPECT_EQ(tree("decillion"), "1e60");
+    EXPECT_EQ(tree("billón"), "1e12");
+    EXPECT_EQ(tree("billon"), "1e12");    // without the accent too
+    EXPECT_EQ(tree("millardo"), "1e9");
+    EXPECT_EQ(tree("cuatrillón"), "1e24");
+    EXPECT_EQ(tree("docena"), "12");
+    EXPECT_EQ(tree("googol"), "1e100");
+    EXPECT_EQ(tree("ppm"), "1e-6");
+    EXPECT_EQ(tree("pcm"), "1e-5");
+    for (const char* text : {"googolplex", "ppb", "ppt", "ppq"})
+        EXPECT_EQ(parseError(text).code, ErrorCode::UnknownName) << text;  // ppb… differ between the scales
+}
+
+TEST(EndToEnd, NumberNamesAndPerMille) {
+    EXPECT_EQ(evaluateText<Rational>("2*billion").value, Rational(2000000000000LL));
+    EXPECT_EQ(evaluateText<Rational>("gross-score").value, Rational(124));
+    EXPECT_EQ(evaluateText<Rational>("lakh/crore").value, Rational(1, 100));
+    EXPECT_EQ(evaluateText<Rational>("ppm").value, Rational(1, 1000000));
+    EXPECT_EQ(evaluateText<Rational>("5‰").value, Rational(1, 200));
+    EXPECT_EQ(evaluateText<Rational>("5‱").value, Rational(1, 2000));
+    EXPECT_EQ(evaluateText<Rational>("1000±5‰").report.uncertainty.linear, 5);  // relative: 5‰ of 1000
+    EXPECT_GT(evaluateText<double>("ppm").report.input, 0);  // 1e-6 has no exact binary form
+    EXPECT_EQ(evaluateText<Rational>("100+10‰").value, Rational(10001, 100));  // the default: ÷1000
+    Options of;
+    of.conventions.percent = Conventions::Percent::OfValue;
+    EXPECT_EQ(evaluateText<Rational>("100+10‰", of).value, Rational(101));  // the percentage convention, per mille
+    EXPECT_EQ(parse("100+10‰", of).expanded, "100+((100)×(10))÷1000");
+}
+
+#include "physical_constants.hpp"
+
+TEST(Parser, PhysicalConstantsStandForTheirDefinitions) {
+    EXPECT_EQ(tree("c"), "299792458");
+    EXPECT_EQ(tree("G"), "(uncertainty 6.67430e-11 (* 3 0.00015e-11))");  // three standard uncertainties
+    EXPECT_EQ(tree("hbar"), "(/ 6.62607015e-34 (* 2 pi))");
+    EXPECT_EQ(tree("ħ"), tree("hbar"));
+    const Parsed p = parse("G*G", AngleUnit::Radians);
+    ASSERT_FALSE(p.error);
+    for (const Node& n : p.ast.nodes)
+        if (n.function == FunctionId::Uncertain) {
+            EXPECT_EQ(n.text, "G");
+        }
+    EXPECT_EQ(p.expanded, "G*G");  // fixed values keep their names in Ans
+}
+
+TEST(EndToEnd, PhysicalConstants) {
+    const Evaluation<double> g = evaluateText<double>("G");
+    EXPECT_EQ(g.value, 6.67430e-11);
+    ASSERT_EQ(g.report.uncertainty.sources.size(), 1u);
+    EXPECT_EQ(g.report.uncertainty.sources[0].uncertainty, exactCast<Ruler>(3 * 0.00015e-11));
+    EXPECT_EQ(evaluateText<double>("G*G").report.uncertainty.linear, evaluateText<double>("G²").report.uncertainty.linear);
+    EXPECT_EQ(evaluateText<Rational>("h*c").value, toRational(*parseDecimal("6.62607015e-34")) * 299792458);
+    EXPECT_EQ(evaluateText<Rational>("R").value,
+              toRational(*parseDecimal("6.02214076e23")) * toRational(*parseDecimal("1.380649e-23")));
+    EXPECT_EQ(evaluateText<Rational>("hbar").error->code, ErrorCode::NotAvailableInExact);
+    EXPECT_FALSE(evaluateText<Rational>("G").error);
+}
+
+TEST(PhysicalConstants, DefinitionsGiveTheDigitsNistPrints) {
+    for (const PhysicalConstant& c : physicalConstants) {
+        const std::size_t cut = c.nistValue.find("...");
+        if (cut == std::string_view::npos) continue;
+        const std::string mantissa(c.nistValue.substr(0, cut));
+        const std::string_view rest = c.nistValue.substr(cut + 3);  // "e-34" or ""
+        const long long exponent = rest.empty() ? 0 : std::stoll(std::string(rest.substr(1)));
+        const std::size_t dot = mantissa.find('.');
+        std::string digits = mantissa;
+        if (dot != std::string::npos) digits.erase(dot, 1);
+        const long long leading = exponent + static_cast<long long>(dot == std::string::npos ? mantissa.size() : dot) - 1;
+        const Parsed p = parse(c.name, AngleUnit::Radians);
+        ASSERT_FALSE(p.error) << c.name;
+        const Evaluation<Binary512> ev = evaluate<Binary512>(p.ast);
+        ASSERT_FALSE(ev.error) << c.name;
+        const DecimalDigits d = exactDigits(ev.value);
+        EXPECT_EQ(d.exponent10, leading) << c.name;
+        EXPECT_EQ((d.digits + std::string(digits.size(), '0')).substr(0, digits.size()), digits) << c.name;  // NIST truncates
+    }
+}
+
+TEST(EndToEnd, ErrorPart) {
+    EXPECT_EQ(evaluateText<double>("errorPart(5±0.2)").value, 0.2);
+    EXPECT_EQ(evaluateText<double>("errorPart((5±0.2)*2)").value, 0.4);
+    EXPECT_EQ(evaluateText<double>("errorPart(3)").value, 0.0);
+    EXPECT_TRUE(evaluateText<double>("errorPart(5±0.2)").report.uncertainty.sources.empty());  // a number now
+    EXPECT_EQ(evaluateText<Rational>("errorPart(5±0.2)").error->code, ErrorCode::NotAvailableInExact);
+}

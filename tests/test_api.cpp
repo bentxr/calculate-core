@@ -820,3 +820,220 @@ TEST(Api, FunctionsWrittenWithOthersListTheirSpellingsToo) {
     EXPECT_EQ(aliases["csc"], std::vector<std::string>{"cosec"});
     EXPECT_EQ(aliases["acoth"], std::vector<std::string>({"arcoth", "arccotgh"}));
 }
+
+TEST(Uncertainty, PlusMinusThroughTheFacade) {
+    const Result r = evaluate("5±0.2");
+    ASSERT_FALSE(r.error);
+    EXPECT_EQ(r.value.digits, "5");
+    EXPECT_EQ(r.bound, "0");
+    ASSERT_EQ(r.uncertainInputs.size(), 1u);
+    EXPECT_EQ(r.uncertainInputs[0].name, "5±0.2");
+    EXPECT_EQ(r.uncertainInputs[0].uncertainty, "2e-1");
+    EXPECT_EQ(r.uncertainInputs[0].sensitivity, "1e+0");
+    EXPECT_EQ(r.uncertainInputs[0].contribution, "2e-1");
+    EXPECT_EQ(r.uncertaintyLinear, "2e-1");
+    EXPECT_EQ(r.uncertaintyQuadrature, "2e-1");
+    EXPECT_EQ(r.uncertaintyRule, UncertaintyRule::Linear);
+    EXPECT_TRUE(r.firstOrderChecked);
+    EXPECT_TRUE(r.firstOrderReliable);
+}
+
+TEST(Uncertainty, TwoInputsLargestFirst) {
+    const Result r = evaluate("(3±0.4)*(4±0.3)");
+    ASSERT_EQ(r.uncertainInputs.size(), 2u);
+    EXPECT_EQ(r.uncertainInputs[0].name, "3±0.4");  // its enclosing parentheses are dropped
+    EXPECT_EQ(r.uncertainInputs[0].sensitivity, "4e+0");
+    EXPECT_EQ(r.uncertainInputs[0].contribution, "1.6e+0");
+    EXPECT_EQ(r.uncertainInputs[1].name, "4±0.3");
+    EXPECT_EQ(r.uncertainInputs[1].contribution, "9e-1");
+    EXPECT_EQ(r.uncertaintyLinear, "2.5e+0");
+    EXPECT_EQ(r.uncertaintyQuadrature, "1.8e+0");
+    EXPECT_EQ(r.trustedDigits, 2);                 // 3 * 4 = 12 exactly
+    EXPECT_EQ(r.trustedDigitsWithUncertainty, 0);  // 12 ± 2.5
+}
+
+TEST(Uncertainty, NoUncertainInputs) {
+    const Result r = evaluate("0.1 + 0.2");
+    EXPECT_TRUE(r.uncertainInputs.empty());
+    EXPECT_EQ(r.uncertaintyLinear, "");
+    EXPECT_EQ(r.uncertaintyQuadrature, "");
+    EXPECT_FALSE(r.firstOrderChecked);
+    EXPECT_EQ(r.trustedDigitsWithUncertainty, r.trustedDigits);
+}
+
+TEST(Uncertainty, ARelativeUncertainty) {
+    const Result r = evaluate("5±20%");
+    ASSERT_EQ(r.uncertainInputs.size(), 1u);
+    EXPECT_EQ(r.uncertainInputs[0].name, "5±20%");
+    EXPECT_EQ(r.uncertainInputs[0].uncertainty, "1e+0");
+}
+
+TEST(Uncertainty, ExactValuesWithAnUncertainty) {
+    Options o;
+    o.type = NumberType::Exact;
+    const Result r = evaluate("1/3±0.1", o);
+    ASSERT_FALSE(r.error);
+    ASSERT_TRUE(r.exact);
+    EXPECT_EQ(r.exact->denominator, "3");
+    EXPECT_EQ(r.bound, "0");
+    EXPECT_EQ(r.uncertaintyLinear, "1.1e-2");  // ± binds tighter than ÷: 1/(3±0.1), so 0.1/3² = 0.0111
+}
+
+TEST(Uncertainty, AFirstOrderWarning) {
+    const Result r = evaluate("(0±1)^2");
+    EXPECT_TRUE(r.firstOrderChecked);
+    EXPECT_FALSE(r.firstOrderReliable);
+    EXPECT_EQ(r.uncertaintyLinear, "0");
+    EXPECT_EQ(r.firstOrderObserved, "1e+0");
+    ASSERT_EQ(r.warnings.size(), 1u);
+    EXPECT_EQ(r.warnings[0].code, WarningCode::FirstOrderUnreliable);
+    EXPECT_EQ(r.warnings[0].message, "first order unreliable: at the corners the result moved by 1e+0");
+    // sqrt(0.05±0.1) would leave sqrt's domain at a corner: the edge check refuses it first.
+    EXPECT_EQ(evaluate("sqrt(0.05±0.1)").error->code, ErrorCode::ArgumentNearEdge);
+}
+
+TEST(Session, AnsMinusAnsIsCertain) {
+    Session s;
+    ASSERT_FALSE(s.evaluate("5±0.2").error);
+    const Result r = s.evaluate("Ans-Ans");
+    ASSERT_EQ(r.uncertainInputs.size(), 1u);
+    EXPECT_EQ(r.uncertainInputs[0].name, "Ans");
+    EXPECT_EQ(r.uncertaintyLinear, "0");
+}
+
+TEST(Uncertainty, DisplayForms) {
+    const Result r = evaluate("5±0.2");
+    EXPECT_EQ(r.concise, "5.00(20)");
+    EXPECT_EQ(r.plusMinus, "5.00 ± 0.20");
+    EXPECT_EQ(r.uncertaintyShown.digits, "20");
+    EXPECT_EQ(r.uncertaintyShown.exponent10, -1);
+    EXPECT_EQ(evaluate("5±20%").concise, "5.0(10)");
+    EXPECT_EQ(evaluate("(3±0.4)*(4±0.3)").plusMinus, "12.0 ± 2.5");
+    EXPECT_EQ(evaluate("0.1 + 0.2").concise, "0.300000000000000044(44)");  // the bound alone
+    Options statistical;
+    statistical.uncertaintyRule = UncertaintyRule::Quadrature;
+    EXPECT_EQ(evaluate("(3±0.4)*(4±0.3)", statistical).concise, "12.0(18)");
+    Options exact;
+    exact.type = NumberType::Exact;
+    EXPECT_EQ(evaluate("1/3±0.1", exact).concise, "0.333(11)");  // 1/(3±0.1): ± binds tighter than ÷
+    EXPECT_EQ(evaluate("1/3", exact).concise, "");  // no error, no uncertainty
+    EXPECT_EQ(evaluate("2+2").plusMinus, "");
+}
+
+TEST(Uncertainty, ReadPrecision) {
+    Options o;
+    o.readPrecision = ReadPrecision::Decimals;
+    const Result r = evaluate("1.1*3.20", o);
+    ASSERT_EQ(r.uncertainInputs.size(), 2u);
+    EXPECT_EQ(r.uncertainInputs[0].name, "1.1");
+    EXPECT_EQ(r.uncertainInputs[0].contribution, "1.6e-1");  // 3.2 × 0.05
+    EXPECT_EQ(r.uncertainInputs[1].name, "3.20");
+    EXPECT_EQ(r.uncertainInputs[1].contribution, "5.5e-3");  // 1.1 × 0.005
+    EXPECT_EQ(r.uncertaintyLinear, "1.7e-1");
+    EXPECT_EQ(r.uncertaintyQuadrature, "1.6e-1");
+    EXPECT_EQ(r.concise, "3.52(17)");
+    EXPECT_EQ(r.trustedDigits, 15);
+    EXPECT_EQ(r.trustedDigitsWithUncertainty, 1);
+    o.uncertaintyRule = UncertaintyRule::Quadrature;
+    EXPECT_EQ(evaluate("1.1*3.20", o).concise, "3.52(16)");
+}
+
+TEST(Units, ResultsCarryTheirUnit) {
+    EXPECT_EQ(evaluate("c").unit, "m·s⁻¹");
+    EXPECT_EQ(evaluate("2*c").unit, "m·s⁻¹");
+    EXPECT_EQ(evaluate("c^2").unit, "m²·s⁻²");
+    EXPECT_EQ(evaluate("h*c").unit, "J·m");
+    EXPECT_EQ(evaluate("sqrt(G*m_e)").unit, "m^(3/2)·s⁻¹");
+    EXPECT_EQ(evaluate("k_B*300").unit, "J·K⁻¹");
+    EXPECT_EQ(evaluate("q_e/m_e").unit, "C·kg⁻¹");
+    EXPECT_EQ(evaluate("c/c").unit, "");          // dimensionless
+    EXPECT_EQ(evaluate("2+2").unit, "");
+    EXPECT_EQ(evaluate("alpha").unit, "");
+    EXPECT_TRUE(evaluate("c").unitKnown);
+    EXPECT_TRUE(evaluate("2+2").unitKnown);
+    EXPECT_EQ(evaluate("c+c").unit, "m·s⁻¹");
+    EXPECT_EQ(evaluate("mean(c, 2*c)").unit, "m·s⁻¹");  // a lowering follows too
+    EXPECT_EQ(evaluate("c^0.5").unit, "m^(1/2)·s^(-1/2)");
+    EXPECT_EQ(evaluate("G±1e-15").unit, "m³·kg⁻¹·s⁻²");
+}
+
+TEST(Units, MismatchedUnitsGiveNoUnitAndANote) {
+    const Result r = evaluate("c + 1");
+    ASSERT_FALSE(r.error);  // the value is still computed
+    EXPECT_EQ(r.unit, "");
+    EXPECT_FALSE(r.unitKnown);
+    ASSERT_EQ(r.warnings.size(), 1u);
+    EXPECT_EQ(r.warnings[0].code, WarningCode::UnitsDiffer);
+    EXPECT_EQ(r.warnings[0].message, "the units of c (m·s⁻¹) and 1 (none) differ");
+    EXPECT_EQ(r.warnings[0].begin, 0u);
+    EXPECT_EQ(r.warnings[0].end, 5u);
+    EXPECT_EQ(evaluate("sin(c)").warnings[0].message, "sin needs a number without a unit; c has m·s⁻¹");
+    EXPECT_EQ(evaluate("(c^3)^(1/3)").unit, "");  // the exponent is not exactly known in double: no unit, no note
+    EXPECT_TRUE(evaluate("(c^3)^(1/3)").warnings.empty());
+    EXPECT_FALSE(evaluate("m_e_MeV*2").unitKnown);  // MeV: unknown, but no note
+    EXPECT_TRUE(evaluate("m_e_MeV*2").warnings.empty());
+    Options exact;
+    exact.type = NumberType::Exact;
+    EXPECT_EQ(evaluate("(c^3)^(1/3)", exact).unit, "m·s⁻¹");  // exact there
+}
+
+TEST(Api, ConstantsForKeypadsAndLists) {
+    const std::vector<ConstantDescription> list = constants();
+    const auto find = [&](const std::string& name) {
+        for (const ConstantDescription& c : list)
+            if (c.name == name) return c;
+        return ConstantDescription{};
+    };
+    EXPECT_EQ(find("G").category, "physical");
+    EXPECT_EQ(find("G").title, "Newtonian constant of gravitation");
+    EXPECT_EQ(find("G").value, "6.67430e-11");
+    EXPECT_EQ(find("G").uncertainty, "0.00015e-11");  // NIST's standard uncertainty
+    EXPECT_EQ(find("G").limit, "4.5e-15");            // the ± the calculator uses: three of them
+    EXPECT_EQ(find("G").unit, "m³·kg⁻¹·s⁻²");
+    EXPECT_EQ(find("m_e_MeV").unit, "MeV");           // not SI: NIST's text
+    EXPECT_TRUE(find("G").exact);  // usable in the Exact type
+    EXPECT_EQ(find("hbar").value, "1.054571817...e-34");
+    EXPECT_EQ(find("hbar").uncertainty, "");
+    EXPECT_FALSE(find("hbar").exact);  // through pi
+    EXPECT_EQ(find("phi").category, "mathematical");
+    EXPECT_EQ(find("phi").title, "golden ratio");
+    EXPECT_FALSE(find("phi").exact);
+    EXPECT_EQ(find("pi").category, "mathematical");
+    EXPECT_EQ(find("dozen").category, "number name");
+    EXPECT_EQ(find("dozen").value, "12");
+    EXPECT_EQ(find("dozen").title, "one dozen (12)");
+    EXPECT_TRUE(find("dozen").exact);
+    EXPECT_EQ(find("billion").value, "1e12");
+    EXPECT_EQ(find("billón").category, "number name");
+    EXPECT_EQ(list.size(), 10u + 34u + 89u);
+}
+
+TEST(Uncertainty, ToConciseAndToPlusMinus) {
+    const Result c = evaluate("5±0.2 to concise");
+    ASSERT_FALSE(c.error);
+    ASSERT_TRUE(c.conversion);
+    EXPECT_EQ(c.conversion->target, "concise");
+    EXPECT_EQ(c.conversion->text, "5.00(20)");
+    EXPECT_EQ(evaluate("5±0.2 to ±").conversion->text, "5.00 ± 0.20");
+    EXPECT_EQ(evaluate("5±0.2 to pm").conversion->text, "5.00 ± 0.20");
+    EXPECT_EQ(evaluate("0.1+0.2 to concise").conversion->text, "0.300000000000000044(44)");
+    EXPECT_TRUE(evaluate("2+2 to concise").error);
+    bool listed = false;
+    for (const TargetDescription& t : conversionTargets()) listed = listed || t.name == "concise";
+    EXPECT_TRUE(listed);
+}
+
+TEST(Api, PhysicalConstantsComeInGroups) {
+    const std::set<std::string> groups{"Universal", "Electromagnetic", "Atomic and nuclear", "Physico-chemical", "Particle masses",
+                                       "Planck units"};
+    for (const ConstantDescription& c : constants()) {
+        if (c.category == "physical") {
+            EXPECT_TRUE(groups.count(c.group)) << c.name;
+        } else {
+            EXPECT_EQ(c.group, "") << c.name;
+        }
+        if (c.name == "G") {
+            EXPECT_EQ(c.group, "Universal");
+        }
+    }
+}

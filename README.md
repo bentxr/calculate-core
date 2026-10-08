@@ -98,6 +98,9 @@ share `Ans` and the memory `M`, which the lines `M+`, `M-` and `MC` update.
 | `--list-types` | Describe the number types of this build |
 | `--list-functions` | List the functions of the language, with their titles |
 | `--info <name>` | Describe a function: its arguments, what it computes, its other spellings, an example |
+| `--uncertainty worst\|statistical` | Which combination of uncertain inputs leads (default: the worst case) |
+| `--read-precision off\|decimals\|all` | Typed numbers carry half a unit of their last digit (default off) |
+| `--list-constants` | List the named constants with their values, limits and units |
 
 Errors point at their cause:
 
@@ -128,7 +131,7 @@ transcendental functions are unavailable.
 | Kind | Syntax |
 |---|---|
 | Operators | `+  -  *  /  ^` and postfix `!  %  ²  ³`, prefix `√  ∛` (also `×  ÷  −`) |
-| Constants | `pi` (or `π`), `e`, `Ans`, `M` |
+| Constants | `pi` (or `π`), `e`, `tau` (`τ`), `sqrt2`, `phi` (`φ`), `egamma` (`γ`), `catalan`, `apery`, `plastic`, `omega`, the physical constants, `Ans`, `M` |
 | Roots, powers and logarithms | `sqrt  cbrt  root(x, n)  exp  ln  log(x)  log10(x)  log(x, b)  abs  log2  exp2  exp10  sq  sqrtpi  hypot(x, y)` |
 | Trigonometry | `sin  cos  tan  asin  acos  atan  sec  csc  cot  asec  acsc  acot  atan2(y, x)  sinc` |
 | Hyperbolic | `sinh  cosh  tanh  asinh  acosh  atanh  sech  csch  coth  asech  acsch  acoth` |
@@ -155,6 +158,35 @@ spellings: `arcsin  arsinh  arcosh  artanh  arcsec  arccsc  arccot  arsech  arcs
 Functions written with others (`sec x = 1/cos x`, `log2 x = log(x, 2)`…) report the error of that composition.
 The rounding functions jump, so when an argument's error could reach a jump the calculator says so and offers to
 proceed anyway. Their Spanish names: `redondeo  suelo  techo  ent  signo`.
+
+## Uncertain values, constants and units
+
+A value can carry its own uncertainty: `5±0.2`, `5+/-0.2` or `uncertainty(5, 0.2)`, and relative with `%`, `‰` or
+`‱` (`5±20%` is 5 ± 1). **`±` is a limit**: the true value lies in [x − u, x + u]. `±` binds tighter than `×` and `÷`
+and looser than `^` and unary minus: `2*5±0.2` is `2*(5±0.2)`, and `1/3±0.1` is `1/(3±0.1)`. With read precision
+(`--read-precision decimals`, or `all`), a typed number carries half a unit of its last digit: `1.1` lies in
+[1.05, 1.15].
+
+Each uncertain input is one quantity wherever it is used (a constant by its name, Ans and M by what they hold;
+every typed `±` on its own), so `G*G` equals `G²` and `Ans-Ans` has none. The result lists every input with its
+sensitivity and its contribution, and combines them two ways: the **worst case**, the sum of the contributions (a
+limit, to first order), and the **statistical** estimate, their root sum of squares (a typical spread if the inputs
+vary independently; not a limit). When the first order may misjudge the result, the calculator evaluates it with
+every input at its worst-case corner and adds a note if the change there is larger than the worst case by more than
+10 %. The uncertainty is apart from the computational bound, which stays the error of the arithmetic.
+`… to concise` writes `5.00(20)`, `… to ±` (or `to pm`) `5.00 ± 0.20`; `errorPart(x)` is x's worst-case
+uncertainty as a number.
+
+The physical constants are CODATA 2022, as published by NIST (`calc --list-constants`): `c`, `h`, `hbar` (`ħ`),
+`G`, `k_B`, `N_A`, `alpha` (`α`), `eps_0` (`ε₀`), `mu_0` (`μ₀`), `m_e`… Exact ones are exact numbers; a measured one
+carries three of CODATA's standard uncertainties as its limit (`G` is `6.67430e-11 ± 4.5e-15`).
+Number names use the long scale in every language: `million` 10⁶, `milliard` 10⁹, `billion` 10¹², `trillion` 10¹⁸
+… `decillion` 10⁶⁰, and in Spanish `millón millardo billón trillón cuatrillón … decillón` (also without the accent),
+`docena gruesa`; also `googol lakh crore dozen gross score`, `ppm` and `pcm`.
+
+A result built from constants shows its SI unit: `c*2` is in m·s⁻¹ and `h*c` in J·m. Adding quantities whose units
+differ, or giving `sin` a quantity with a unit, still computes the value and adds a note. Constants in units outside
+the SI (MeV, u) leave the unit unknown.
 
 ## Using the library
 

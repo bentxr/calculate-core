@@ -12,10 +12,10 @@ enum class FunctionId {
     Add, Subtract, Multiply, Divide, Negate, Power, Percent, Square, Cube, Factorial,
     Sqrt, Cbrt, Root, Exp, Ln, Log10, LogBase,
     Sin, Cos, Tan, Asin, Acos, Atan, Sinh, Cosh, Tanh, Asinh, Acosh, Atanh,
-    Abs, Rem, FloorMod, Gcd, Lcm, Ncr, Npr, Csch, Acot, Atan2, Hypot, Sinc, Floor, Trunc, Round, Sgn, Clip, Numerator, Denominator, Lgamma, Gamma, Digamma, Trigamma, Beta, Erf, Erfc, Erfinv, Erfcinv, GammaP, GammaQ, Igamma, GammaInc, Betainc, Betaincinv, Median, Uncertain
+    Abs, Rem, FloorMod, Gcd, Lcm, Ncr, Npr, Csch, Acot, Atan2, Hypot, Sinc, Floor, Trunc, Round, Sgn, Clip, Numerator, Denominator, Lgamma, Gamma, Digamma, Trigamma, Beta, Erf, Erfc, Erfinv, Erfcinv, GammaP, GammaQ, Igamma, GammaInc, Betainc, Betaincinv, Median, Uncertain, Tau, Sqrt2, Phi, EulerGamma, Catalan, Apery, Plastic, Omega, PerMille, PerMyriad, ErrorPart
 };
 
-inline constexpr int functionCount = static_cast<int>(FunctionId::Uncertain) + 1;
+inline constexpr int functionCount = static_cast<int>(FunctionId::ErrorPart) + 1;
 
 struct Span {
     std::size_t begin = 0;
@@ -29,6 +29,7 @@ struct Node {
     Span span;
     bool lowered = false;  // made by a lowering of the function named in written
     std::string written;  // the function's name as the user wrote it ("sen", "log10"), for messages; empty for operators and literals
+    int constant = -1;    // the root of a physical constant's definition: its index in physicalConstants
 };
 
 // Post-order arena: every node's arguments come before it; the root is the last node.

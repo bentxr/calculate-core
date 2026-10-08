@@ -3,9 +3,11 @@
 #include "engine.hpp"
 #include "functions.hpp"
 #include "numbers.hpp"
+#include "physical_constants.hpp"
 
 #include <algorithm>
 #include <array>
+#include <set>
 #include <string>
 #include <utility>
 
@@ -16,6 +18,22 @@ namespace {
 // Own ASCII classification: <cctype> depends on the locale and misbehaves on negative char.
 bool isDigit(char c) { return c >= '0' && c <= '9'; }
 bool isLetter(char c) { return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_'; }
+
+// A part of a whole, written with a postfix sign: %, ‰, ‱.
+bool isPart(FunctionId id) { return id == FunctionId::Percent || id == FunctionId::PerMille || id == FunctionId::PerMyriad; }
+
+// Spanish letters in UTF-8 (á é í ó ú ü ñ and their capitals): names may hold them, as in billón or año.
+constexpr std::array<std::string_view, 14> spanishLetters{"\xC3\xA1", "\xC3\xA9", "\xC3\xAD", "\xC3\xB3", "\xC3\xBA",
+                                                          "\xC3\xBC", "\xC3\xB1", "\xC3\x81", "\xC3\x89", "\xC3\x8D",
+                                                          "\xC3\x93", "\xC3\x9A", "\xC3\x9C", "\xC3\x91"};
+
+// The bytes of the letter at i: 1 for an ASCII letter or _, 2 for a Spanish letter, 0 for anything else.
+std::size_t letterAt(std::string_view s, std::size_t i) {
+    if (isLetter(s[i])) return 1;
+    for (std::string_view letter : spanishLetters)
+        if (s.substr(i, 2) == letter) return 2;
+    return 0;
+}
 
 // Bytes in the UTF-8 sequence that starts with `lead`.
 std::size_t utf8Length(unsigned char lead) {
@@ -30,7 +48,7 @@ struct Alias {
     TokenKind kind;
 };
 
-constexpr std::array<Alias, 10> aliases{{
+constexpr std::array<Alias, 13> aliases{{
     {"\xC3\x97", TokenKind::Star},            // ×
     {"\xC3\xB7", TokenKind::Slash},           // ÷
     {"\xE2\x88\x92", TokenKind::Minus},       // −
@@ -41,10 +59,39 @@ constexpr std::array<Alias, 10> aliases{{
     {"\xC2\xB3", TokenKind::Cubed},           // ³
     {"\xC2\xB7", TokenKind::Star},            // ·
     {"\xE2\x8B\x85", TokenKind::Star},        // ⋅
+    {"\xC2\xB1", TokenKind::PlusMinus},       // ±
+    {"\xE2\x80\xB0", TokenKind::PerMille},   // ‰
+    {"\xE2\x80\xB1", TokenKind::PerMyriad},  // ‱
 }};
 
 // Symbols that are names: Σ ∑ (sum) and Π ∏ (product).
 constexpr std::array<std::string_view, 4> symbolNames{"\xCE\xA3", "\xE2\x88\x91", "\xCE\xA0", "\xE2\x88\x8F"};
+
+// Letters that are names on their own: φ τ γ ħ α ε₀ μ₀.
+constexpr std::array<std::string_view, 7> unicodeNames{"\xCF\x86", "\xCF\x84", "\xCE\xB3", "\xC4\xA7", "\xCE\xB1",
+                                                       "\xCE\xB5\xE2\x82\x80", "\xCE\xBC\xE2\x82\x80"};
+
+// What they spell.
+constexpr std::array<std::pair<std::string_view, std::string_view>, 7> nameSpellings{{
+    {"\xCF\x86", "phi"}, {"\xCF\x84", "tau"}, {"\xCE\xB3", "egamma"}, {"\xC4\xA7", "hbar"}, {"\xCE\xB1", "alpha"},
+    {"\xCE\xB5\xE2\x82\x80", "eps_0"}, {"\xCE\xBC\xE2\x82\x80", "mu_0"},
+}};
+
+// The physical constant with this name; nullptr when there is none.
+const PhysicalConstant* physicalNamed(std::string_view name) {
+    for (const PhysicalConstant& c : physicalConstants)
+        if (c.name == name) return &c;
+    return nullptr;
+}
+
+// The 0-argument function (a constant of the table: pi, e, phi…) with this name.
+std::optional<FunctionId> constantNamed(std::string_view name) {
+    for (int i = 0; i < functionCount; ++i) {
+        const FunctionInfo& info = functionInfo(static_cast<FunctionId>(i));
+        if (!info.name.empty() && info.name == name && info.minArgs == 0 && info.maxArgs == 0) return info.id;
+    }
+    return std::nullopt;
+}
 
 Error makeError(ErrorCode code, std::string message, Span span) {
     return Error{code, std::move(message), span.begin, span.end};
@@ -132,9 +179,9 @@ Lexed lex(std::string_view s) {
             out.error = makeError(ErrorCode::InvalidNumber, "A number needs digits", {i, i + 1});
             return out;
         }
-        if (isLetter(c)) {
+        if (letterAt(s, i)) {
             const std::size_t begin = i;
-            while (i < s.size() && (isLetter(s[i]) || isDigit(s[i]))) ++i;
+            while (i < s.size() && (letterAt(s, i) || isDigit(s[i]))) i += isDigit(s[i]) ? 1 : letterAt(s, i);
             if (s.substr(begin, i - begin) == "to") {
                 keyword(begin, i);
                 if (out.error) return out;
@@ -153,6 +200,11 @@ Lexed lex(std::string_view s) {
             i += 2;
             continue;
         }
+        if (s.substr(i, 3) == "+/-") {  // another spelling of ±, before '+'
+            push(TokenKind::PlusMinus, i, i + 3);
+            i += 3;
+            continue;
+        }
         if (s.substr(i, 2) == ":=") {
             push(TokenKind::Assign, i, i + 2);
             i += 2;
@@ -163,6 +215,13 @@ Lexed lex(std::string_view s) {
             if (kind == TokenKind::RightParen && depth > 0) --depth;
             push(kind, i, i + 1);
             ++i;
+            continue;
+        }
+        const auto letter = std::find_if(unicodeNames.begin(), unicodeNames.end(),
+                                         [&](std::string_view bytes) { return s.substr(i, bytes.size()) == bytes; });
+        if (letter != unicodeNames.end()) {
+            push(TokenKind::Identifier, i, i + letter->size());
+            i += letter->size();
             continue;
         }
         const auto symbol = std::find_if(symbolNames.begin(), symbolNames.end(),
@@ -242,8 +301,11 @@ int leftPower(TokenKind k) {
     case TokenKind::Minus: return 10;
     case TokenKind::Star:
     case TokenKind::Slash: return 20;
+    case TokenKind::PlusMinus: return 25;  // tighter than × ÷, looser than unary minus and ^
     case TokenKind::Caret: return 40;
     case TokenKind::Bang:
+    case TokenKind::PerMille:
+    case TokenKind::PerMyriad:
     case TokenKind::Percent:
     case TokenKind::Squared:
     case TokenKind::Cubed: return 50;
@@ -301,7 +363,7 @@ Range rangeNamed(std::string_view name) {
 
 // Names a variable (of a sum, or one assigned) cannot take.
 bool reserved(const std::string& n) {
-    return n == "pi" || n == "e" || n == "Ans" || n == "M" || functionNamed(n) || statisticNamed(n) != Statistic::None
+    return constantNamed(n) || n == "Ans" || n == "M" || functionNamed(n) || statisticNamed(n) != Statistic::None
         || rangeNamed(n) != Range::None;
 }
 
@@ -395,6 +457,9 @@ private:
         case FunctionId::Literal: return n.text;
         case FunctionId::Pi: return "π";
         case FunctionId::E: return "e";
+        case FunctionId::Tau: return "τ";
+        case FunctionId::Phi: return "φ";
+        case FunctionId::EulerGamma: return "γ";
         case FunctionId::Add: return infix("+");
         case FunctionId::Subtract: return infix("−");
         case FunctionId::Multiply: return infix("×");
@@ -402,12 +467,15 @@ private:
         case FunctionId::Power: return infix("^");
         case FunctionId::Negate: return "-" + arg(0);
         case FunctionId::Percent: return "(" + arg(0) + "%)";
+        case FunctionId::PerMille: return "(" + arg(0) + "‰)";
+        case FunctionId::PerMyriad: return "(" + arg(0) + "‱)";
         case FunctionId::Square: return arg(0) + "²";
         case FunctionId::Cube: return arg(0) + "³";
         case FunctionId::Factorial: return arg(0) + "!";
         case FunctionId::Sqrt: return "√(" + arg(0) + ")";
         case FunctionId::Cbrt: return "∛(" + arg(0) + ")";
         default: {
+            if (tableConstant(n.function)) return std::string(functionInfo(n.function).name);  // catalan, not catalan()
             std::string call = std::string(n.function == FunctionId::Log10 ? "log10" : functionInfo(n.function).name) + "(";
             for (std::size_t k = 0; k < n.args.size(); ++k) call += (k ? "; " : "") + arg(k);
             return call + ")";
@@ -426,6 +494,34 @@ private:
     }
 
     Span spanOf(int n) const { return ast_.nodes[static_cast<std::size_t>(n)].span; }
+
+    // Read precision: a typed number (with a point, or any under All) carries half a unit of its last digit, 1.1 → 1.1 ± 0.05.
+    int readWithPrecision(int literal, const Token& t) {
+        const ReadPrecision mode = options_.readPrecision;
+        if (mode == ReadPrecision::Off || (mode == ReadPrecision::Decimals && t.text.find('.') == std::string_view::npos))
+            return literal;
+        const long long e = parseDecimal(t.text)->exponent10;
+        const int half = node(FunctionId::Literal, {}, t.span, "5e" + std::to_string(e - 1));
+        const int wrapped = read(node(FunctionId::Uncertain, {literal, half}, t.span), std::string(t.text));
+        readNodes_.insert(wrapped);
+        return wrapped;
+    }
+
+    // The plain number behind one that read precision wrapped (the user's own uncertainty replaces what the digits
+    // say); any other node as it is. The wrapper stays behind, unused.
+    int unread(int n) const { return readNodes_.count(n) ? ast_.nodes[static_cast<std::size_t>(n)].args[0] : n; }
+
+    // value ± spread. A percentage is relative: 5 ± 20% is 5 ± |5|·20% (the value node shared). Read as written.
+    // `whole` is the node's span: from value to spread when written with ±, the call when written uncertainty(x, u).
+    int uncertain(int value, int spread, Span opSpan, std::optional<Span> call = std::nullopt) {
+        const std::string written = "(" + readings_[static_cast<std::size_t>(value)] + " ± "
+                                    + readings_[static_cast<std::size_t>(spread)] + ")";
+        const Span whole = call ? *call : Span{spanOf(value).begin, spanOf(spread).end};
+        int u = spread;
+        if (isPart(ast_.nodes[static_cast<std::size_t>(spread)].function))
+            u = node(FunctionId::Multiply, {node(FunctionId::Abs, {value}, opSpan), spread}, opSpan);
+        return read(node(FunctionId::Uncertain, {value, u}, whole), written);
+    }
 
     int expression(int minPower) {
         int left = prefix();
@@ -466,9 +562,17 @@ private:
             switch (op.kind) {
             case TokenKind::Bang: left = node(FunctionId::Factorial, {left}, postfix); continue;
             case TokenKind::Percent: left = node(FunctionId::Percent, {left}, postfix); continue;
+            case TokenKind::PerMille: left = node(FunctionId::PerMille, {left}, postfix); continue;
+            case TokenKind::PerMyriad: left = node(FunctionId::PerMyriad, {left}, postfix); continue;
             case TokenKind::Squared: left = node(FunctionId::Square, {left}, postfix); continue;
             case TokenKind::Cubed: left = node(FunctionId::Cube, {left}, postfix); continue;
             default: break;
+            }
+            if (op.kind == TokenKind::PlusMinus) {  // left-associative
+                const int spread = expression(power);
+                if (error_) return -1;
+                left = uncertain(unread(left), unread(spread), op.span);
+                continue;
             }
             const bool bareRight = peek().kind != TokenKind::LeftParen;
             const int right = expression(op.kind == TokenKind::Caret ? power - 1 : power);  // ^ is right-associative
@@ -476,19 +580,20 @@ private:
             // A percentage that is the whole right operand of + or −: under OfValue it is a percentage of the left
             // operand (x ± x·p/100); under Divide it stays p/100. Either way the stored text says which, so a later
             // change of the convention changes nothing. Parentheses around it (`(10%)`) block this reading.
-            if ((op.kind == TokenKind::Plus || op.kind == TokenKind::Minus) && bareRight
-                && ast_.nodes[static_cast<std::size_t>(right)].function == FunctionId::Percent) {
+            const FunctionId rightFunction = ast_.nodes[static_cast<std::size_t>(right)].function;
+            if ((op.kind == TokenKind::Plus || op.kind == TokenKind::Minus) && bareRight && isPart(rightFunction)) {
+                const std::string divisor = rightFunction == FunctionId::Percent ? "100" : rightFunction == FunctionId::PerMille ? "1000" : "10000";
                 const int p = ast_.nodes[static_cast<std::size_t>(right)].args[0];
                 const Span percent = spanOf(right);
                 if (options_.conventions.percent == Conventions::Percent::Divide) {
                     replacements_[percent.begin] = {percent.end, "(" + expandedText(percent) + ")"};
                 } else {
-                    replacements_[percent.begin] = {percent.end, "((" + expandedText(spanOf(left)) + ")×(" + expandedText(spanOf(p)) + "))÷100"};
+                    replacements_[percent.begin] = {percent.end, "((" + expandedText(spanOf(left)) + ")×(" + expandedText(spanOf(p)) + "))÷" + divisor};
                     const Span whole{spanOf(left).begin, percent.end};
-                    ast_.nodes.pop_back();  // the % node is the last one made
+                    ast_.nodes.pop_back();  // the % (‰, ‱) node is the last one made
                     readings_.pop_back();
                     const int part = node(FunctionId::Divide,
-                                          {node(FunctionId::Multiply, {left, p}, whole), node(FunctionId::Literal, {}, whole, "100")}, whole);
+                                          {node(FunctionId::Multiply, {left, p}, whole), node(FunctionId::Literal, {}, whole, divisor)}, whole);
                     left = node(op.kind == TokenKind::Plus ? FunctionId::Add : FunctionId::Subtract, {left, part}, whole);
                     continue;
                 }
@@ -508,7 +613,7 @@ private:
         switch (t.kind) {
         case TokenKind::Number:
             if (!parseDecimal(t.text)) return fail(ErrorCode::InvalidNumber, "Invalid number '" + std::string(t.text) + "'", t.span);
-            return node(FunctionId::Literal, {}, t.span, std::string(t.text));
+            return readWithPrecision(node(FunctionId::Literal, {}, t.span, std::string(t.text)), t);
         case TokenKind::Pi: return node(FunctionId::Pi, {}, t.span);
         case TokenKind::Minus:
         case TokenKind::Plus: {
@@ -539,15 +644,21 @@ private:
     }
 
     int identifier(const Token& t) {
-        const std::string name(t.text);
+        std::string name(t.text);
+        for (const auto& [letter, spelled] : nameSpellings)
+            if (name == letter) name = std::string(spelled);
         for (auto b = bound_.rbegin(); b != bound_.rend(); ++b)
             if (b->name == name && peek().kind != TokenKind::LeftParen) return index(b->value, t.span);
         if (peek().kind == TokenKind::LeftParen) return call(t);
         if (peek().kind == TokenKind::Assign)  // before asking whether the name exists: the := is what is out of place
             return fail(ErrorCode::UnexpectedToken, "':=' can only follow a name at the start", peek().span);
         if (const auto found = names_.find(name); found != names_.end()) return expand(t, found->second);
-        if (name == "pi") return node(FunctionId::Pi, {}, t.span);
-        if (name == "e") return node(FunctionId::E, {}, t.span);
+        if (const auto c = constantNamed(name)) return node(*c, {}, t.span);
+        for (const auto& [plain, accented] : numberSpellings)
+            if (name == plain) name = std::string(accented);
+        for (const NumberName& number : numberNames)  // an exact literal: its input error is the literal's
+            if (name == number.name) return node(FunctionId::Literal, {}, t.span, std::string(number.literal));
+        if (const PhysicalConstant* c = physicalNamed(name)) return constant(t, *c);
         if (name == "Ans") return fail(ErrorCode::UnknownName, "There is no previous result yet", t.span);
         if (name == "M") return fail(ErrorCode::UnknownName, "The memory is empty", t.span);
         if (functionNamed(name) || name == "mod" || statisticNamed(name) != Statistic::None || rangeNamed(name) != Range::None
@@ -559,17 +670,45 @@ private:
     // A stored expression: its nodes join this tree (all with the name's span), and the expanded
     // text gets it in parentheses. Stored texts are already expanded, so they contain no names.
     int expand(const Token& t, const std::string& text) {
-        const Parsed inner = parse(text, options_, {});
+        Options stored = options_;
+        stored.readPrecision = ReadPrecision::Off;  // a stored text was read when it was typed
+        const Parsed inner = parse(text, stored, {});
         if (inner.error) return fail(inner.error->code, inner.error->message, t.span);
         const int offset = static_cast<int>(ast_.nodes.size());
+        int uncertain = 0;  // the stored text's uncertain values: one quantity each, wherever the name is used
         for (Node n : inner.ast.nodes) {
             for (int& a : n.args) a += offset;
             n.span = t.span;
+            if (n.function == FunctionId::Uncertain && n.text.empty()) n.text = std::string(t.text) + "#" + std::to_string(uncertain);
+            if (n.function == FunctionId::Uncertain) ++uncertain;
             ast_.nodes.push_back(std::move(n));
             readings_.emplace_back();  // only the root is read from outside
         }
         replacements_[t.span.begin] = {t.span.end, "(" + text + ")"};
         readings_.back() = inner.reading;  // a name reads as what it holds
+        return static_cast<int>(ast_.nodes.size()) - 1;
+    }
+
+    // A physical constant: the nodes of its definition, under its name. A measured value v±u becomes v±(3·u): three
+    // standard uncertainties serve as the limit, one quantity wherever the name appears. Its name stays in the text.
+    int constant(const Token& t, const PhysicalConstant& c) {
+        std::string definition(c.definition);
+        if (const std::size_t pm = definition.find("+/-"); pm != std::string::npos)
+            definition = definition.substr(0, pm + 3) + "(3*" + definition.substr(pm + 3) + ")";
+        Options own = options_;
+        own.readPrecision = ReadPrecision::Off;
+        const Parsed inner = parse(definition, own, {});
+        if (inner.error) return fail(inner.error->code, inner.error->message, t.span);
+        const int offset = static_cast<int>(ast_.nodes.size());
+        for (Node n : inner.ast.nodes) {
+            for (int& a : n.args) a += offset;
+            n.span = t.span;
+            if (n.function == FunctionId::Uncertain) n.text = std::string(c.name);
+            ast_.nodes.push_back(std::move(n));
+            readings_.emplace_back();
+        }
+        ast_.nodes.back().constant = static_cast<int>(&c - physicalConstants.data());
+        readings_.back() = std::string(c.name);
         return static_cast<int>(ast_.nodes.size()) - 1;
     }
 
@@ -742,6 +881,7 @@ private:
             const std::string expected = name == "log" ? "1 or 2 arguments" : argumentCount(info.minArgs, info.maxArgs < 0);
             return fail(ErrorCode::WrongArgumentCount, name + " takes " + expected, span);
         }
+        if (*id == FunctionId::Uncertain) return named(uncertain(unread(args[0]), unread(args[1]), span, span), name);  // 20% relative too
         return withAngles(*id, std::move(args), span, name);
     }
 
@@ -858,6 +998,7 @@ private:
     std::string_view source_;
     std::vector<Token> tokens_;
     const Options& options_;
+    std::set<int> readNodes_;  // the numbers wrapped by read precision
     const Names& names_;
     Ast ast_;
     std::size_t position_ = 0;

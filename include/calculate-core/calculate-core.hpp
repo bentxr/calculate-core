@@ -43,6 +43,13 @@ struct Conventions {
     Percent percent = Percent::Divide;
 };
 
+// Which combination of the uncertain inputs leads (both are always computed): the worst case Σ|∂f/∂x|·u (a limit),
+// or the statistical √Σ(∂f/∂x·u)² (an estimate).
+enum class UncertaintyRule { Linear, Quadrature };
+
+// Read precision: typed numbers carry half a unit of their last digit as uncertainty.
+enum class ReadPrecision { Off, Decimals, All };  // Decimals: only numbers written with a point
+
 struct Options {
     NumberType type = NumberType::Double;
     AngleUnit angle = AngleUnit::Radians;
@@ -50,6 +57,8 @@ struct Options {
     // Accept arguments whose error reaches a jump, an edge or a whole-number requirement; the bound is then incomplete.
     bool allowUncertainDiscreteArguments = false;
     const std::atomic<bool>* cancel = nullptr;
+    UncertaintyRule uncertaintyRule = UncertaintyRule::Linear;
+    ReadPrecision readPrecision = ReadPrecision::Off;
 };
 
 // One entry of the type menu, described by the type's own traits in this build.
@@ -89,9 +98,24 @@ struct FunctionDescription {
 };
 
 std::vector<FunctionDescription> functions();
+
+// A named value of the language, for keypads and lists.
+struct ConstantDescription {
+    std::string name;         // as typed: "G", "phi", "dozen"
+    std::string title;        // English: "Newtonian constant of gravitation", "golden ratio", "one dozen (12)"
+    std::string category;     // "mathematical", "number name" or "physical"
+    std::string value;        // as published: "6.67430e-11", "1.054571817...e-34", "12"; "" for irrational ones
+    std::string uncertainty;  // CODATA's standard uncertainty: "0.00015e-11"; "" when exact
+    std::string limit;        // the ± the calculator uses, three standard uncertainties: "4.5e-15"; "" when exact
+    std::string unit;         // the SI unit ("m³·kg⁻¹·s⁻²"), NIST's text when not SI ("MeV"); "" for pure numbers
+    bool exact = false;       // usable in the Exact type
+    std::string group;        // physical ones, for lists: "Universal", "Electromagnetic", "Particle masses"…; "" otherwise
+};
+
+std::vector<ConstantDescription> constants();
 std::vector<std::string> functionCategories();  // in display order
 
-enum class WarningCode { EmptyRange };  // grows with each producer
+enum class WarningCode { EmptyRange, FirstOrderUnreliable, UnitsDiffer };  // grows with each producer
 
 // Something worth knowing about a result that is not an error. begin/end: bytes of the expression.
 struct Warning {
@@ -145,6 +169,14 @@ struct Fraction {
     std::string repeatingDigits;
 };
 
+// One uncertain input of a result.
+struct UncertainInput {
+    std::string name;          // as written: "5±0.2", "G", "1.1", "Ans"
+    std::string uncertainty;   // its own u: "2e-1"
+    std::string sensitivity;   // |∂result/∂input|: "1e+0"
+    std::string contribution;  // sensitivity × u: "2e-1"
+};
+
 struct Result {
     std::optional<Error> error;
     NumberType type = NumberType::Double;
@@ -169,6 +201,19 @@ struct Result {
     std::vector<Warning> warnings;         // notes about a result that is not an error
     std::string assigned;                  // the variable set by "name := …", "" otherwise
     std::string reading;                   // how the expression was read: every operation in parentheses
+    std::vector<UncertainInput> uncertainInputs;  // largest contribution first; empty when every input is exact
+    std::string uncertaintyLinear;      // worst case, "" when there are no uncertain inputs
+    std::string uncertaintyQuadrature;  // statistical, "" likewise
+    UncertaintyRule uncertaintyRule = UncertaintyRule::Linear;  // the one that leads (from the options)
+    int trustedDigitsWithUncertainty = 0;  // by the bound plus the leading uncertainty (floating types)
+    bool firstOrderChecked = false;        // the corners were evaluated
+    bool firstOrderReliable = true;        // false: the first-order figure misjudges this uncertainty
+    std::string firstOrderObserved;        // the largest change at the corners, "inf" if one failed; "" if unchecked
+    Digits uncertaintyShown;  // bound + the leading uncertainty, two significant digits: {false, "20", -1} is 0.20
+    std::string concise;      // "5.00(20)"; "" when there is neither error nor uncertainty
+    std::string plusMinus;    // "5.00 ± 0.20"
+    std::string unit;         // SI unit of the result ("m·s⁻¹"); "" when it has none or cannot be told
+    bool unitKnown = true;    // false: units that differ, or a constant in a unit outside the SI
 };
 
 Result evaluate(std::string_view expression, const Options& options = {});

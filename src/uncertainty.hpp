@@ -41,7 +41,8 @@ struct Uncertainty {
     Ruler observed = 0;  // the largest change seen at the corners; +infinity when a corner could not be evaluated
 };
 
-// The nodes the result depends on, without going into an Uncertain node's uncertainty argument.
+// The nodes the result depends on, without going into an Uncertain node's uncertainty argument or an errorPart's
+// argument (errorPart's value is a number: its argument's quantities do not reach the result).
 inline std::vector<bool> reachable(const Ast& ast) {
     std::vector<bool> on(ast.nodes.size(), false);
     if (ast.nodes.empty()) return on;
@@ -50,7 +51,8 @@ inline std::vector<bool> reachable(const Ast& ast) {
         if (!on[i]) continue;
         const Node& node = ast.nodes[i];
         for (std::size_t k = 0; k < node.args.size(); ++k)
-            if (!(node.function == FunctionId::Uncertain && k == 1)) on[static_cast<std::size_t>(node.args[k])] = true;
+            if (!(node.function == FunctionId::Uncertain && k == 1) && node.function != FunctionId::ErrorPart)
+                on[static_cast<std::size_t>(node.args[k])] = true;
     }
     return on;
 }
@@ -88,6 +90,70 @@ inline Uncertainty combine(const Ast& ast, const std::vector<Ruler>& signedAdjoi
     std::stable_sort(u.sources.begin(), u.sources.end(),
                      [](const UncertainSource& a, const UncertainSource& b) { return a.contribution > b.contribution; });
     return u;
+}
+
+// A result with its total uncertainty (bound + the leading combination), as people write it.
+struct UncertainForms {
+    DecimalDigits shown;    // the uncertainty with two significant digits: {false, "20", -1} is 0.20
+    std::string concise;    // "6.67430(15)e-11"; empty when total is 0 or not finite
+    std::string plusMinus;  // "(6.67430 ± 0.00015)e-11"
+};
+
+namespace impl {
+
+// The integer's digits with k of them after a decimal point, and at least one before it: ("5", 1) → "0.5".
+inline std::string point(std::string digits, long long k) {
+    if (k <= 0) return digits;
+    if (static_cast<long long>(digits.size()) < k + 1) digits.insert(0, static_cast<std::size_t>(k + 1) - digits.size(), '0');
+    digits.insert(digits.size() - static_cast<std::size_t>(k), ".");
+    return digits;
+}
+
+}  // namespace impl
+
+// The uncertainty to two significant digits (to nearest), and the value rounded half to even at its last digit.
+inline UncertainForms uncertainForms(const Rational& value, const Ruler& total) {
+    using std::abs;
+    using std::floor;
+    using std::frexp;
+    UncertainForms f;
+    if (total == 0 || !isFinite(total)) return f;
+    int e2;
+    frexp(total, &e2);
+    long long e10 = (static_cast<long long>(e2) - 1) * 30103 / 100000;
+    Ruler scaled = e10 >= 0 ? Ruler(total / powerOfTen(e10)) : Ruler(total * powerOfTen(-e10));
+    for (; scaled >= 10; ++e10) scaled /= 10;
+    for (; scaled < 1; --e10) scaled *= 10;
+    long long q = e10 - 1;  // the place of the uncertainty's second digit
+    long long m = floor(scaled * 10 + Ruler(0.5)).convert_to<long long>();
+    if (m == 100) {
+        m = 10;
+        ++q;
+    }
+    f.shown = {false, std::to_string(m), q + 1};
+    // |value| / 10^q to the nearest integer, ties to even.
+    const Rational ten = q < 0 ? Rational(pow(Integer(10), static_cast<unsigned>(-q))) : Rational(1, pow(Integer(10), static_cast<unsigned>(q)));
+    const Rational x = abs(value) * ten;
+    const Integer num = numerator(x), den = denominator(x);
+    Integer n = num / den;
+    const Integer twice = 2 * (num % den);
+    if (twice > den || (twice == den && n % 2 != 0)) ++n;
+    const std::string digits = n.str();
+    long long e = n == 0 ? q + 1 : static_cast<long long>(digits.size()) - 1 + q;  // the place of its first digit
+    const std::string sign = value < 0 && n != 0 ? "-" : "";
+    const std::string u = std::to_string(m);
+    if (q <= 0 && -7 <= e && e < 21) {
+        const std::string d = impl::point(digits, -q);
+        f.concise = sign + d + "(" + u + ")";
+        f.plusMinus = sign + d + " ± " + impl::point(u, -q);
+        return f;
+    }
+    e = std::max(e, q + 1);
+    const std::string mantissa = impl::point(digits, e - q);
+    const std::string es = (e < 0 ? "e-" : "e+") + std::to_string(e < 0 ? -e : e);
+    f.concise = sign + mantissa + "(" + u + ")" + es;
+    f.plusMinus = "(" + sign + mantissa + " ± " + impl::point(u, e - q) + ")" + es;
+    return f;
 }
 
 }  // namespace calculate_core::detail

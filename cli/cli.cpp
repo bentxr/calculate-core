@@ -44,9 +44,14 @@ std::string usage() {
            "  --json             one JSON object per expression\n"
            "  --color <when>     auto (default), always or never\n"
            "  --allow-uncertain  let discrete functions take arguments that carry error\n"
+           "  --uncertainty <r>  worst (default) or statistical: which combination of\n"
+           "                     uncertain inputs leads\n"
+           "  --read-precision <m>  off (default), decimals or all: typed numbers carry\n"
+           "                     half a unit of their last digit\n"
            "  --list-types       describe the number types of this build\n"
            "  --list-functions   list the functions of the language\n"
            "  --info <name>      describe a function\n"
+           "  --list-constants   list the named constants\n"
            "  --help, --version\n"
            "\n"
            "Lines M+, M- and MC add Ans to, subtract it from, or clear the memory M.\n"
@@ -98,6 +103,8 @@ const char* codeName(ErrorCode c) {
 const char* warningName(WarningCode code) {
     switch (code) {
     case WarningCode::EmptyRange: return "EmptyRange";
+    case WarningCode::FirstOrderUnreliable: return "FirstOrderUnreliable";
+    case WarningCode::UnitsDiffer: return "UnitsDiffer";
     }
     return "";
 }
@@ -124,13 +131,28 @@ void printJson(std::ostream& out, const std::string& input, const Result& r) {
         out << ",\"value\":{\"negative\":" << flag(r.value.negative) << ",\"digits\":" << jsonString(r.value.digits)
             << ",\"exponent10\":" << r.value.exponent10 << "}";
     }
+    if (!r.unit.empty()) out << ",\"unit\":" << jsonString(r.unit);
     out << ",\"trustedDigits\":" << r.trustedDigits << ",\"trustedDigitsMeasured\":" << r.trustedDigitsMeasured
         << ",\"bound\":" << jsonString(r.bound) << ",\"inputError\":" << jsonString(r.inputError)
         << ",\"roundingError\":" << jsonString(r.roundingError) << ",\"libraryError\":" << jsonString(r.libraryError)
         << ",\"measured\":" << jsonString(r.measured) << ",\"conditionNumber\":" << jsonString(r.conditionNumber)
         << ",\"measuredAvailable\":" << flag(r.measuredAvailable)
         << ",\"measurementReliable\":" << flag(r.measurementReliable) << ",\"boundComplete\":" << flag(r.boundComplete)
-        << ",\"roundingOperations\":" << r.roundingOperations << ",\"expanded\":" << jsonString(r.expression) << ",\"reading\":" << jsonString(r.reading);
+        << ",\"roundingOperations\":" << r.roundingOperations;
+    if (!r.uncertainInputs.empty()) {
+        out << ",\"uncertainty\":{\"rule\":" << jsonString(r.uncertaintyRule == UncertaintyRule::Linear ? "worst" : "statistical")
+            << ",\"worst\":" << jsonString(r.uncertaintyLinear) << ",\"statistical\":" << jsonString(r.uncertaintyQuadrature)
+            << ",\"trustedDigits\":" << r.trustedDigitsWithUncertainty << ",\"concise\":" << jsonString(r.concise)
+            << ",\"plusMinus\":" << jsonString(r.plusMinus) << ",\"firstOrderReliable\":" << flag(r.firstOrderReliable)
+            << ",\"firstOrderObserved\":" << jsonString(r.firstOrderObserved) << ",\"inputs\":[";
+        for (std::size_t i = 0; i < r.uncertainInputs.size(); ++i) {
+            const UncertainInput& u = r.uncertainInputs[i];
+            out << (i ? "," : "") << "{\"name\":" << jsonString(u.name) << ",\"uncertainty\":" << jsonString(u.uncertainty)
+                << ",\"sensitivity\":" << jsonString(u.sensitivity) << ",\"contribution\":" << jsonString(u.contribution) << "}";
+        }
+        out << "]}";
+    }
+    out << ",\"expanded\":" << jsonString(r.expression) << ",\"reading\":" << jsonString(r.reading);
     if (r.conversion)
         out << ",\"conversion\":{\"target\":" << jsonString(r.conversion->target) << ",\"text\":" << jsonString(r.conversion->text)
             << (r.conversion->note.empty() ? "" : ",\"note\":" + jsonString(r.conversion->note)) << "}";
@@ -146,6 +168,18 @@ void printJson(std::ostream& out, const std::string& input, const Result& r) {
     if (!r.comment.empty()) out << ",\"comment\":" << jsonString(r.comment);
     if (!r.assigned.empty()) out << ",\"assigned\":" << jsonString(r.assigned);
     out << "}\n";
+}
+
+// The named values: name = value ± limit unit  (title).
+void listConstants(std::ostream& out) {
+    out << "± is the limit the calculator uses: three of CODATA's standard uncertainties\n";
+    for (const ConstantDescription& c : constants()) {
+        out << c.name;
+        if (!c.value.empty()) out << " = " << c.value;
+        if (!c.limit.empty()) out << " ± " << c.limit;
+        if (!c.unit.empty()) out << " " << c.unit;
+        out << "  (" << c.title << ")\n";
+    }
 }
 
 void listTypes(std::ostream& out) {
@@ -222,6 +256,23 @@ void printError(std::ostream& err, const std::string& input, const Error& e) {
         << std::string(std::max<std::size_t>(1, columns(input, e.begin, e.end)), '^') << " " << e.message << "\n";
 }
 
+// The user's uncertain inputs: the two combinations (the leading one first), the concise form, and where they come from.
+void printUncertainty(std::ostream& out, const Result& r) {
+    if (r.uncertainInputs.empty()) return;
+    const bool worst = r.uncertaintyRule == UncertaintyRule::Linear;
+    out << "  uncertainty ± " << (worst ? r.uncertaintyLinear : r.uncertaintyQuadrature) << (worst ? " worst case" : " statistical")
+        << " · ± " << (worst ? r.uncertaintyQuadrature : r.uncertaintyLinear) << (worst ? " statistical" : " worst case");
+    if (!r.concise.empty()) out << " · " << r.concise;
+    if (!r.exact) {
+        const int n = r.trustedDigitsWithUncertainty;
+        out << " · " << n << (n == 1 ? " trusted digit" : " trusted digits") << " with it";
+    }
+    out << "\n  from ";
+    for (std::size_t i = 0; i < r.uncertainInputs.size(); ++i)
+        out << (i ? " · " : "") << r.uncertainInputs[i].name << ": " << r.uncertainInputs[i].contribution;
+    out << "\n";
+}
+
 // After the report lines: what is worth knowing about the result.
 void printNotes(std::ostream& out, const Result& r) {
     for (const Warning& w : r.warnings) out << "  note: " << w.message << "\n";
@@ -231,13 +282,14 @@ void printHuman(std::ostream& out, const std::string& input, const Result& r, bo
     out << input << "\n";
     if (r.commentOnly) return;  // a note: the line alone
     if (r.exact) {
-        out << "= " << formatFraction(*r.exact) << "\n";
+        out << "= " << formatFraction(*r.exact) << (r.unit.empty() ? "" : " " + r.unit) << "\n";
         if (r.conversion) out << "→ " << r.conversion->text << (r.conversion->note.empty() ? "" : " (" + r.conversion->note + ")") << "\n";
         out << "  exact, no rounding error · κ " << r.conditionNumber << "\n";
+        printUncertainty(out, r);
         printNotes(out, r);
         return;
     }
-    out << "= " << formatValue(r.value, r.trustedDigits, color) << "\n";
+    out << "= " << formatValue(r.value, r.trustedDigitsWithUncertainty, color) << (r.unit.empty() ? "" : " " + r.unit) << "\n";
     if (r.conversion) out << "→ " << r.conversion->text << (r.conversion->note.empty() ? "" : " (" + r.conversion->note + ")") << "\n";
     out << "  ± " << r.bound << "  input " << r.inputError << " · rounding " << r.roundingError << " · library "
         << r.libraryError;
@@ -249,6 +301,7 @@ void printHuman(std::ostream& out, const std::string& input, const Result& r, bo
     if (r.trustedDigits >= static_cast<int>(r.value.digits.size())) out << "all digits trusted";
     else out << r.trustedDigits << (r.trustedDigits == 1 ? " trusted digit" : " trusted digits");
     out << "\n";
+    printUncertainty(out, r);
     printNotes(out, r);
 }
 
@@ -367,6 +420,10 @@ int run(const std::vector<std::string>& args, std::istream& in, std::ostream& ou
             listTypes(out);
             return 0;
         }
+        if (a == "--list-constants") {
+            listConstants(out);
+            return 0;
+        }
         if (a == "--list-functions") {
             listFunctions(out);
             return 0;
@@ -384,6 +441,26 @@ int run(const std::vector<std::string>& args, std::istream& in, std::ostream& ou
         }
         if (a == "--allow-uncertain") {
             s.options.allowUncertainDiscreteArguments = true;
+            continue;
+        }
+        if (a == "--uncertainty") {
+            const auto v = value();
+            if (!v) return 2;
+            if (*v != "worst" && *v != "statistical") {
+                err << "calc: --uncertainty takes worst or statistical\n";
+                return 2;
+            }
+            s.options.uncertaintyRule = *v == "worst" ? UncertaintyRule::Linear : UncertaintyRule::Quadrature;
+            continue;
+        }
+        if (a == "--read-precision") {
+            const auto v = value();
+            if (!v) return 2;
+            if (*v != "off" && *v != "decimals" && *v != "all") {
+                err << "calc: --read-precision takes off, decimals or all\n";
+                return 2;
+            }
+            s.options.readPrecision = *v == "off" ? ReadPrecision::Off : *v == "decimals" ? ReadPrecision::Decimals : ReadPrecision::All;
             continue;
         }
         if (a == "--type") {

@@ -15,6 +15,25 @@ std::optional<Error> fraction(const TargetInput& in, Result& result) {
     return std::nullopt;
 }
 
+// The value with its error and the leading uncertainty, as people write them: 5.00(20) or 5.00 ± 0.20.
+std::optional<Error> uncertain(const TargetInput& in, Result& result, bool concise) {
+    const TargetText& target = *in.parsed.target;
+    if (!target.argument.empty())
+        return Error{ErrorCode::UnexpectedToken, target.name + " takes nothing after it", target.span.begin, target.span.end};
+    const Uncertainty& u = in.report.uncertainty;
+    const Ruler lead = in.options.uncertaintyRule == UncertaintyRule::Linear ? u.linear : u.quadrature;
+    const UncertainForms f = uncertainForms(in.value, in.report.bound + lead);
+    const std::string& text = concise ? f.concise : f.plusMinus;
+    if (text.empty())
+        return Error{ErrorCode::UnexpectedToken, "nothing to show: the result has no error and no uncertainty", target.span.begin,
+                     target.span.end};
+    result.conversion = Conversion{concise ? "concise" : "\xC2\xB1", text, std::nullopt, ""};
+    return std::nullopt;
+}
+
+std::optional<Error> concise(const TargetInput& in, Result& result) { return uncertain(in, result, true); }
+std::optional<Error> plusMinus(const TargetInput& in, Result& result) { return uncertain(in, result, false); }
+
 // More digits than this are not written out (an exact value's period, or a huge or tiny one's digits).
 constexpr std::size_t maxDigits = 20000;
 
@@ -165,6 +184,9 @@ const std::vector<Target>& targets() {
         {"mixed", "the stored value as a whole number and a fraction", mixed},
         {"percent", "the value × 100, every digit, with %", percent},
         {"1/n", "the nearest fraction with denominator n, and how far it is", fixedDenominator, fixedDenominatorName},
+        {"concise", "the value and its error or uncertainty as 1.23(4)", concise},
+        {"\xC2\xB1", "the value \xC2\xB1 its error or uncertainty", plusMinus},
+        {"pm", "the same as \xC2\xB1", plusMinus},
     };
     return list;
 }

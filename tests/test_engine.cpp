@@ -660,3 +660,23 @@ TEST(FirstOrder, NothingToCheckWithoutUncertainInputs) {
     EXPECT_FALSE(u.checked);
     EXPECT_TRUE(u.reliable);
 }
+
+TEST(Forms, ConciseAndPlusMinus) {
+    const auto forms = [](const Rational& value, const Ruler& total) {
+        const UncertainForms f = uncertainForms(value, total);
+        return f.concise + " | " + f.plusMinus;
+    };
+    EXPECT_EQ(forms(Rational(5), exactCast<Ruler>(0.2)), "5.00(20) | 5.00 ± 0.20");
+    EXPECT_EQ(forms(Rational(12345), Ruler(670)), "1.234(67)e+4 | (1.234 ± 0.067)e+4");
+    EXPECT_EQ(forms(Rational(-12345), Ruler(670)), "-1.234(67)e+4 | (-1.234 ± 0.067)e+4");
+    EXPECT_EQ(forms(Rational(1, 2), Ruler(3)), "0.5(30) | 0.5 ± 3.0");
+    EXPECT_EQ(forms(Rational(0), Ruler(500)), "0.0(50)e+2 | (0.0 ± 5.0)e+2");
+    EXPECT_EQ(forms(Rational(0), fromRational<Ruler>(Rational(88, 1000))), "0.000(88) | 0.000 ± 0.088");
+    EXPECT_EQ(forms(Rational(1, 3), fromRational<Ruler>(Rational(1, 10))), "0.33(10) | 0.33 ± 0.10");
+    EXPECT_EQ(forms(toRational(6.67430e-11), fromRational<Ruler>(Rational(15, 10000000000000000LL))),
+              "6.67430(15)e-11 | (6.67430 ± 0.00015)e-11");
+    EXPECT_EQ(forms(Rational(1), Ruler(0)), " | ");  // nothing to show
+    const UncertainForms g = uncertainForms(Rational(1, 3), fromRational<Ruler>(Rational(1, 10)));
+    EXPECT_EQ(g.shown.digits, "10");  // the two digits of the uncertainty, a trailing 0 kept
+    EXPECT_EQ(g.shown.exponent10, -1);
+}

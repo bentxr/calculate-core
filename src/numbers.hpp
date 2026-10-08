@@ -276,6 +276,17 @@ T decimalTo(const DecimalLiteral& d) {
 }
 
 // value = (negative ? -1 : 1) * d1.d2d3... * 10^exponent10; no trailing zeros; zero is {"0", 0}.
+// 10^n in the ruler, by binary powering.
+inline Ruler powerOfTen(long long n) {
+    Ruler result = 1;
+    Ruler base = 10;
+    for (unsigned long long k = static_cast<unsigned long long>(n < 0 ? -n : n); k; k >>= 1) {
+        if (k & 1) result *= base;
+        base *= base;
+    }
+    return n < 0 ? Ruler(1 / result) : result;
+}
+
 struct DecimalDigits {
     bool negative = false;
     std::string digits;
@@ -351,7 +362,7 @@ inline FractionDigits exactFraction(const Rational& q, int maxPeriod = 60) {
     return f;
 }
 
-enum class ConstantId { Pi, TwoOverPi, Ln2, Ln10, E, Sqrt2, Phi, Plastic, EulerGamma, Catalan, Apery, Omega };
+enum class ConstantId { Pi, TwoOverPi, Ln2, Ln10, E, Sqrt2, Phi, Plastic, EulerGamma, Catalan, Apery, Omega, Tau };
 
 // The table's hex digits as an integer: the constant times 2^constantFractionBits, truncated.
 inline Integer constantMantissa(ConstantId id) {
@@ -369,6 +380,7 @@ inline Integer constantMantissa(ConstantId id) {
     case ConstantId::Catalan: hex = catalanHex; break;
     case ConstantId::Apery: hex = aperyHex; break;
     case ConstantId::Omega: hex = omegaHex; break;
+    case ConstantId::Tau: return constantMantissa(ConstantId::Pi) << 1;  // exactly twice the table's pi
     }
     Integer m = 0;
     for (const char* c = hex; *c; ++c) m = m * 16 + (*c <= '9' ? *c - '0' : *c - 'A' + 10);
