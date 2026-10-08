@@ -919,3 +919,21 @@ TEST(Uncertainty, DisplayForms) {
     EXPECT_EQ(evaluate("1/3", exact).concise, "");  // no error, no uncertainty
     EXPECT_EQ(evaluate("2+2").plusMinus, "");
 }
+
+TEST(Uncertainty, ReadPrecision) {
+    Options o;
+    o.readPrecision = ReadPrecision::Decimals;
+    const Result r = evaluate("1.1*3.20", o);
+    ASSERT_EQ(r.uncertainInputs.size(), 2u);
+    EXPECT_EQ(r.uncertainInputs[0].name, "1.1");
+    EXPECT_EQ(r.uncertainInputs[0].contribution, "1.6e-1");  // 3.2 × 0.05
+    EXPECT_EQ(r.uncertainInputs[1].name, "3.20");
+    EXPECT_EQ(r.uncertainInputs[1].contribution, "5.5e-3");  // 1.1 × 0.005
+    EXPECT_EQ(r.uncertaintyLinear, "1.7e-1");
+    EXPECT_EQ(r.uncertaintyQuadrature, "1.6e-1");
+    EXPECT_EQ(r.concise, "3.52(17)");
+    EXPECT_EQ(r.trustedDigits, 15);
+    EXPECT_EQ(r.trustedDigitsWithUncertainty, 1);
+    o.uncertaintyRule = UncertaintyRule::Quadrature;
+    EXPECT_EQ(evaluate("1.1*3.20", o).concise, "3.52(16)");
+}

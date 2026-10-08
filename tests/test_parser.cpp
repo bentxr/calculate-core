@@ -787,3 +787,33 @@ TEST(EndToEnd, TypedUncertainValuesStayApart) {
     EXPECT_EQ(ev.report.uncertainty.sources.size(), 2u);
     EXPECT_EQ(ev.report.uncertainty.linear, Ruler(2) * exactCast<Ruler>(0.2));
 }
+
+namespace {
+
+std::string readTree(std::string_view text, ReadPrecision mode, AngleUnit angle = AngleUnit::Radians) {
+    Options o;
+    o.angle = angle;
+    o.readPrecision = mode;
+    const Parsed p = parse(text, o);
+    if (p.error) return "error: " + p.error->message;
+    EXPECT_TRUE(isPostOrder(p.ast)) << text;
+    return sexpr(p.ast, p.ast.root());
+}
+
+}  // namespace
+
+TEST(Parser, ReadPrecision) {
+    EXPECT_EQ(readTree("1.1", ReadPrecision::Decimals), "(uncertainty 1.1 5e-2)");
+    EXPECT_EQ(readTree("3.20", ReadPrecision::Decimals), "(uncertainty 3.20 5e-3)");
+    EXPECT_EQ(readTree("3", ReadPrecision::Decimals), "3");
+    EXPECT_EQ(readTree("3", ReadPrecision::All), "(uncertainty 3 5e-1)");
+    EXPECT_EQ(readTree("1e3", ReadPrecision::All), "(uncertainty 1e3 5e2)");
+    EXPECT_EQ(readTree("1.1", ReadPrecision::Off), "1.1");
+    EXPECT_EQ(readTree("1.1±0.2", ReadPrecision::Decimals), "(uncertainty 1.1 0.2)");  // the user said
+    EXPECT_EQ(readTree("sin(30)", ReadPrecision::All, AngleUnit::Degrees),
+              "(sin (* (uncertainty 30 5e-1) (/ pi 180)))");  // the engine's own 180 is exact
+}
+
+TEST(Parser, ReadPrecisionYieldsToTheUncertaintyFunction) {
+    EXPECT_EQ(readTree("uncertainty(1.1, 0.2)", ReadPrecision::Decimals), "(uncertainty 1.1 0.2)");
+}

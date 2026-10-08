@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <array>
+#include <set>
 #include <string>
 #include <utility>
 
@@ -434,6 +435,22 @@ private:
 
     Span spanOf(int n) const { return ast_.nodes[static_cast<std::size_t>(n)].span; }
 
+    // Read precision: a typed number (with a point, or any under All) carries half a unit of its last digit, 1.1 → 1.1 ± 0.05.
+    int readWithPrecision(int literal, const Token& t) {
+        const ReadPrecision mode = options_.readPrecision;
+        if (mode == ReadPrecision::Off || (mode == ReadPrecision::Decimals && t.text.find('.') == std::string_view::npos))
+            return literal;
+        const long long e = parseDecimal(t.text)->exponent10;
+        const int half = node(FunctionId::Literal, {}, t.span, "5e" + std::to_string(e - 1));
+        const int wrapped = read(node(FunctionId::Uncertain, {literal, half}, t.span), std::string(t.text));
+        readNodes_.insert(wrapped);
+        return wrapped;
+    }
+
+    // The plain number behind one that read precision wrapped (the user's own uncertainty replaces what the digits
+    // say); any other node as it is. The wrapper stays behind, unused.
+    int unread(int n) const { return readNodes_.count(n) ? ast_.nodes[static_cast<std::size_t>(n)].args[0] : n; }
+
     // value ± spread. A percentage is relative: 5 ± 20% is 5 ± |5|·20% (the value node shared). Read as written.
     // `whole` is the node's span: from value to spread when written with ±, the call when written uncertainty(x, u).
     int uncertain(int value, int spread, Span opSpan, std::optional<Span> call = std::nullopt) {
@@ -492,7 +509,7 @@ private:
             if (op.kind == TokenKind::PlusMinus) {  // left-associative
                 const int spread = expression(power);
                 if (error_) return -1;
-                left = uncertain(left, spread, op.span);
+                left = uncertain(unread(left), unread(spread), op.span);
                 continue;
             }
             const bool bareRight = peek().kind != TokenKind::LeftParen;
@@ -533,7 +550,7 @@ private:
         switch (t.kind) {
         case TokenKind::Number:
             if (!parseDecimal(t.text)) return fail(ErrorCode::InvalidNumber, "Invalid number '" + std::string(t.text) + "'", t.span);
-            return node(FunctionId::Literal, {}, t.span, std::string(t.text));
+            return readWithPrecision(node(FunctionId::Literal, {}, t.span, std::string(t.text)), t);
         case TokenKind::Pi: return node(FunctionId::Pi, {}, t.span);
         case TokenKind::Minus:
         case TokenKind::Plus: {
@@ -584,7 +601,9 @@ private:
     // A stored expression: its nodes join this tree (all with the name's span), and the expanded
     // text gets it in parentheses. Stored texts are already expanded, so they contain no names.
     int expand(const Token& t, const std::string& text) {
-        const Parsed inner = parse(text, options_, {});
+        Options stored = options_;
+        stored.readPrecision = ReadPrecision::Off;  // a stored text was read when it was typed
+        const Parsed inner = parse(text, stored, {});
         if (inner.error) return fail(inner.error->code, inner.error->message, t.span);
         const int offset = static_cast<int>(ast_.nodes.size());
         int uncertain = 0;  // the stored text's uncertain values: one quantity each, wherever the name is used
@@ -770,7 +789,7 @@ private:
             const std::string expected = name == "log" ? "1 or 2 arguments" : argumentCount(info.minArgs, info.maxArgs < 0);
             return fail(ErrorCode::WrongArgumentCount, name + " takes " + expected, span);
         }
-        if (*id == FunctionId::Uncertain) return named(uncertain(args[0], args[1], span, span), name);  // 20% relative too
+        if (*id == FunctionId::Uncertain) return named(uncertain(unread(args[0]), unread(args[1]), span, span), name);  // 20% relative too
         return withAngles(*id, std::move(args), span, name);
     }
 
@@ -887,6 +906,7 @@ private:
     std::string_view source_;
     std::vector<Token> tokens_;
     const Options& options_;
+    std::set<int> readNodes_;  // the numbers wrapped by read precision
     const Names& names_;
     Ast ast_;
     std::size_t position_ = 0;
