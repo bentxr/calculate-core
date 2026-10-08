@@ -628,3 +628,29 @@ TYPED_TEST(SumTest, TheBoundCoversTheTrueErrorAndGrowsWithTheCount) {
         previous = ev.report.bound;
     }
 }
+
+// Mutation survivors of Plan 1's checkpoint 1.29.
+TEST(Lexer, ANumberMayStartWithItsPoint) {
+    EXPECT_EQ(tree(".5"), ".5");
+    EXPECT_EQ(tree("1+.5"), "(+ 1 .5)");
+}
+
+TEST(Lexer, AStrayClosingParenthesisDoesNotHideAnOpenOne) {
+    const Lexed l = lex("2)+(3 to fraction");  // `to` is inside the second pair
+    ASSERT_TRUE(l.error);
+    EXPECT_EQ(l.error->code, ErrorCode::UnexpectedToken);
+    EXPECT_EQ(l.error->begin, 6u);
+}
+
+TEST(Parser, ANameExpandsAfterEarlierNodes) {
+    EXPECT_EQ(sexpr(parse("2*Ans", AngleUnit::Radians, {{"Ans", "1+2"}}).ast,
+                    parse("2*Ans", AngleUnit::Radians, {{"Ans", "1+2"}}).ast.root()),
+              "(* 2 (+ 1 2))");
+}
+
+TEST(Parser, AnEmptyVariableArgumentPointsAtTheCall) {
+    const Error e = parseError("sum(x, 1, 2, )");
+    EXPECT_EQ(e.code, ErrorCode::UnexpectedToken);
+    EXPECT_EQ(e.begin, 0u);
+    EXPECT_EQ(e.end, 14u);
+}
