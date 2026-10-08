@@ -724,3 +724,9 @@ TEST(Parser, TheCanonicalReading) {
     EXPECT_EQ(reading("5!+√4"), "(5! + √(4))");
     EXPECT_EQ(parse("Ans*2", Options{}, {{"Ans", "1+2"}}).reading, "((1 + 2) × 2)");
 }
+
+// Mutation survivor (Plan 1, final checkpoint): the last letters of the alphabet are letters.
+TEST(Lexer, ZIsALetter) {
+    EXPECT_EQ(parse("z := 2", AngleUnit::Radians).assigned, "z");
+    EXPECT_EQ(parse("Z := 2", AngleUnit::Radians).assigned, "Z");
+}

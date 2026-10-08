@@ -753,3 +753,11 @@ TEST(Api, AFixedDenominatorSaysHowFarItIs) {
     for (const TargetDescription& t : conversionTargets()) listed = listed || t.name == "1/n";
     EXPECT_TRUE(listed);
 }
+
+// Mutation survivors (Plan 1, final checkpoint): the sign of a mixed number, and the largest denominator of 1/n.
+TEST(Api, MixedNumbersKeepParenthesesForBothParts) {
+    EXPECT_EQ(evaluate("-6 to mixed", as(NumberType::Exact)).conversion->text, "-6");
+    EXPECT_EQ(evaluate("-1/3 to mixed", as(NumberType::Exact)).conversion->text, "-1/3");
+    EXPECT_FALSE(evaluate("1 to 1/1000000000").error);
+    EXPECT_EQ(evaluate("1 to 1/1000000001").error->code, ErrorCode::UnexpectedToken);
+}
