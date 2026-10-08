@@ -182,6 +182,8 @@ const std::vector<FunctionText>& table() {
          "betaincinv(2, 5, 0.5)", "Probability", {{"a", ArgumentKind::Number}, {"b", ArgumentKind::Number}, {"y", ArgumentKind::Number}}},
         {"uncertainty", "Value with uncertainty", "x, whose true value lies within u of it.",
          "uncertainty(5, 0.2)", "Uncertainty", {{"x", ArgumentKind::Number}, {"u", ArgumentKind::Number}}},
+        {"fromBits", "Number from bits", "The number a bit pattern stands for in a format.",
+         "fromBits(0x3DCCCCCD, fp32)", "Floating point", {{"bits", ArgumentKind::Number}, {"format", ArgumentKind::Format}}},
         {"errorPart", "Error part", "The worst-case uncertainty x carries from its uncertain inputs, as a number.",
          "errorPart(5±0.2)", "Uncertainty", {{"x", ArgumentKind::Number}}},
     };
@@ -198,7 +200,7 @@ const FunctionText* functionText(std::string_view name) {
 
 std::vector<std::string> categories() {
     return {"Constants", "Powers and roots", "Logarithms", "Trigonometry", "Hyperbolic", "Rounding and parts",
-            "Integers", "Statistics", "Sums and products", "Special functions", "Probability", "Uncertainty"};
+            "Integers", "Statistics", "Sums and products", "Special functions", "Probability", "Uncertainty", "Floating point"};
 }
 
 }  // namespace calculate_core::detail

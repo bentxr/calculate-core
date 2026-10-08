@@ -12,10 +12,10 @@ enum class FunctionId {
     Add, Subtract, Multiply, Divide, Negate, Power, Percent, Square, Cube, Factorial,
     Sqrt, Cbrt, Root, Exp, Ln, Log10, LogBase,
     Sin, Cos, Tan, Asin, Acos, Atan, Sinh, Cosh, Tanh, Asinh, Acosh, Atanh,
-    Abs, Rem, FloorMod, Gcd, Lcm, Ncr, Npr, Csch, Acot, Atan2, Hypot, Sinc, Floor, Trunc, Round, Sgn, Clip, Numerator, Denominator, Lgamma, Gamma, Digamma, Trigamma, Beta, Erf, Erfc, Erfinv, Erfcinv, GammaP, GammaQ, Igamma, GammaInc, Betainc, Betaincinv, Median, Uncertain, Tau, Sqrt2, Phi, EulerGamma, Catalan, Apery, Plastic, Omega, PerMille, PerMyriad, ErrorPart
+    Abs, Rem, FloorMod, Gcd, Lcm, Ncr, Npr, Csch, Acot, Atan2, Hypot, Sinc, Floor, Trunc, Round, Sgn, Clip, Numerator, Denominator, Lgamma, Gamma, Digamma, Trigamma, Beta, Erf, Erfc, Erfinv, Erfcinv, GammaP, GammaQ, Igamma, GammaInc, Betainc, Betaincinv, Median, Uncertain, Tau, Sqrt2, Phi, EulerGamma, Catalan, Apery, Plastic, Omega, PerMille, PerMyriad, ErrorPart, FloatFromBits
 };
 
-inline constexpr int functionCount = static_cast<int>(FunctionId::ErrorPart) + 1;
+inline constexpr int functionCount = static_cast<int>(FunctionId::FloatFromBits) + 1;
 
 struct Span {
     std::size_t begin = 0;
@@ -24,7 +24,7 @@ struct Span {
 
 struct Node {
     FunctionId function = FunctionId::Literal;
-    std::string text;       // the literal's source text (Literal); the quantity's key (Uncertain, may be empty)
+    std::string text;       // the literal's source text (Literal); the quantity's key (Uncertain, may be empty); fromBits' exact value as a signed decimal
     std::vector<int> args;  // indices of earlier nodes
     Span span;
     bool lowered = false;  // made by a lowering of the function named in written

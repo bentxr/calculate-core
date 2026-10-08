@@ -99,7 +99,7 @@ std::vector<FloatFormatInfo> floatFormats();
 
 // What an argument stands for: argument hints and generated keys use it. An Angle follows the angle unit; an
 // Integer must be whole.
-enum class ArgumentKind { Number, Integer, Angle };
+enum class ArgumentKind { Number, Integer, Angle, Format };  // Format: a format name such as fp32
 
 struct ArgumentDescription {
     std::string name;  // "x", "n", "base"

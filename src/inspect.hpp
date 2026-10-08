@@ -47,4 +47,10 @@ FloatFormatInfo formatInfo(NumberType type);
 // the exact number that was converted, is given and the result is finite), ulp, neighbours and a note.
 Conversion conversionOf(const FloatFormatInfo& info, const FloatValue& v, const std::optional<Rational>& typed);
 
+// The inspector's row a name stands for: fp16 … fp512 and their IEEE names (fp128 is the Quadruple type's row).
+std::optional<FloatFormatInfo> formatNamed(std::string_view name);
+
+// The exact value fromBits stands for, or why it has none (`error`, without a span).
+std::optional<Rational> bitsLiteral(const std::string& format, const std::string& pattern, NumberType type, Error& error);
+
 }  // namespace calculate_core::detail

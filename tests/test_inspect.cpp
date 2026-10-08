@@ -326,3 +326,33 @@ TEST(FloatFunctions, AnsKeepsTheNumberNotTheInspection) {
     ASSERT_FALSE(r.error);
     EXPECT_EQ(r.value.digits, "600000000000000088817841970012523233890533447265625");
 }
+
+TEST(FloatFunctions, FromBitsReadsABitPattern) {
+    const Result r = evaluate("fromBits(0x3DCCCCCD, fp32)");
+    ASSERT_FALSE(r.error);
+    EXPECT_EQ(r.value.digits, "100000001490116119384765625");
+    EXPECT_EQ(r.inputError, "0");  // a float is exactly a double
+    EXPECT_EQ(evaluate("fromBits(0x3DCCCCCD, fp32) * 2").value.digits, "20000000298023223876953125");
+    EXPECT_EQ(evaluate("fromBits(0b00111111100000000000000000000000, fp32)").value.digits, "1");
+    EXPECT_EQ(evaluate("fromBits(0x3FB999999999999A)").value.digits, "1000000000000000055511151231257827021181583404541015625");
+    Options single;
+    single.type = NumberType::Float;
+    EXPECT_EQ(evaluate("fromBits(0x3FB999999999999A, fp64)", single).inputError, "1.5e-9");
+    Options exact;
+    exact.type = NumberType::Exact;
+    EXPECT_EQ(evaluate("fromBits(0x3DCCCCCD, fp32)", exact).exact->denominator, "134217728");
+}
+
+TEST(FloatFunctions, FromBitsRefusesWhatIsNotAFiniteNumber) {
+    EXPECT_EQ(evaluate("fromBits(0x7F800000, fp32)").error->code, ErrorCode::LiteralOutOfRange);
+    EXPECT_EQ(evaluate("fromBits(0x1FFFFFFFF, fp32)").error->code, ErrorCode::LiteralOutOfRange);
+    EXPECT_EQ(evaluate("fromBits(1.5, fp32)").error->code, ErrorCode::InvalidNumber);
+    Options exact;
+    exact.type = NumberType::Exact;
+    EXPECT_EQ(evaluate("fromBits(0x3DCCCCCD)", exact).error->code, ErrorCode::NotAvailableInExact);
+    EXPECT_EQ(evaluate("0x10").error->code, ErrorCode::InvalidNumber);  // base literals elsewhere: Part D
+}
+
+TEST(FloatFunctions, FromBitsIsReadWhereverItStands) {
+    EXPECT_EQ(evaluate("sum(x; 1; fromBits(0x40400000, fp32))").value.digits, "6");  // a limit is read while parsing
+}

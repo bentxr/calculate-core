@@ -154,6 +154,13 @@ inline bool zeroPowerNearJump(const std::vector<Rational>& x, const std::vector<
 
 }  // namespace impl
 
+// The exact value of a fromBits node: the decimal the facade wrote (a sign, then a literal).
+inline Rational fromBitsValue(const Node& node) {
+    const bool negative = !node.text.empty() && node.text[0] == '-';
+    const Rational q = toRational(*parseDecimal(std::string_view(node.text).substr(negative ? 1 : 0)));
+    return negative ? Rational(-q) : q;
+}
+
 // Each node's own error: input error for literals and constants, rounding or library error otherwise.
 template <class T>
 std::vector<Ruler> localErrors(const Ast& ast, const Forward<T>& fw) {
@@ -161,7 +168,9 @@ std::vector<Ruler> localErrors(const Ast& ast, const Forward<T>& fw) {
     std::vector<Ruler> locals(ast.nodes.size(), Ruler(0));
     for (std::size_t i = 0; i < ast.nodes.size(); ++i) {
         const Node& node = ast.nodes[i];
-        if (node.function == FunctionId::Literal) {
+        if (node.function == FunctionId::FloatFromBits) {
+            locals[i] = rulerDistance(fromBitsValue(node), toRational(fw.values[i]));
+        } else if (node.function == FunctionId::Literal) {
             locals[i] = rulerDistance(toRational(*parseDecimal(node.text)), toRational(fw.values[i]));
         } else if (const auto c = tableConstant(node.function)) {
             locals[i] = fromRational<Ruler>(abs(constantRational(*c) - toRational(fw.values[i])));
@@ -237,6 +246,10 @@ Forward<T> forward(const Ast& ast, const std::atomic<bool>* cancel = nullptr, co
         if (cancel && cancel->load(std::memory_order_relaxed)) {
             fw.error = impl::nodeError(node, ErrorCode::Cancelled, errorMessage(ErrorCode::Cancelled, ""));
             return fw;
+        }
+        if (node.function == FunctionId::FloatFromBits) {  // a bit pattern: its exact value, as the facade wrote it
+            fw.values[i] = fromRational<T>(fromBitsValue(node));
+            continue;
         }
         if (node.function == FunctionId::Literal) {
             // An exact literal beyond 10^±1000000 cannot be materialized in reasonable time or memory.

@@ -2,10 +2,12 @@
 
 #include "engine.hpp"
 #include "functions.hpp"
+#include "inspect.hpp"
 #include "numbers.hpp"
 #include "physical_constants.hpp"
 
 #include <algorithm>
+#include <cctype>
 #include <array>
 #include <set>
 #include <string>
@@ -159,6 +161,17 @@ Lexed lex(std::string_view s) {
             out.comment = trimmed(s, i + 1, s.size());
             stop = i;
             break;
+        }
+        if (c == '0' && i + 2 < s.size() && (s[i + 1] == 'x' || s[i + 1] == 'X' || s[i + 1] == 'b' || s[i + 1] == 'B')) {
+            // a bit pattern, 0x… or 0b…: one token (fromBits reads it; a plain number it is not)
+            const bool hex = s[i + 1] == 'x' || s[i + 1] == 'X';
+            const auto digit = [hex](char d) { return hex ? std::isxdigit(static_cast<unsigned char>(d)) != 0 : d == '0' || d == '1'; };
+            if (digit(s[i + 2])) {
+                const std::size_t begin = i;
+                for (i += 2; i < s.size() && digit(s[i]);) ++i;
+                push(TokenKind::Number, begin, i);
+                continue;
+            }
         }
         if (isDigit(c) || (c == '.' && i + 1 < s.size() && isDigit(s[i + 1]))) {
             const std::size_t begin = i;
@@ -458,6 +471,7 @@ private:
         case FunctionId::Literal: return n.text;
         case FunctionId::Pi: return "π";
         case FunctionId::E: return "e";
+        case FunctionId::FloatFromBits: return std::string(source_.substr(n.span.begin, n.span.end - n.span.begin));
         case FunctionId::Tau: return "τ";
         case FunctionId::Phi: return "φ";
         case FunctionId::EulerGamma: return "γ";
@@ -870,9 +884,37 @@ private:
         return value;
     }
 
+    // fromBits(0x…[, format]): a number written as its bit pattern, a leaf like a literal.
+    int fromBits(const Token& t) {
+        next();  // (
+        const Token pattern = next();
+        const bool bits = pattern.kind == TokenKind::Number && pattern.text.size() > 2 && pattern.text[0] == '0'
+                          && std::string_view("xXbB").find(pattern.text[1]) != std::string_view::npos;
+        if (!bits) return fail(ErrorCode::InvalidNumber, "fromBits takes a bit pattern such as 0x3DCCCCCD", pattern.span);
+        std::string format;
+        if (peek().kind == TokenKind::Comma) {
+            next();
+            const Token f = next();
+            if (f.kind != TokenKind::Identifier) return fail(ErrorCode::UnexpectedToken, "the format is a name such as fp32", f.span);
+            format = std::string(f.text);
+        }
+        if (peek().kind != TokenKind::RightParen)
+            return fail(ErrorCode::MissingClosingParenthesis, "Missing ')'", {t.span.begin, peek().span.begin});
+        const Span span{t.span.begin, next().span.end};
+        // Read once, in the named format or the type's own; the node keeps the exact value's decimal, so the engine
+        // reads it like a literal (the AST stays type-independent: a bit pattern is a literal).
+        Error error;
+        const std::optional<Rational> value = bitsLiteral(format, std::string(pattern.text), options_.type, error);
+        if (!value) return fail(error.code, error.message, span);
+        const DecimalDigits d = terminatingDigits(*value, std::numeric_limits<long long>::max());  // at most 512 bits
+        const std::string exact = (d.negative ? "-" : "") + d.digits + "e" + std::to_string(d.exponent10 - static_cast<long long>(d.digits.size()) + 1);
+        return named(node(FunctionId::FloatFromBits, {}, span, exact), "fromBits");
+    }
+
     int call(const Token& t) {
         if (const Range r = rangeNamed(std::string(t.text)); r != Range::None) return range(t, r);
         if (t.text == "floatBits" || t.text == "floatParts" || t.text == "floatValue" || t.text == "floatError") return inspection(t);
+        if (t.text == "fromBits") return fromBits(t);
         next();  // (
         std::vector<int> args;
         if (peek().kind != TokenKind::RightParen) {

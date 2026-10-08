@@ -37,26 +37,6 @@ std::optional<Error> uncertain(const TargetInput& in, Result& result, bool conci
 std::optional<Error> concise(const TargetInput& in, Result& result) { return uncertain(in, result, true); }
 std::optional<Error> plusMinus(const TargetInput& in, Result& result) { return uncertain(in, result, false); }
 
-// The inspector's row a `to` name stands for: fp16 … fp512 and their IEEE names; fp128 is the Quadruple type's row.
-std::optional<FloatFormatInfo> formatNamed(std::string_view name) {
-    struct Name {
-        std::string_view language, ieee;
-        FloatFormat format;
-    };
-    static const Name names[] = {{"fp16", "binary16", FloatFormat::Binary16},   {"bf16", "bfloat16", FloatFormat::Bfloat16},
-                                 {"fp32", "binary32", FloatFormat::Binary32},   {"fp64", "binary64", FloatFormat::Binary64},
-                                 {"fp80", "x87", FloatFormat::X87Extended},     {"fp128", "binary128", FloatFormat::Binary128},
-                                 {"fp256", "binary256", FloatFormat::Binary256}, {"fp512", "binary512", FloatFormat::Binary512}};
-    for (const Name& n : names) {
-        if (name != n.language && name != n.ieee) continue;
-        std::optional<FloatFormatInfo> found;
-        for (const FloatFormatInfo& f : floatFormats())
-            if (f.format == n.format && (!found || f.type == NumberType::Binary128)) found = f;
-        return found;
-    }
-    return std::nullopt;
-}
-
 // The value a format conversion starts from: a typed number (or its negation) straight from its decimal, anything
 // computed as the stored value; and the exact number it stands for.
 struct Source {

@@ -167,6 +167,66 @@ Conversion conversionOf(const FloatFormatInfo& info, const FloatValue& v, const 
     return c;
 }
 
+// The inspector's row a `to` name stands for: fp16 … fp512 and their IEEE names; fp128 is the Quadruple type's row.
+std::optional<FloatFormatInfo> formatNamed(std::string_view name) {
+    struct Name {
+        std::string_view language, ieee;
+        FloatFormat format;
+    };
+    static const Name names[] = {{"fp16", "binary16", FloatFormat::Binary16},   {"bf16", "bfloat16", FloatFormat::Bfloat16},
+                                 {"fp32", "binary32", FloatFormat::Binary32},   {"fp64", "binary64", FloatFormat::Binary64},
+                                 {"fp80", "x87", FloatFormat::X87Extended},     {"fp128", "binary128", FloatFormat::Binary128},
+                                 {"fp256", "binary256", FloatFormat::Binary256}, {"fp512", "binary512", FloatFormat::Binary512}};
+    for (const Name& n : names) {
+        if (name != n.language && name != n.ieee) continue;
+        std::optional<FloatFormatInfo> found;
+        for (const FloatFormatInfo& f : floatFormats())
+            if (f.format == n.format && (!found || f.type == NumberType::Binary128)) found = f;
+        return found;
+    }
+    return std::nullopt;
+}
+
+// The exact value fromBits stands for: the pattern (0x… or 0b…) read in the named format (empty: `type`'s own).
+std::optional<Rational> bitsLiteral(const std::string& format, const std::string& pattern, NumberType type, Error& error) {
+    using calculate_core::FloatClass;
+    std::optional<FloatFormatInfo> info;
+    if (format.empty()) {
+        if (type == NumberType::Exact) {
+            error = Error{ErrorCode::NotAvailableInExact, "Exact has no binary format: name one, e.g. fromBits(…, fp64)", 0, 0};
+            return std::nullopt;
+        }
+        info = formatInfo(type);
+    } else {
+        info = formatNamed(format);
+        if (!info) {
+            error = Error{ErrorCode::UnknownName, "Unknown format '" + format + "' (see calc --list-formats)", 0, 0};
+            return std::nullopt;
+        }
+    }
+    const bool hex = pattern.size() > 1 && (pattern[1] == 'x' || pattern[1] == 'X');
+    const FloatInspection r = inspectBits(*info, pattern, hex ? 16 : 2);
+    if (r.error) {
+        error = *r.error;
+        return std::nullopt;
+    }
+    const FloatBits& b = r.stored;
+    if (b.valueClass != FloatClass::Zero && b.valueClass != FloatClass::Subnormal && b.valueClass != FloatClass::Normal) {
+        error = Error{ErrorCode::LiteralOutOfRange, "That pattern is " + std::string(className(b.valueClass)) + " in " + info->name
+                                                        + ": the calculator computes with finite numbers", 0, 0};
+        return std::nullopt;
+    }
+    const FloatValue v = decode(binaryFormat(info->format), [&] {
+        Integer n = 0;
+        for (std::size_t i = 2; i < pattern.size(); ++i) {
+            const char c = pattern[i];
+            n = n * (hex ? 16 : 2) + (c <= '9' ? c - '0' : (c | 0x20) - 'a' + 10);
+        }
+        return n;
+    }());
+    return v.negative ? Rational(-v.magnitude) : v.magnitude;
+}
+
 FloatFormatInfo formatInfo(NumberType type) {
     for (const FloatFormatInfo& f : floatFormats())
         if (f.type == type) return f;

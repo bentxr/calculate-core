@@ -129,6 +129,7 @@ inline const FunctionInfo& functionInfo(FunctionId id) {
         {F::PerMille, "", 1, 1, C::Checked, K::Continuous, true},
         {F::PerMyriad, "", 1, 1, C::Checked, K::Continuous, true},
         {F::ErrorPart, "errorPart", 1, 1, C::Rounded, K::Continuous, false},  // the ruler's figure, rounded once into T
+        {F::FloatFromBits, "fromBits", 1, 2, C::Input, K::Continuous, true},  // a number written as its bits: a literal
     }};
     return table[static_cast<std::size_t>(id)];
 }
