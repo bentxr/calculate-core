@@ -587,9 +587,12 @@ private:
         const Parsed inner = parse(text, options_, {});
         if (inner.error) return fail(inner.error->code, inner.error->message, t.span);
         const int offset = static_cast<int>(ast_.nodes.size());
+        int uncertain = 0;  // the stored text's uncertain values: one quantity each, wherever the name is used
         for (Node n : inner.ast.nodes) {
             for (int& a : n.args) a += offset;
             n.span = t.span;
+            if (n.function == FunctionId::Uncertain && n.text.empty()) n.text = std::string(t.text) + "#" + std::to_string(uncertain);
+            if (n.function == FunctionId::Uncertain) ++uncertain;
             ast_.nodes.push_back(std::move(n));
             readings_.emplace_back();  // only the root is read from outside
         }

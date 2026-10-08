@@ -766,3 +766,24 @@ TEST(Parser, TheUncertaintyFunction) {
     EXPECT_EQ(tree("uncertainty(5, 20%)"), "(uncertainty 5 (* (abs 5) (% 20)))");
     EXPECT_EQ(parseError("uncertainty(5)").code, ErrorCode::WrongArgumentCount);
 }
+
+TEST(Parser, AnUncertainValueStoredInAnsIsOneQuantity) {
+    const Parsed p = parse("Ans-Ans", AngleUnit::Radians, {{"Ans", "5±0.2"}});
+    ASSERT_FALSE(p.error);
+    int keyed = 0;
+    for (const Node& n : p.ast.nodes) {
+        if (n.function != FunctionId::Uncertain) continue;
+        EXPECT_EQ(n.text, "Ans#0");
+        ++keyed;
+    }
+    EXPECT_EQ(keyed, 2);
+    const Evaluation<double> ev = evaluate<double>(p.ast);
+    ASSERT_EQ(ev.report.uncertainty.sources.size(), 1u);
+    EXPECT_EQ(ev.report.uncertainty.linear, 0);
+}
+
+TEST(EndToEnd, TypedUncertainValuesStayApart) {
+    const Evaluation<double> ev = evaluateText<double>("(5±0.2)-(5±0.2)");
+    EXPECT_EQ(ev.report.uncertainty.sources.size(), 2u);
+    EXPECT_EQ(ev.report.uncertainty.linear, Ruler(2) * exactCast<Ruler>(0.2));
+}
