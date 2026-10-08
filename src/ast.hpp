@@ -27,6 +27,7 @@ struct Node {
     std::string text;       // the literal's source text (Literal only)
     std::vector<int> args;  // indices of earlier nodes
     Span span;
+    bool lowered = false;  // made by a lowering of the function named in written
     std::string written;  // the function's name as the user wrote it ("sen", "log10"), for messages; empty for operators and literals
 };
 

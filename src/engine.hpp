@@ -133,7 +133,9 @@ Forward<T> forward(const Ast& ast, const std::atomic<bool>* cancel = nullptr) {
         for (const int a : node.args) args.push_back(fw.values[a]);
         const Applied<T> r = applyFunction<T>(node.function, args, cancel);
         if (r.error) {
-            fw.error = impl::nodeError(node, *r.error, errorMessage(*r.error, nameOf(node)));
+            // A lowering's division by zero is a point where the written function is not defined.
+            const ErrorCode code = node.lowered && *r.error == ErrorCode::DivisionByZero ? ErrorCode::DomainError : *r.error;
+            fw.error = impl::nodeError(node, code, errorMessage(code, nameOf(node)));
             return fw;
         }
         fw.values[i] = r.value;

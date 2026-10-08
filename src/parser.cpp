@@ -250,6 +250,22 @@ int leftPower(TokenKind k) {
 
 // A Pratt parser that appends nodes to a post-order arena. After the first error every method
 // returns -1 and nothing else is parsed.
+// Functions written with nodes the engine already has (a lowering): their error is the composition's.
+bool isLowering(std::string_view name) {
+    for (const char* n : {"log2", "exp2", "exp10", "sq", "sqrtpi"})
+        if (name == n) return true;
+    return false;
+}
+
+// Other spellings of the lowerings (spelling → lowering name).
+constexpr std::array<std::pair<std::string_view, std::string_view>, 0> loweringAliases{};
+
+std::string loweringNamed(std::string_view name) {
+    for (const auto& [alias, lowering] : loweringAliases)
+        if (name == alias) return std::string(lowering);
+    return std::string(name);
+}
+
 enum class Range { None, Sum, Product };
 
 Range rangeNamed(std::string_view name) {
@@ -509,7 +525,8 @@ private:
         if (name == "e") return node(FunctionId::E, {}, t.span);
         if (name == "Ans") return fail(ErrorCode::UnknownName, "There is no previous result yet", t.span);
         if (name == "M") return fail(ErrorCode::UnknownName, "The memory is empty", t.span);
-        if (functionNamed(name) || name == "mod" || statisticNamed(name) != Statistic::None || rangeNamed(name) != Range::None)
+        if (functionNamed(name) || name == "mod" || statisticNamed(name) != Statistic::None || rangeNamed(name) != Range::None
+            || isLowering(loweringNamed(name)))
             return fail(ErrorCode::UnexpectedToken, name + " needs its arguments in parentheses: " + name + "(…)", t.span);
         return fail(ErrorCode::UnknownName, "Unknown name '" + name + "'", t.span);
     }
@@ -680,6 +697,7 @@ private:
         const std::string name(t.text);
         const int count = static_cast<int>(args.size());
         if (const Statistic s = statisticNamed(name); s != Statistic::None) return statistic(s, name, args, span);
+        if (const std::string canonical = loweringNamed(name); isLowering(canonical)) return lowering(canonical, name, args, span);
         const Conventions& conventions = options_.conventions;
         const bool floored = conventions.mod == Conventions::Mod::Floored;
         std::optional<FunctionId> id = name == "mod" ? (floored ? FunctionId::FloorMod : FunctionId::Rem) : functionNamed(name);
@@ -720,6 +738,30 @@ private:
         const int top = node(FunctionId::Literal, {}, span, full);
         const int factor = node(FunctionId::Divide, {top, node(FunctionId::Pi, {}, span)}, span);
         return read(node(FunctionId::Multiply, {radians, factor}, span), plain);
+    }
+
+    // A node of a lowering: it speaks under the written name in errors.
+    int lowered(FunctionId id, std::vector<int> args, Span span, const std::string& written, std::string text = {}) {
+        const int n = node(id, std::move(args), span, std::move(text));
+        ast_.nodes[static_cast<std::size_t>(n)].written = written;
+        ast_.nodes[static_cast<std::size_t>(n)].lowered = true;
+        return n;
+    }
+
+    // Functions written with nodes the engine already has: their error is the composition's. Read as the call.
+    int lowering(const std::string& name, const std::string& written, const std::vector<int>& args, Span span) {
+        if (args.size() != 1) return fail(ErrorCode::WrongArgumentCount, written + " takes 1 argument", span);
+        const int x = args[0];
+        const std::string call = name + "(" + readings_[static_cast<std::size_t>(x)] + ")";
+        const auto literal = [&](const char* text) { return lowered(FunctionId::Literal, {}, span, written, text); };
+        if (name == "log2") return read(lowered(FunctionId::LogBase, {x, literal("2")}, span, written), call);
+        if (name == "exp2" || name == "exp10") {
+            const int base = literal(name == "exp2" ? "2" : "10");  // after x: post-order holds
+            return read(lowered(FunctionId::Power, {base, x}, span, written), call);
+        }
+        if (name == "sq") return read(lowered(FunctionId::Square, {x}, span, written), call);
+        const int pi = lowered(FunctionId::Pi, {}, span, written);
+        return read(lowered(FunctionId::Sqrt, {lowered(FunctionId::Multiply, {x, pi}, span, written)}, span, written), call);
     }
 
     int sum(const std::vector<int>& terms, Span span) {
@@ -833,7 +875,7 @@ std::optional<Error> checkExact(const Ast& ast) {
     for (const Node& n : ast.nodes) {
         const FunctionInfo& info = functionInfo(n.function);
         if (info.exact) continue;
-        const std::string name = n.function == FunctionId::Pi ? "π" : nameOf(n);
+        const std::string name = n.function == FunctionId::Pi && !n.lowered ? "π" : nameOf(n);  // a lowering speaks as written
         return makeError(ErrorCode::NotAvailableInExact, errorMessage(ErrorCode::NotAvailableInExact, name), n.span);
     }
     return std::nullopt;
