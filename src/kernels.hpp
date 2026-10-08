@@ -6,6 +6,7 @@
 #include <array>
 #include <cmath>
 #include <optional>
+#include <utility>
 #include <type_traits>
 #include <vector>
 
@@ -208,6 +209,35 @@ DoubleWord<T> cosSmall(const DoubleWord<T>& r) {
         sum = sum + term;
     }
     return sum;
+}
+
+// sin x and cos x as double words, by exact reduction (nullopt when |x| >= 2^1024).
+template <class T>
+std::optional<std::pair<DoubleWord<T>, DoubleWord<T>>> sinCosWord(const T& x) {
+    using std::abs;
+    const auto reduced = reduceHalfPi(abs(x));
+    if (!reduced) return std::nullopt;
+    const int q = reduced->quadrant;
+    const DoubleWord<T> s = sinSmall(reduced->r);
+    const DoubleWord<T> c = cosSmall(reduced->r);
+    const DoubleWord<T> sine = q == 0 ? s : q == 1 ? c : q == 2 ? -s : -c;
+    const DoubleWord<T> cosine = q == 0 ? c : q == 1 ? -s : q == 2 ? -c : s;
+    return std::make_pair(x < 0 ? -sine : sine, cosine);
+}
+
+// sinh or cosh of 0 <= ax <= (p + 2) ln2 / 2 as a double word (beyond that, callers use e^ax / 2 directly).
+template <class T>
+DoubleWord<T> sinhCoshWord(const T& ax, bool sinh) {
+    if (ax < 1) {
+        DoubleWord<T> m = expm1Small(dw(ax / 4));  // expm1(|x|) by two doublings
+        m = m * (m + T(2));
+        m = m * (m + T(2));
+        if (sinh) return scale(m + m / (m + T(1)), -1);
+        return scale(m * m / (m + T(1)), -1) + T(1);
+    }
+    const DoubleWord<T> y = expValue(expParts(dw(ax)));
+    const DoubleWord<T> inverse = dw(T(1)) / y;
+    return scale(sinh ? y - inverse : y + inverse, -1);
 }
 
 // atan by argument halving, atan(a) = 2 atan(a / (1 + sqrt(1 + a^2))), then its Taylor series.

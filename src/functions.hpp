@@ -372,15 +372,11 @@ Applied<T> kernel(FunctionId id, const std::vector<T>& a) {
     case FunctionId::Sin:
     case FunctionId::Cos:
     case FunctionId::Tan: {
-        using std::abs;
-        const auto reduced = reduceHalfPi(abs(x));
-        if (!reduced) return fail<T>(ErrorCode::ArgumentTooLarge);
-        const int q = reduced->quadrant;
-        const DoubleWord<T> s = sinSmall(reduced->r);
-        const DoubleWord<T> c = cosSmall(reduced->r);
-        if (id == FunctionId::Sin) return ok<T>(withSign(toValue(q == 0 ? s : q == 1 ? c : q == 2 ? -s : -c), x < 0));
-        if (id == FunctionId::Cos) return ok<T>(toValue(q == 0 ? c : q == 1 ? -s : q == 2 ? -c : s));
-        return ok<T>(withSign(toValue(q % 2 == 0 ? s / c : -(c / s)), x < 0));
+        const auto sc = sinCosWord(x);
+        if (!sc) return fail<T>(ErrorCode::ArgumentTooLarge);
+        if (id == FunctionId::Sin) return ok<T>(toValue(sc->first));
+        if (id == FunctionId::Cos) return ok<T>(toValue(sc->second));
+        return ok<T>(toValue(sc->first / sc->second));
     }
     case FunctionId::Asin:
     case FunctionId::Acos: {
@@ -397,16 +393,7 @@ Applied<T> kernel(FunctionId id, const std::vector<T>& a) {
         const DoubleWord<T>& ln2 = impl::word<T>(ConstantId::Ln2);
         if (ax > T(precisionBits<T>() + 2) * ln2.hi / 2)  // e^-|x| is negligible: the result is e^|x| / 2
             return fromExp(expParts(dw(ax) - ln2), sinh && x < 0);
-        if (ax < 1) {
-            DoubleWord<T> m = expm1Small(dw(ax / 4));  // expm1(|x|) by two doublings
-            m = m * (m + T(2));
-            m = m * (m + T(2));
-            if (sinh) return ok<T>(withSign(toValue(scale(m + m / (m + T(1)), -1)), x < 0));
-            return ok<T>(toValue(scale(m * m / (m + T(1)), -1) + T(1)));
-        }
-        const DoubleWord<T> y = expValue(expParts(dw(ax)));
-        const DoubleWord<T> inverse = dw(T(1)) / y;
-        return ok<T>(withSign(toValue(scale(sinh ? y - inverse : y + inverse, -1)), sinh && x < 0));
+        return ok<T>(withSign(toValue(sinhCoshWord(ax, sinh)), sinh && x < 0));
     }
     case FunctionId::Tanh: {
         using std::abs;

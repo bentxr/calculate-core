@@ -151,3 +151,30 @@ TYPED_TEST(CatalogueKernelTest, LoweredPowersAndLogarithmsCoverTheTruth) {
     expectBoundCoversOracle<T>("sqrtpi", [](const O& x) { return O(sqrt(x * acos(O(-1)))); },
                                [](std::mt19937_64& rng) { return logUniform<T>(rng, -30, 30); });
 }
+
+
+// A double word's value against the oracle, in units of u^2 relative to the exact value.
+template <class T>
+double errorInU2(const DoubleWord<T>& w, const test::Oracle& exact) {
+    using O = test::Oracle;
+    const O u = exactCast<O>(unitRoundoff<T>());
+    const O value = exactCast<O>(w.hi) + exactCast<O>(w.lo);
+    return O(abs(value - exact) / (u * u * abs(exact))).template convert_to<double>();
+}
+
+TYPED_TEST(CatalogueKernelTest, DoubleWordSineCosineAndHyperbolic) {
+    using T = TypeParam;
+    using O = test::Oracle;
+    std::mt19937_64 rng(21);
+    for (int i = 0; i < test::samplesFor<T>(); ++i) {
+        const T x = randomSign(rng, logUniform<T>(rng, -10, 40));
+        const auto sc = sinCosWord(x);
+        ASSERT_TRUE(sc);
+        EXPECT_LE(errorInU2(sc->first, sin(exactCast<O>(x))), 64.0) << i;
+        EXPECT_LE(errorInU2(sc->second, cos(exactCast<O>(x))), 64.0) << i;
+        const T h = uniform<T>(rng, 0, 20);
+        EXPECT_LE(errorInU2(sinhCoshWord(h, true), sinh(exactCast<O>(h))), 64.0) << i;
+        EXPECT_LE(errorInU2(sinhCoshWord(h, false), cosh(exactCast<O>(h))), 64.0) << i;
+    }
+    EXPECT_FALSE(sinCosWord(ldexp(T(1), std::min(1024, maxExponent<T>()))).has_value() && maxExponent<T>() >= 1024);
+}
