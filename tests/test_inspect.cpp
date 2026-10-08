@@ -179,3 +179,32 @@ TEST(Inspect, ValuesTooLongToWriteOutKeepTheirPowerOfTwo) {
     EXPECT_EQ(r.above.significand.digits, "1");
     EXPECT_EQ(r.ulp.digits, "");
 }
+
+TEST(InspectBits, HexadecimalAndBinary) {
+    const FloatInspection hex = inspectBits(entryOf(NumberType::Float), "3DCC CCCD", 16);
+    ASSERT_FALSE(hex.error);
+    EXPECT_EQ(hex.stored.value.digits, "100000001490116119384765625");
+    EXPECT_EQ(hex.conversionError.digits, "");  // nothing was converted
+    const FloatInspection bin = inspectBits(entryOf(NumberType::Float), "0 01111011 10011001100110011001101", 2);
+    EXPECT_EQ(bin.stored.hex, "3DCCCCCD");
+    EXPECT_EQ(inspectBits(entryOf(NumberType::Double), "0x3fb999999999999a", 16).stored.hex, "3FB999999999999A");
+    EXPECT_EQ(inspectBits(entryOf(NumberType::Float), "1", 16).stored.hex, "00000001");  // leading zeros may be left out
+}
+
+TEST(InspectBits, SpecialsAndNoncanonicalPatterns) {
+    EXPECT_EQ(inspectBits(entryOf(NumberType::Float), "7F800001", 16).stored.valueClass, FloatClass::SignalingNaN);
+    const FloatInspection unnormal = inspectBits(entry(FloatFormat::X87Extended), "3FFF4000000000000000", 16);
+    EXPECT_EQ(unnormal.stored.valueClass, FloatClass::Noncanonical);
+    EXPECT_EQ(unnormal.stored.note, "unnormal");
+    EXPECT_FALSE(unnormal.hasNeighbours);
+    const FloatInspection sub = inspectBits(entryOf(NumberType::Binary128), "1", 16);
+    EXPECT_EQ(sub.stored.valueClass, FloatClass::Subnormal);
+    EXPECT_EQ(sub.note, "no subnormals");  // a valid IEEE pattern this type never produces
+}
+
+TEST(InspectBits, Errors) {
+    EXPECT_EQ(inspectBits(entryOf(NumberType::Float), "1FFFFFFFF", 16).error->code, ErrorCode::LiteralOutOfRange);  // 33 bits
+    EXPECT_EQ(inspectBits(entryOf(NumberType::Float), "3DCG", 16).error->code, ErrorCode::InvalidNumber);
+    EXPECT_EQ(inspectBits(entryOf(NumberType::Float), "012", 2).error->code, ErrorCode::InvalidNumber);
+    EXPECT_TRUE(inspectBits(entryOf(NumberType::Float), "", 2).error);
+}

@@ -1,5 +1,7 @@
 #include "inspect.hpp"
 
+#include <cctype>
+
 namespace calculate_core {
 
 namespace {
@@ -166,6 +168,54 @@ FloatInspection inspectDecimal(const FloatFormatInfo& format, std::string_view t
         r.conversionError = {false, "0", 0};
     }
     return r;
+}
+
+FloatInspection inspectBits(const FloatFormatInfo& format, std::string_view digits, int base) {
+    using calculate_core::FloatClass;
+    FloatInspection r;
+    r.format = format.format;
+    const std::string what = base == 2 ? "Not a binary number" : "Not a hexadecimal number";
+    std::string s;
+    for (std::size_t i = 0; i < digits.size(); ++i) {
+        if (digits.substr(i, 3) == "\xE2\x80\x89") {  // a thin space
+            i += 2;
+        } else if (digits[i] != ' ' && digits[i] != '_') {
+            s += digits[i];
+        }
+    }
+    const std::string prefix = base == 2 ? "0b" : "0x";
+    if (s.size() >= 2 && s[0] == '0' && (s[1] == prefix[1] || s[1] == std::toupper(prefix[1]))) s.erase(0, 2);
+    Integer pattern = 0;
+    for (const char c : s) {
+        int d = -1;
+        if (c >= '0' && c <= '9') d = c - '0';
+        else if (c >= 'a' && c <= 'f') d = c - 'a' + 10;
+        else if (c >= 'A' && c <= 'F') d = c - 'A' + 10;
+        if (d < 0 || d >= base) {
+            r.error = Error{ErrorCode::InvalidNumber, what, 0, digits.size()};
+            return r;
+        }
+        pattern = pattern * base + d;
+    }
+    if (s.empty()) {
+        r.error = Error{ErrorCode::InvalidNumber, what, 0, digits.size()};
+        return r;
+    }
+    const BinaryFormat& f = binaryFormat(format.format);
+    if (pattern != 0 && static_cast<int>(msb(pattern)) + 1 > f.storageBits()) {
+        r.error = Error{ErrorCode::LiteralOutOfRange, format.name + " has " + std::to_string(f.storageBits()) + " bits", 0, digits.size()};
+        return r;
+    }
+    const FloatValue v = decode(f, pattern);
+    if (v.kind == FloatClass::Subnormal && !format.subnormals) {  // an IEEE pattern this type never produces
+        FloatFormatInfo ieee = format;
+        ieee.subnormals = true;
+        r = inspectValue(ieee, v);
+        r.format = format.format;
+        r.note = "no subnormals";
+        return r;
+    }
+    return inspectValue(format, v);
 }
 
 std::vector<FloatFormatInfo> floatFormats() {

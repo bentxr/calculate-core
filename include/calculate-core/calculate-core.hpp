@@ -212,6 +212,10 @@ struct FloatInspection {
 // `text`: a decimal number with an optional sign (- or −) and exponent, or inf, -inf, ∞, nan.
 FloatInspection inspectDecimal(const FloatFormatInfo& format, std::string_view text);
 
+// `digits`: a bit pattern in base 2 or 16 (spaces, _ and thin spaces ignored; an optional 0b or 0x prefix; either
+// case); leading zeros may be left out.
+FloatInspection inspectBits(const FloatFormatInfo& format, std::string_view digits, int base);
+
 // An exact rational. When hasDecimal: integerPart.fractionDigits(repeatingDigits repeated).
 struct Fraction {
     bool negative = false;
