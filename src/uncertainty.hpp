@@ -41,6 +41,13 @@ struct Uncertainty {
     Ruler observed = 0;  // the largest change seen at the corners; +infinity when a corner could not be evaluated
 };
 
+// The uncertainty to show, by the worst-case (`linear`) or the statistical rule: the first-order figure, or what the
+// corners showed when first order misjudges it ((0±1)^2 has slope 0 at 0, yet lies in [0, 1]).
+inline Ruler leadUncertainty(const Uncertainty& u, bool linear) {
+    const Ruler first = linear ? u.linear : u.quadrature;
+    return u.checked && !u.reliable && u.observed > first ? u.observed : first;
+}
+
 // The nodes the result depends on, without going into an Uncertain node's uncertainty argument or an errorPart's
 // argument (errorPart's value is a number: its argument's quantities do not reach the result).
 inline std::vector<bool> reachable(const Ast& ast) {

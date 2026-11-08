@@ -26,7 +26,7 @@ std::optional<Error> uncertain(const TargetInput& in, Result& result, bool conci
     if (!target.argument.empty())
         return Error{ErrorCode::UnexpectedToken, target.name + " takes nothing after it", target.span.begin, target.span.end};
     const Uncertainty& u = in.report.uncertainty;
-    const Ruler lead = in.options.uncertaintyRule == UncertaintyRule::Linear ? u.linear : u.quadrature;
+    const Ruler lead = leadUncertainty(u, in.options.uncertaintyRule == UncertaintyRule::Linear);
     const UncertainForms f = uncertainForms(in.value, in.report.bound + lead);
     const std::string& text = concise ? f.concise : f.plusMinus;
     if (text.empty())

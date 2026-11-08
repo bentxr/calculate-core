@@ -914,13 +914,30 @@ TEST(Uncertainty, AFirstOrderWarning) {
     const Result r = evaluate("(0±1)^2");
     EXPECT_TRUE(r.firstOrderChecked);
     EXPECT_FALSE(r.firstOrderReliable);
-    EXPECT_EQ(r.uncertaintyLinear, "0");
+    EXPECT_EQ(r.uncertaintyLinear, "1e+0");  // not the first-order 0: see the next test
     EXPECT_EQ(r.firstOrderObserved, "1e+0");
     ASSERT_EQ(r.warnings.size(), 1u);
     EXPECT_EQ(r.warnings[0].code, WarningCode::FirstOrderUnreliable);
     EXPECT_EQ(r.warnings[0].message, "first order unreliable: at the corners the result moved by 1e+0");
     // sqrt(0.05±0.1) would leave sqrt's domain at a corner: the edge check refuses it first.
     EXPECT_EQ(evaluate("sqrt(0.05±0.1)").error->code, ErrorCode::ArgumentNearEdge);
+}
+
+// (0±1)^2 lies in [0, 1], but its slope at 0 is 0: first order says ± 0. When the corners show more than first order,
+// the uncertainty shown (both combinations, the ± and concise forms, the trusted digits with it) is what they show.
+TEST(Uncertainty, WhenFirstOrderIsUnreliableTheCornersSetTheUncertainty) {
+    const Result r = evaluate("(0±1)^2");
+    ASSERT_FALSE(r.error);
+    EXPECT_FALSE(r.firstOrderReliable);
+    EXPECT_EQ(r.uncertaintyLinear, "1e+0");
+    EXPECT_EQ(r.uncertaintyQuadrature, "1e+0");
+    EXPECT_EQ(r.trustedDigitsWithUncertainty, 0);
+    EXPECT_NE(r.plusMinus.find("± 1.0"), std::string::npos) << r.plusMinus;
+    EXPECT_EQ(evaluate("(0±1)^2 to ±").conversion->text, r.plusMinus);
+    EXPECT_EQ(r.warnings[0].code, WarningCode::FirstOrderUnreliable);  // the note stays
+    const Result fine = evaluate("(2±0.1)^2");  // first order is good here: unchanged
+    EXPECT_TRUE(fine.firstOrderReliable);
+    EXPECT_EQ(fine.uncertaintyLinear, "4e-1");
 }
 
 TEST(Session, AnsMinusAnsIsCertain) {
