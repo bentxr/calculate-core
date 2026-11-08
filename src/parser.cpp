@@ -621,8 +621,11 @@ private:
                                     + std::string(t.text) + "))",
                                 t.span);
                 }
+                // a product without its sign comes before a name, a root or a parenthesis; "2 3" is something else
+                const bool product = t.kind != TokenKind::Number;
                 return fail(ErrorCode::MissingOperator,
-                            "Missing operator before '" + std::string(t.text) + "' (write 2×π, not 2π)", t.span);
+                            "Missing operator before '" + std::string(t.text) + "'" + (product ? " (write 2×π, not 2π)" : ""),
+                            t.span);
             }
             const int power = leftPower(t.kind);
             if (power <= minPower) break;
