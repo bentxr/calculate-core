@@ -1352,11 +1352,39 @@ bool exactRootResult(FunctionId id, const std::vector<T>& a, const T& value) {
     return false;
 }
 
-// The value of a one-argument elementary function where it is a known rational: ln 1 = 0, exp 0 = 1, sin 0 = 0,
-// cos 0 = 1, acos 1 = 0, log10 10^k = k…; nothing elsewhere.
-inline std::optional<Rational> exactPoint(FunctionId id, const Rational& x) {
+// The k with b^k = x for rationals x, b > 0 with b ≠ 1, if there is a whole one. In lowest terms (n/d)^k is
+// n^k/d^k, so for k ≥ 0 the numerators and denominators must match powers separately (k < 0: x inverted).
+inline std::optional<long long> wholeLogarithm(Rational x, const Rational& b) {
+    if (x <= 0 || b <= 0 || b == 1) return std::nullopt;
+    if (x == 1) return 0;
+    const bool negative = (x > 1) != (b > 1);
+    if (negative) x = 1 / x;
+    // the side of b that is not 1 decides k, by a binary search over its powers (b ≠ 1, so one side is at least 2)
+    const bool byNumerator = numerator(b) != 1;
+    const Integer base = byNumerator ? numerator(b) : denominator(b);
+    const Integer target = byNumerator ? numerator(x) : denominator(x);
+    if (target <= 1) return std::nullopt;
+    unsigned lo = 1, hi = static_cast<unsigned>(msb(target)) + 1;  // base^k ≥ 2^k, so k ≤ msb(target) + 1
+    while (lo < hi) {
+        const unsigned mid = lo + (hi - lo) / 2;
+        if (pow(base, mid) < target) lo = mid + 1;
+        else hi = mid;
+    }
+    const Integer other = byNumerator ? denominator(b) : numerator(b);
+    const Integer otherTarget = byNumerator ? denominator(x) : numerator(x);
+    if (pow(base, lo) != target || pow(other, lo) != otherTarget) return std::nullopt;
+    return negative ? -static_cast<long long>(lo) : static_cast<long long>(lo);
+}
+
+// The value of a function where it is a known rational: ln 1 = 0, exp 0 = 1, sin 0 = 0, cos 0 = 1, acos 1 = 0,
+// log10 10^k = k, erf 0 = 0, erfc 0 = 1, lgamma 1 = lgamma 2 = 0, sinc 0 = 1, atan2(0, x > 0) = 0, log(b^k, b) = k…;
+// nothing elsewhere.
+inline std::optional<Rational> exactPoint(FunctionId id, const std::vector<Rational>& args) {
+    const Rational& x = args[0];
     switch (id) {
-    case FunctionId::Exp: return x == 0 ? std::optional<Rational>(1) : std::nullopt;
+    case FunctionId::Exp:
+    case FunctionId::Erfc:
+    case FunctionId::Sinc: return x == 0 ? std::optional<Rational>(1) : std::nullopt;
     case FunctionId::Cos:
     case FunctionId::Cosh: return x == 0 ? std::optional<Rational>(1) : std::nullopt;
     case FunctionId::Sin:
@@ -1366,20 +1394,17 @@ inline std::optional<Rational> exactPoint(FunctionId id, const Rational& x) {
     case FunctionId::Sinh:
     case FunctionId::Tanh:
     case FunctionId::Asinh:
-    case FunctionId::Atanh: return x == 0 ? std::optional<Rational>(0) : std::nullopt;
+    case FunctionId::Atanh:
+    case FunctionId::Erf:
+    case FunctionId::Erfinv: return x == 0 ? std::optional<Rational>(0) : std::nullopt;
     case FunctionId::Ln:
     case FunctionId::Acos:
-    case FunctionId::Acosh: return x == 1 ? std::optional<Rational>(0) : std::nullopt;
-    case FunctionId::Log10: {  // a whole power of ten (a binary type holds no negative ones)
-        if (x < 1 || denominator(x) != 1) return std::nullopt;
-        Integer n = numerator(x);
-        int k = 0;
-        while (n % 10 == 0) {
-            n /= 10;
-            ++k;
-        }
-        return n == 1 ? std::optional<Rational>(k) : std::nullopt;
-    }
+    case FunctionId::Acosh:
+    case FunctionId::Erfcinv: return x == 1 ? std::optional<Rational>(0) : std::nullopt;
+    case FunctionId::Lgamma: return x == 1 || x == 2 ? std::optional<Rational>(0) : std::nullopt;
+    case FunctionId::Atan2: return x == 0 && args[1] > 0 ? std::optional<Rational>(0) : std::nullopt;  // (y, x)
+    case FunctionId::Log10: return wholeLogarithm(x, Rational(10));
+    case FunctionId::LogBase: return wholeLogarithm(x, args[1]);
     default: return std::nullopt;
     }
 }
@@ -1410,8 +1435,7 @@ Ruler localError(FunctionId id, const std::vector<T>& args, const Applied<T>& ap
         }
         if (id == FunctionId::Hypot && toRational(applied.value) * toRational(applied.value) == exactArgs[0] * exactArgs[0] + exactArgs[1] * exactArgs[1])
             return Ruler(0);  // hypot(3, 4) is exactly 5
-        if (args.size() == 1)
-            if (const auto exact = impl::exactPoint(id, exactArgs[0])) return fromRational<Ruler>(abs(*exact - toRational(applied.value)));
+        if (const auto exact = impl::exactPoint(id, exactArgs)) return fromRational<Ruler>(abs(*exact - toRational(applied.value)));
         switch (functionInfo(id).errorClass) {
         case ErrorClass::Exact: return Ruler(0);
         case ErrorClass::Checked: {

@@ -506,6 +506,26 @@ TEST(Api, ElementaryFunctionsHaveNoErrorAtTheirExactPoints) {
         EXPECT_NE(evaluate(text).bound, "0") << text;  // only the exact points
 }
 
+// The same for the special functions and the two-argument ones where their value is a known rational: erf 0 = 0,
+// erfc 0 = 1, the inverses at their centres, lgamma 1 = lgamma 2 = 0, sinc 0 = 1, atan2(0, x > 0) = 0, and a
+// logarithm of a whole power of its base (log2 1024 = 10, log(1/8, 2) = −3).
+TEST(Api, SpecialAndTwoArgumentFunctionsHaveNoErrorAtTheirExactPoints) {
+    for (const NumberType type : {NumberType::Float, NumberType::Double, NumberType::Binary128}) {
+        for (const char* text : {"erf(0)", "erfinv(0)", "erfc(0)", "erfcinv(1)", "lgamma(1)", "lgamma(2)", "sinc(0)",
+                                 "atan2(0, 3)", "log2(1024)", "log(8, 2)", "log(1/8, 2)", "log(9, 3)", "log(0.25, 0.5)",
+                                 "log(1, 7)", "log(1/16, 1/4)"}) {
+            const Result r = evaluate(text, as(type));
+            ASSERT_FALSE(r.error) << text;
+            EXPECT_EQ(r.bound, "0") << text;
+            EXPECT_EQ(r.trustedDigits, r.value.digits == "0" ? 1 : static_cast<int>(r.value.digits.size())) << text;
+        }
+    }
+    EXPECT_EQ(evaluate("log(1/16, 1/4)").value.digits, "2");
+    for (const char* text : {"erf(1e-300)", "erfc(1)", "lgamma(3)", "sinc(1e-300)", "atan2(0, -3)", "atan2(1, 3)",
+                             "log(10, 3)", "log(1000, 10.5)", "log2(1023)", "log(8, 4)"})
+        EXPECT_NE(evaluate(text).bound, "0") << text;  // only the exact points
+}
+
 TEST(Api, CommentsAreKeptButNotEvaluated) {
     const Result r = evaluate("(5×2)/2 # triangle area");
     ASSERT_FALSE(r.error);
