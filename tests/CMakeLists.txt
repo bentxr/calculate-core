@@ -20,6 +20,7 @@ add_executable(calculate-core-tests
     test_kernels.cpp
     test_parser.cpp
     test_api.cpp
+    test_special_values.cpp
     test_float_format.cpp
     test_inspect.cpp
     test_catalogue.cpp
