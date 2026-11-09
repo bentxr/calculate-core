@@ -129,6 +129,28 @@ TEST(Special, AnUncertainShapeParameterHasAFiniteBound) {
     EXPECT_EQ(r.concise, "0.151(23)");
 }
 
+// Newton doubles the correct bits at each step, and each step costs an incomplete beta: the wide types start from the
+// root in a narrower type (binary128 for the shadow's types, binary64 for binary128), not from a / (a + b). The start is
+// within 2^-bits of the root in T.
+template <class T>
+void expectStartNearTheRoot(double a, double b, double y, int bits) {
+    using std::abs;
+    using std::ldexp;
+    const T root = toValue(betaincinvWord(T(y), T(a), T(b), nullptr).value);
+    EXPECT_LE(abs(impl::betaincinvStart(T(y), T(a), T(b), nullptr) - root), ldexp(root, -bits)) << a << " " << b << " " << y;
+}
+
+TEST(Special, TheInverseIncompleteBetaStartsFromANarrowerTypesRoot) {
+    for (const std::vector<double>& c : {std::vector<double>{2.5, 4.25, 0.4}, {2, 3, 0.25}, {0.3, 0.7, 0.9}, {30, 2, 1e-5}}) {
+        expectStartNearTheRoot<RulerCheck>(c[0], c[1], c[2], 100);
+        expectStartNearTheRoot<Ruler>(c[0], c[1], c[2], 100);
+        expectStartNearTheRoot<Binary128>(c[0], c[1], c[2], 50);
+    }
+    // Shape parameters beyond binary64's range: the plain start.
+    const Binary128 huge = ldexp(Binary128(1), 2000);
+    EXPECT_EQ(impl::betaincinvStart(Binary128(0.5), huge, huge, nullptr), Binary128(0.5));
+}
+
 namespace {
 
 // Each value is within its claim of the exact one (claim * u * max(|v|, min(), u * scale)), so long double and
