@@ -253,7 +253,7 @@ std::vector<ConstantDescription> constants() {
     for (const NumberName& n : numberNames)
         list.push_back({std::string(n.name), std::string(n.title), "number name", std::string(n.literal), "", "", "", true, ""});
     for (const PhysicalConstant& c : physicalConstants) {
-        ConstantDescription d{std::string(c.name), std::string(c.quantity), "physical", std::string(c.nistValue), "", "", "", false, ""};
+        ConstantDescription d{std::string(c.name), std::string(c.title), "physical", std::string(c.nistValue), "", "", "", false, ""};
         if (const std::size_t pm = c.definition.find("+/-"); pm != std::string_view::npos) {
             d.uncertainty = std::string(c.definition.substr(pm + 3));
             d.limit = formatScientific(fromRational<Ruler>(Rational(3) * toRational(*parseDecimal(d.uncertainty))));
