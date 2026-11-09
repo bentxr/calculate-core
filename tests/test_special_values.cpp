@@ -111,6 +111,24 @@ TEST(Special, AnInverseIncompleteBetaBeyondTheTypesReachIsAnEnd) {
     }
 }
 
+// gammap, gammaq, betainc and betaincinv move one way in each shape parameter, so an uncertain one (here from a
+// rounded product, or a typed number read with its precision) bounds the value between its ends, not at infinity.
+TEST(Special, AnUncertainShapeParameterHasAFiniteBound) {
+    for (const char* text : {"gammap(0.1*25, 1)", "gammaq(0.1*25, 0.1*3)", "betainc(0.1*25, 4.25, 0.375)",
+                             "betaincinv(0.1*25, 0.1*3, 0.4)"}) {
+        const Result r = evaluate(text);
+        ASSERT_FALSE(r.error) << text;
+        EXPECT_NE(r.bound, "inf") << text;
+        EXPECT_GE(r.trustedDigits, 14) << text;
+    }
+    Options read;
+    read.readPrecision = ReadPrecision::All;  // 2.5 ± 0.05, 1.0 ± 0.05: the uncertainty, through the derivatives
+    const Result r = evaluate("gammap(2.5, 1.0)", read);
+    ASSERT_FALSE(r.error);
+    EXPECT_NE(r.bound, "inf");
+    EXPECT_EQ(r.concise, "0.151(23)");
+}
+
 namespace {
 
 // Each value is within its claim of the exact one (claim * u * max(|v|, min(), u * scale)), so long double and

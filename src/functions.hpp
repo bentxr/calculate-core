@@ -1136,12 +1136,54 @@ inline Ruler functionSlope(FunctionId id, const Ruler& x, const Ruler& b) {
     }
 }
 
+// For a function that moves one way in each argument (rising[k] is +1 or -1): over the box [a_k - b_k, a_k + b_k]
+// its value lies between two corners' values, so the largest change from the computed value is at one of them.
+// That change is shared among the uncertain arguments in proportion to |d f / d arg_k| * b_k at the computed values,
+// as slopes whose sum of slope_k * b_k is the change. The last argument (x or y) is clipped to [0, top]; the others
+// are shape parameters, and one whose interval reaches 0 leaves the domain: no bound.
+inline std::vector<Ruler> monotoneSlopes(FunctionId id, const std::vector<Ruler>& a, const std::vector<Ruler>& b,
+                                         const std::vector<int>& rising, const Ruler& top) {
+    using std::abs;
+    const std::size_t n = a.size(), last = n - 1;
+    const std::vector<Ruler> none(n, std::numeric_limits<Ruler>::infinity());
+    std::vector<Ruler> highest = a, lowest = a;  // the corners
+    for (std::size_t k = 0; k < n; ++k) {
+        if (!isFinite(b[k])) return none;
+        Ruler up = a[k] + b[k], down = a[k] - b[k];
+        if (k == last) {
+            down = std::max(Ruler(0), down);
+            up = std::min(top, up);
+        } else if (down <= 0) {
+            return none;
+        }
+        highest[k] = rising[k] > 0 ? up : down;
+        lowest[k] = rising[k] > 0 ? down : up;
+    }
+    const Ruler centre = rulerValue(id, a);
+    const Ruler change = std::max(Ruler(rulerValue(id, highest) - centre), Ruler(centre - rulerValue(id, lowest)));
+    if (!isFinite(change)) return none;  // a corner could not be evaluated
+    const std::vector<Ruler> d = partials<Ruler>(id, a, centre);
+    Ruler weights = 0;
+    std::size_t uncertain = 0;
+    for (std::size_t k = 0; k < n; ++k)
+        if (b[k] > 0) {
+            weights += abs(d[k]) * b[k];
+            ++uncertain;
+        }
+    const bool even = !isFinite(weights) || weights == 0;  // no usable derivatives: equal shares
+    std::vector<Ruler> s(n, Ruler(0));
+    for (std::size_t k = 0; k < n; ++k)
+        if (b[k] > 0) s[k] = change * (even ? Ruler(1) / uncertain : Ruler(abs(d[k]) * b[k] / weights)) / b[k];
+    return s;
+}
+
 }  // namespace impl
 
 // Upper bounds of |d f / d arg_k| over the arguments' error intervals [a_j - b_j, a_j + b_j], one argument at a
 // time: argument k and those before it anywhere in their intervals, those after it at their computed values. The
 // mean value theorem, applied to one argument after another, gives |f(computed) - f(exact)| <= sum_k slope_k * b_k
 // with nothing dropped. Infinite where an interval reaches a point where the derivative is unbounded or f undefined.
+// gammap, gammaq, betainc and betaincinv with an uncertain shape parameter: secants instead (impl::monotoneSlopes).
 inline std::vector<Ruler> slopes(FunctionId id, const std::vector<Ruler>& a, const std::vector<Ruler>& b) {
     using std::abs;
     using std::floor;
@@ -1165,8 +1207,11 @@ inline std::vector<Ruler> slopes(FunctionId id, const std::vector<Ruler>& a, con
     case FunctionId::Betainc:
     case FunctionId::Betaincinv: {
         // The density t^(a-1) (1-t)^(b-1) / B(a, b) has one interior critical point, the mode (a-1)/(a+b-2), so its
-        // largest and smallest values over an interval are at an end or there. Uncertain a or b: no bound here.
-        if (b[0] > 0 || b[1] > 0) return {inf, inf, inf};
+        // largest and smallest values over an interval are at an end or there. I_x(a, b) falls in a and rises in b
+        // and x, so its inverse rises in a and y and falls in b: an uncertain a or b is bounded by the corners.
+        if (b[0] > 0 || b[1] > 0)
+            return impl::monotoneSlopes(id, a, b, id == FunctionId::Betainc ? std::vector<int>{-1, 1, 1} : std::vector<int>{1, -1, 1},
+                                        Ruler(1));
         const Ruler p = a[0], q = a[1];
         const Ruler lnB = impl::rulerValue(FunctionId::Lgamma, {p}) + impl::rulerValue(FunctionId::Lgamma, {q})
                           - impl::rulerValue(FunctionId::Lgamma, {Ruler(p + q)});
@@ -1198,8 +1243,14 @@ inline std::vector<Ruler> slopes(FunctionId id, const std::vector<Ruler>& a, con
     case FunctionId::Igamma:
     case FunctionId::GammaInc: {
         // In x: the density t^(a-1) e^-t (over Gamma(a) when regularized), whose only interior critical point is the
-        // mode a - 1, so its largest value over the interval is at an end or there. An uncertain a has no bound here.
-        if (b[0] > 0) return {inf, inf};
+        // mode a - 1, so its largest value over the interval is at an end or there. P(a, x) falls in a and rises in x
+        // (Q the other way), so an uncertain a is bounded by the corners; Gamma(a, x) and gamma(a, x) are not
+        // monotone in a: no bound.
+        if (b[0] > 0) {
+            if (id == FunctionId::GammaP) return impl::monotoneSlopes(id, a, b, {-1, 1}, inf);
+            if (id == FunctionId::GammaQ) return impl::monotoneSlopes(id, a, b, {1, -1}, inf);
+            return {inf, inf};
+        }
         const Ruler s = a[0];
         const bool regularized = id == FunctionId::GammaP || id == FunctionId::GammaQ;
         const auto density = [&](const Ruler& t) -> Ruler {
