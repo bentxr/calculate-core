@@ -353,6 +353,7 @@ TEST(Catalogue, SpanishNamesOfTheNewTrigonometry) {
     EXPECT_EQ(tree("arccotg(2)"), "(acot 2)");
     EXPECT_EQ(tree("arccosech(2)"), tree("acsch(2)"));
     EXPECT_EQ(tree("arccotgh(2)"), tree("acoth(2)"));
+    EXPECT_EQ(tree("arcsech(0.5)"), tree("asech(0.5)"));  // as arcsenh, arccosh: arc and the hyperbolic name
     EXPECT_EQ(evaluate("cosec(0)").error->message, "cosec is not defined for this argument");  // as written
 }
 

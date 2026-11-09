@@ -375,8 +375,8 @@ bool isLowering(std::string_view name) {
 }
 
 // Other spellings of the lowerings (spelling → lowering name).
-constexpr std::array<std::pair<std::string_view, std::string_view>, 12> loweringAliases{{
-    {"arcsec", "asec"}, {"arccsc", "acsc"}, {"arsech", "asech"}, {"arcsch", "acsch"}, {"arcoth", "acoth"},
+constexpr std::array<std::pair<std::string_view, std::string_view>, 13> loweringAliases{{
+    {"arcsec", "asec"}, {"arccsc", "acsc"}, {"arsech", "asech"}, {"arcsech", "asech"}, {"arcsch", "acsch"}, {"arcoth", "acoth"},
     {"cosec", "csc"}, {"cotg", "cot"}, {"cotgh", "coth"}, {"arccosec", "acsc"}, {"arccosech", "acsch"}, {"arccotgh", "acoth"},
     {"techo", "ceil"},
 }};
