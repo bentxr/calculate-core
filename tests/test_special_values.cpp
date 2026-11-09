@@ -3,6 +3,7 @@
 #include "parser.hpp"
 #include "functions.hpp"
 #include "special.hpp"
+#include "accuracy.hpp"
 
 #include <calculate-core/calculate-core.hpp>
 
@@ -108,4 +109,66 @@ TEST(Special, AnInverseIncompleteBetaBeyondTheTypesReachIsAnEnd) {
         ASSERT_FALSE(r.error) << text;
         EXPECT_NE(r.bound, "0") << text;
     }
+}
+
+namespace {
+
+// Each value is within its claim of the exact one (claim * u * max(|v|, min(), u * scale)), so long double and
+// Binary128 must agree within the sum of their claims: 2 claims where long double is binary128 too (the browser
+// build), one claim and a sliver where it is narrower. Binary128 holds every long double exactly.
+template <class Sample>
+void expectLongDoubleAgreesWithBinary128(FunctionId id, Sample sample) {
+    using std::abs;
+    using L = long double;
+    using B = Binary128;
+    std::mt19937_64 rng(static_cast<unsigned>(id) + 900);
+    const B uL = exactCast<B>(unitRoundoff<L>());
+    const B uB = unitRoundoff<B>();
+    const double allowed = claimedFactor(id) * (1 + B(uB / uL).convert_to<double>());
+    for (int i = 0; i < test::samplesFor<B>(); ++i) {
+        const std::vector<L> args = sample(rng);
+        std::vector<B> wide;
+        for (const L& a : args) wide.push_back(exactCast<B>(a));
+        const Applied<L> l = applyFunction<L>(id, args);
+        const Applied<B> b = applyFunction<B>(id, wide);
+        ASSERT_FALSE(l.error) << "sample " << i;
+        ASSERT_FALSE(b.error) << "sample " << i;
+        B floor = exactCast<B>((std::numeric_limits<L>::min)());
+        for (const B& f : {B(abs(b.value)), B(uL * exactCast<B>(l.scale)), B(uL * b.scale)})
+            if (f > floor) floor = f;
+        const double error = B(abs(exactCast<B>(l.value) - b.value) / (uL * floor)).convert_to<double>();
+        EXPECT_LE(error, allowed) << "sample " << i << ": " << error << " u";
+    }
+}
+
+}  // namespace
+
+// The browser build's long double is binary128, which Boost.Math (the other special tests' oracle) refuses; the
+// library's own Binary128 computes the same functions in software, so it checks long double in every build.
+TEST(Special, LongDoubleAgreesWithBinary128WithinTheirClaims) {
+    using L = long double;
+    using test::logUniform;
+    using test::randomSign;
+    using test::uniform;
+    const auto one = [](double lo, double hi) { return [=](auto& rng) { return std::vector<L>{uniform<L>(rng, lo, hi)}; }; };
+    expectLongDoubleAgreesWithBinary128(FunctionId::Gamma, one(-30, 30));
+    expectLongDoubleAgreesWithBinary128(FunctionId::Lgamma, one(-20, 30));
+    expectLongDoubleAgreesWithBinary128(FunctionId::Lgamma, [](auto& rng) { return std::vector<L>{logUniform<L>(rng, -60, 60)}; });
+    expectLongDoubleAgreesWithBinary128(FunctionId::Digamma, one(-20, 30));
+    expectLongDoubleAgreesWithBinary128(FunctionId::Trigamma, one(-20, 30));
+    expectLongDoubleAgreesWithBinary128(FunctionId::Beta, [](auto& rng) { return std::vector<L>{uniform<L>(rng, 0.1, 30), uniform<L>(rng, 0.1, 30)}; });
+    expectLongDoubleAgreesWithBinary128(FunctionId::Erf, one(-6, 6));
+    expectLongDoubleAgreesWithBinary128(FunctionId::Erf, [](auto& rng) { return std::vector<L>{randomSign(rng, logUniform<L>(rng, -60, -1))}; });
+    expectLongDoubleAgreesWithBinary128(FunctionId::Erfc, one(-3, 100));
+    expectLongDoubleAgreesWithBinary128(FunctionId::Erfinv, one(-0.99, 0.99));
+    expectLongDoubleAgreesWithBinary128(FunctionId::Erfcinv, one(0.01, 1.99));
+    expectLongDoubleAgreesWithBinary128(FunctionId::Erfcinv, [](auto& rng) { return std::vector<L>{logUniform<L>(rng, -200, -2)}; });
+    for (FunctionId id : {FunctionId::GammaP, FunctionId::GammaQ, FunctionId::Igamma, FunctionId::GammaInc})
+        expectLongDoubleAgreesWithBinary128(id, [](auto& rng) { return std::vector<L>{uniform<L>(rng, 0.05, 20), uniform<L>(rng, 0, 30)}; });
+    expectLongDoubleAgreesWithBinary128(FunctionId::Betainc, [](auto& rng) {
+        return std::vector<L>{uniform<L>(rng, 0.1, 10), uniform<L>(rng, 0.1, 10), uniform<L>(rng, 0, 1)};
+    });
+    expectLongDoubleAgreesWithBinary128(FunctionId::Betaincinv, [](auto& rng) {
+        return std::vector<L>{uniform<L>(rng, 0.2, 20), uniform<L>(rng, 0.2, 20), uniform<L>(rng, 0.001, 0.999)};
+    });
 }
