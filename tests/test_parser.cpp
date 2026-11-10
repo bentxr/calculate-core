@@ -177,6 +177,19 @@ TEST(Parser, ImplicitMultiplicationIsRefused) {
     EXPECT_EQ(e.end, 3u);
 }
 
+// The 2×π hint is for a product written without its sign, that is before a name, a root or a parenthesis; two
+// numbers side by side ("2 3", or "0,5 2" with a stray comma) get the plain message.
+TEST(Parser, TheProductHintComesOnlyBeforeANameARootOrAParenthesis) {
+    for (const char* text : {"2π", "2pi", "2(3)", "(1)(2)", "2sin(1)", "2√2", "3x"})
+        EXPECT_NE(parseError(text).message.find("2×π"), std::string::npos) << text;
+    for (const char* text : {"2 3", "(1)2", "0. 5"}) {
+        const Error e = parseError(text);
+        EXPECT_EQ(e.code, ErrorCode::MissingOperator) << text;
+        EXPECT_EQ(e.message.find("2×π"), std::string::npos) << text;
+        EXPECT_NE(e.message.find("Missing operator before"), std::string::npos) << text;
+    }
+}
+
 TEST(Parser, ErrorsPointAtTheirCause) {
     EXPECT_EQ(parseError("").code, ErrorCode::UnexpectedEnd);
     EXPECT_EQ(parseError("1+").code, ErrorCode::UnexpectedEnd);

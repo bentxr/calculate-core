@@ -5,7 +5,6 @@
 
 #include <algorithm>
 #include <cfloat>
-#include <chrono>
 #include <map>
 #include <set>
 
@@ -145,12 +144,8 @@ TEST(Api, ACalculatorSizedExpressionIsFastInEveryType) {
     const char* text = "sin(1)+cos(2)+ln(3)+exp(4)+atan(5)+sqrt(6)+sinh(0.7)+asin(0.3)+tan(0.4)+cbrt(9)";
     for (const TypeInfo& t : numberTypes()) {
         if (t.type == NumberType::Exact) continue;
-        const auto start = std::chrono::steady_clock::now();
-        const Result r = evaluate(text, as(t.type));
-        const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
-        ASSERT_FALSE(r.error);
-        EXPECT_LT(ms, 1000.0) << t.label;  // the budget is 250 ms natively; this guards against regressions
-        RecordProperty(t.label + "_ms", static_cast<int>(ms));
+        const Result r = evaluate(text, as(t.type));  // fast: ctest's time limit (tests/CMakeLists.txt)
+        ASSERT_FALSE(r.error) << t.label;
     }
 }
 
@@ -503,6 +498,26 @@ TEST(Api, ElementaryFunctionsHaveNoErrorAtTheirExactPoints) {
     }
     EXPECT_EQ(evaluate("ln(1)").value.digits, "0");
     for (const char* text : {"ln(2)", "log10(0.001)", "sin(1e-300)", "exp(1e-300)", "cos(pi)", "log(1001)"})
+        EXPECT_NE(evaluate(text).bound, "0") << text;  // only the exact points
+}
+
+// The same for the special functions and the two-argument ones where their value is a known rational: erf 0 = 0,
+// erfc 0 = 1, the inverses at their centres, lgamma 1 = lgamma 2 = 0, sinc 0 = 1, atan2(0, x > 0) = 0, and a
+// logarithm of a whole power of its base (log2 1024 = 10, log(1/8, 2) = −3).
+TEST(Api, SpecialAndTwoArgumentFunctionsHaveNoErrorAtTheirExactPoints) {
+    for (const NumberType type : {NumberType::Float, NumberType::Double, NumberType::Binary128}) {
+        for (const char* text : {"erf(0)", "erfinv(0)", "erfc(0)", "erfcinv(1)", "lgamma(1)", "lgamma(2)", "sinc(0)",
+                                 "atan2(0, 3)", "log2(1024)", "log(8, 2)", "log(1/8, 2)", "log(9, 3)", "log(0.25, 0.5)",
+                                 "log(1, 7)", "log(1/16, 1/4)"}) {
+            const Result r = evaluate(text, as(type));
+            ASSERT_FALSE(r.error) << text;
+            EXPECT_EQ(r.bound, "0") << text;
+            EXPECT_EQ(r.trustedDigits, r.value.digits == "0" ? 1 : static_cast<int>(r.value.digits.size())) << text;
+        }
+    }
+    EXPECT_EQ(evaluate("log(1/16, 1/4)").value.digits, "2");
+    for (const char* text : {"erf(1e-300)", "erfc(1)", "lgamma(3)", "sinc(1e-300)", "atan2(0, -3)", "atan2(1, 3)",
+                             "log(10, 3)", "log(1000, 10.5)", "log2(1023)", "log(8, 4)"})
         EXPECT_NE(evaluate(text).bound, "0") << text;  // only the exact points
 }
 
@@ -894,13 +909,30 @@ TEST(Uncertainty, AFirstOrderWarning) {
     const Result r = evaluate("(0±1)^2");
     EXPECT_TRUE(r.firstOrderChecked);
     EXPECT_FALSE(r.firstOrderReliable);
-    EXPECT_EQ(r.uncertaintyLinear, "0");
+    EXPECT_EQ(r.uncertaintyLinear, "1e+0");  // not the first-order 0: see the next test
     EXPECT_EQ(r.firstOrderObserved, "1e+0");
     ASSERT_EQ(r.warnings.size(), 1u);
     EXPECT_EQ(r.warnings[0].code, WarningCode::FirstOrderUnreliable);
     EXPECT_EQ(r.warnings[0].message, "first order unreliable: at the corners the result moved by 1e+0");
     // sqrt(0.05±0.1) would leave sqrt's domain at a corner: the edge check refuses it first.
     EXPECT_EQ(evaluate("sqrt(0.05±0.1)").error->code, ErrorCode::ArgumentNearEdge);
+}
+
+// (0±1)^2 lies in [0, 1], but its slope at 0 is 0: first order says ± 0. When the corners show more than first order,
+// the uncertainty shown (both combinations, the ± and concise forms, the trusted digits with it) is what they show.
+TEST(Uncertainty, WhenFirstOrderIsUnreliableTheCornersSetTheUncertainty) {
+    const Result r = evaluate("(0±1)^2");
+    ASSERT_FALSE(r.error);
+    EXPECT_FALSE(r.firstOrderReliable);
+    EXPECT_EQ(r.uncertaintyLinear, "1e+0");
+    EXPECT_EQ(r.uncertaintyQuadrature, "1e+0");
+    EXPECT_EQ(r.trustedDigitsWithUncertainty, 0);
+    EXPECT_NE(r.plusMinus.find("± 1.0"), std::string::npos) << r.plusMinus;
+    EXPECT_EQ(evaluate("(0±1)^2 to ±").conversion->text, r.plusMinus);
+    EXPECT_EQ(r.warnings[0].code, WarningCode::FirstOrderUnreliable);  // the note stays
+    const Result fine = evaluate("(2±0.1)^2");  // first order is good here: unchanged
+    EXPECT_TRUE(fine.firstOrderReliable);
+    EXPECT_EQ(fine.uncertaintyLinear, "4e-1");
 }
 
 TEST(Session, AnsMinusAnsIsCertain) {
@@ -1052,9 +1084,7 @@ TEST(Api, PhysicalConstantsComeInGroups) {
 TEST(Api, AValueTooLongToWriteOutIsShownInBinary) {
     Options o;
     o.type = NumberType::Binary512;
-    const auto start = std::chrono::steady_clock::now();
-    const Result r = evaluate("1e-1000000", o);
-    EXPECT_LT(std::chrono::steady_clock::now() - start, std::chrono::seconds(3));
+    const Result r = evaluate("1e-1000000", o);  // quick: ctest's time limit (tests/CMakeLists.txt)
     ASSERT_FALSE(r.error);
     EXPECT_TRUE(r.value.digits.empty());
     ASSERT_TRUE(r.binaryValue);

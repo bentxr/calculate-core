@@ -89,7 +89,7 @@ Result build(const Parsed& parsed, const Options& options, std::string_view text
         r.trustedDigits = trustedDigits(magnitude, report.bound, count);
         if (report.measuredAvailable) r.trustedDigitsMeasured = trustedDigits(magnitude, report.measured, count);
         const Uncertainty& u = report.uncertainty;
-        const Ruler lead = options.uncertaintyRule == UncertaintyRule::Linear ? u.linear : u.quadrature;
+        const Ruler lead = leadUncertainty(u, options.uncertaintyRule == UncertaintyRule::Linear);
         r.trustedDigitsWithUncertainty = trustedDigits(magnitude, report.bound + lead, count);
     }
     r.bound = formatScientific(report.bound);
@@ -108,7 +108,7 @@ Result build(const Parsed& parsed, const Options& options, std::string_view text
     r.assigned = parsed.assigned;
     r.reading = parsed.reading;
     const Uncertainty& u = report.uncertainty;
-    const Ruler lead = options.uncertaintyRule == UncertaintyRule::Linear ? u.linear : u.quadrature;
+    const Ruler lead = leadUncertainty(u, options.uncertaintyRule == UncertaintyRule::Linear);
     const UncertainForms forms = uncertainForms(toRational(ev.value), report.bound + lead);
     r.uncertaintyShown = Digits{forms.shown.negative, forms.shown.digits, forms.shown.exponent10};
     r.concise = forms.concise;
@@ -118,8 +118,8 @@ Result build(const Parsed& parsed, const Options& options, std::string_view text
             r.uncertainInputs.push_back({sourceName(text, parsed.ast.nodes[static_cast<std::size_t>(source.node)].span),
                                          formatScientific(source.uncertainty), formatScientific(source.sensitivity),
                                          formatScientific(source.contribution)});
-        r.uncertaintyLinear = formatScientific(u.linear);
-        r.uncertaintyQuadrature = formatScientific(u.quadrature);
+        r.uncertaintyLinear = formatScientific(leadUncertainty(u, true));
+        r.uncertaintyQuadrature = formatScientific(leadUncertainty(u, false));
     }
     r.unitKnown = report.unit.kind == UnitState::Kind::Known;
     if (r.unitKnown) r.unit = unitName(report.unit.dimension);

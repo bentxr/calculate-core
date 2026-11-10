@@ -791,7 +791,9 @@ TEST(Slopes, IncompleteGammaDominatesItsDerivativeInX) {
     for (const SlopeCase& c : {SlopeCase{FunctionId::GammaP, {2.5, 1.75}, {0, 0.25}}, SlopeCase{FunctionId::GammaQ, {0.5, 1}, {0, 0.5}},
                                SlopeCase{FunctionId::Igamma, {3, 2}, {0, 1.5}}, SlopeCase{FunctionId::GammaInc, {2.5, 1.75}, {0, 0}}})
         expectSlopesDominate(c.id, c.point, c.radius);
-    EXPECT_FALSE(isFinite(slopes(FunctionId::GammaP, {Ruler(2.5), Ruler(1)}, {Ruler(0.1), Ruler(0)})[0]));  // an uncertain a
+    // Gamma(a, x) and gamma(a, x) are not monotone in a: an uncertain a has no bound.
+    EXPECT_FALSE(isFinite(slopes(FunctionId::Igamma, {Ruler(2.5), Ruler(1)}, {Ruler(0.1), Ruler(0)})[0]));
+    EXPECT_FALSE(isFinite(slopes(FunctionId::GammaInc, {Ruler(2.5), Ruler(1)}, {Ruler(0.1), Ruler(0)})[0]));
 }
 
 TEST(Slopes, IncompleteBetaDominatesItsDerivativeInX) {
@@ -809,10 +811,55 @@ TEST(Slopes, IncompleteBetaDominatesItsDerivativeInX) {
               densityAt(Ruler(3), Ruler(3), Ruler(0.5)));  // the mode, inside the interval
     const Ruler exact = slopes(FunctionId::Betainc, {Ruler(2.5), Ruler(4.25), Ruler(0.375)}, {Ruler(0), Ruler(0), Ruler(0)})[2];
     EXPECT_LE(abs(exact - densityAt(Ruler(2.5), Ruler(4.25), Ruler(0.375))), ldexp(exact, -900));  // exact arguments: sharp
-    EXPECT_FALSE(isFinite(slopes(FunctionId::Betainc, {Ruler(2), Ruler(3), Ruler(0.5)}, {Ruler(0.1), Ruler(0), Ruler(0)})[0]));
     const std::vector<Ruler> point{Ruler(2.5), Ruler(4.25), Ruler(0.4)};
     const std::vector<Ruler> centre = partials<Ruler>(FunctionId::Betaincinv, point, impl::rulerValue(FunctionId::Betaincinv, point));
     EXPECT_GE(slopes(FunctionId::Betaincinv, point, {Ruler(0), Ruler(0), Ruler(0.1)})[2], abs(centre[2]));
+}
+
+// gammap and gammaq, betainc and betaincinv move one way in each argument, so over the arguments' box the value lies
+// between two corners' values. With an uncertain shape parameter the slopes carry that change and no more: the sum of
+// slope_k * b_k covers |f(computed) - f(e)| at every sampled point e of the box and equals the largest at a corner.
+TEST(Slopes, MonotoneFunctionsOfUncertainShapesAreBoundedByTheirCorners) {
+    using std::abs;
+    using F = FunctionId;
+    const SlopeCase cases[] = {
+        {F::GammaP, {2.5, 1}, {0.01, 0}},           {F::GammaQ, {2.5, 1}, {0.01, 0.05}},
+        {F::GammaP, {0.5, 3}, {1e-17, 1e-17}},      {F::GammaQ, {30, 25}, {0.5, 0}},
+        {F::Betainc, {2.5, 4.25, 0.375}, {0.05, 0, 0}}, {F::Betainc, {2.5, 4.25, 0.375}, {0.05, 0.1, 0.02}},
+        {F::Betainc, {0.5, 0.7, 0.2}, {0, 0.01, 0}},    {F::Betaincinv, {2.5, 0.3, 0.4}, {0.05, 0.01, 0.02}},
+    };
+    for (const SlopeCase& c : cases) {
+        SCOPED_TRACE(std::to_string(static_cast<int>(c.id)) + " at " + std::to_string(c.point[0]));
+        std::vector<Ruler> a, b;
+        for (const double x : c.point) a.push_back(Ruler(x));
+        for (const double r : c.radius) b.push_back(Ruler(r));
+        const std::vector<Ruler> s = slopes(c.id, a, b);
+        ASSERT_EQ(s.size(), a.size());
+        Ruler total = 0;
+        for (std::size_t k = 0; k < a.size(); ++k) {
+            ASSERT_TRUE(isFinite(s[k])) << "argument " << k;
+            total += s[k] * b[k];
+        }
+        const Ruler centre = impl::rulerValue(c.id, a);
+        std::vector<std::vector<Ruler>> points;  // the corners of the box, and of the box half its size inside it
+        for (const double size : {1.0, 0.5})
+            for (unsigned signs = 0; signs < (1u << a.size()); ++signs) {
+                std::vector<Ruler> q = a;
+                for (std::size_t j = 0; j < a.size(); ++j) q[j] += ((signs >> j) & 1 ? size : -size) * b[j];
+                points.push_back(q);
+            }
+        Ruler largest = 0;
+        for (const std::vector<Ruler>& p : points) {
+            const Ruler change = abs(impl::rulerValue(c.id, p) - centre);
+            EXPECT_LE(change, total * (1 + ldexp(Ruler(1), -800)));
+            if (change > largest) largest = change;
+        }
+        EXPECT_GT(largest, 0);
+        EXPECT_LE(total, largest * (1 + ldexp(Ruler(1), -800)));  // sharp: a corner reaches it
+    }
+    // A shape parameter whose interval reaches 0 leaves the domain: no bound.
+    EXPECT_FALSE(isFinite(slopes(F::GammaP, {Ruler(0.05), Ruler(1)}, {Ruler(0.1), Ruler(0)})[0]));
+    EXPECT_FALSE(isFinite(slopes(F::Betainc, {Ruler(2), Ruler(0.05), Ruler(0.5)}, {Ruler(0), Ruler(0.1), Ruler(0)})[1]));
 }
 
 // Mutation survivor: the n-th root's slope in x is |x|^(1/n - 1)/|n| at the end nearest 0 when

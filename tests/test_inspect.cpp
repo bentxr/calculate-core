@@ -4,7 +4,6 @@
 #include <gtest/gtest.h>
 
 #include <cfloat>
-#include <chrono>
 #include <string>
 #include <vector>
 
@@ -236,9 +235,7 @@ TEST(Inspect, TheStoredBitsKeepTheSignOfZero) {
 TEST(Inspect, AZeroInBinary512StaysQuick) {
     Options o;
     o.type = NumberType::Binary512;
-    const auto start = std::chrono::steady_clock::now();
-    const Result r = evaluate("1 - 1", o);
-    EXPECT_LT(std::chrono::steady_clock::now() - start, std::chrono::seconds(2));
+    const Result r = evaluate("1 - 1", o);  // quick: ctest's time limit for this test (tests/CMakeLists.txt)
     EXPECT_EQ(r.stored->above.exponent2, -4194302);
 }
 

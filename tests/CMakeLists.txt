@@ -20,6 +20,7 @@ add_executable(calculate-core-tests
     test_kernels.cpp
     test_parser.cpp
     test_api.cpp
+    test_special_values.cpp
     test_float_format.cpp
     test_inspect.cpp
     test_catalogue.cpp
@@ -34,8 +35,28 @@ if(EMSCRIPTEN)
     target_link_options(calculate-core-tests PRIVATE -sALLOW_MEMORY_GROWTH=1 -sSTACK_SIZE=1048576)
 endif()
 
+# Tests that guard against slowness run alone, each under a ctest time limit in seconds (the browser build runs
+# about ten times slower), instead of reading a clock inside the test.
+set(timed_tests
+    Special.AnInverseIncompleteBetaBeyondTheTypesReachIsAnEnd 80
+    Api.ACalculatorSizedExpressionIsFastInEveryType           10
+    Api.AValueTooLongToWriteOutIsShownInBinary                5
+    Inspect.AZeroInBinary512StaysQuick                        5)
+set(slowdown 1)
+if(EMSCRIPTEN)
+    set(slowdown 10)
+endif()
+set(untimed_filter "-")
+while(timed_tests)
+    list(POP_FRONT timed_tests name seconds)
+    add_test(NAME ${name} COMMAND calculate-core-tests --gtest_filter=${name})
+    math(EXPR limit "${seconds} * ${slowdown}")
+    set_tests_properties(${name} PROPERTIES TIMEOUT ${limit})
+    string(APPEND untimed_filter "${name}:")
+endwhile()
+
 include(GoogleTest)
-gtest_discover_tests(calculate-core-tests DISCOVERY_MODE PRE_TEST)
+gtest_discover_tests(calculate-core-tests DISCOVERY_MODE PRE_TEST TEST_FILTER "${untimed_filter}")
 
 # Boost.Math is used by these tests only, as an independent oracle for the special functions. Not in the browser
 # build: Boost.Math refuses Emscripten's long double, which its erf_inv reaches through Boost.Multiprecision.

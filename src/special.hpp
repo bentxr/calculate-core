@@ -460,6 +460,33 @@ Special<T> betaincWord(const T& x, const T& a, const T& b, const std::atomic<boo
     return r;
 }
 
+template <class T>
+Special<T> betaincinvWord(const T& y, const T& a, const T& b, const std::atomic<bool>* cancel);
+
+namespace impl {
+
+// Where the inverse incomplete beta's search starts. Newton doubles the correct bits at each step and each step costs
+// an incomplete beta, so a type wider than binary64 starts from the root in a narrower type: binary128 above its
+// width, binary64 up to it. a / (a + b) for the rest, and when the narrower type cannot hold the problem or its root.
+template <class T>
+T betaincinvStart(const T& y, const T& a, const T& b, const std::atomic<bool>* cancel) {
+    const T plain = a / (a + b);
+    constexpr int bits = std::numeric_limits<T>::digits;
+    if constexpr (bits <= std::numeric_limits<double>::digits) {
+        return plain;
+    } else {
+        using S = std::conditional_t<(bits > std::numeric_limits<Binary128>::digits), Binary128, double>;
+        const S ys = static_cast<S>(y), as = static_cast<S>(a), bs = static_cast<S>(b);
+        const S least = (std::numeric_limits<S>::min)();
+        if (!isFinite(as) || !isFinite(bs) || as < least || bs < least || !(ys > 0 && ys < 1)) return plain;
+        const Special<S> root = betaincinvWord(ys, as, bs, cancel);
+        if (root.error || !(root.value.hi > 0 && root.value.hi < 1)) return plain;
+        return T(root.value.hi);
+    }
+}
+
+}  // namespace impl
+
 // The x with I_x(a, b) = y: Newton on I_x(a, b) - y, kept inside a bracket by bisection, which also takes over when a
 // Newton step is not half the one before last (safeguarded Newton, as in Numerical Recipes' rtsafe): with a or b near
 // 0, I_x is nearly flat and Newton creeps. The bracket test is inclusive: next to the root the Newton point rounds onto
@@ -471,7 +498,7 @@ Special<T> betaincinvWord(const T& y, const T& a, const T& b, const std::atomic<
     using std::sqrt;
     Special<T> r;
     const DoubleWord<T> lnB = lgammaPositive(dw(a)).value + lgammaPositive(dw(b)).value - lgammaPositive(dw(a) + b).value;
-    T lo = 0, hi = 1, x = a / (a + b);
+    T lo = 0, hi = 1, x = impl::betaincinvStart(y, a, b, cancel);
     T before = 1, last = 1;  // the sizes of the last two moves
     for (int i = 0; i < impl::maxIterations; ++i) {
         if (impl::cancelled(cancel)) {  // every step costs a betainc
