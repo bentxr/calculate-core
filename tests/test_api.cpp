@@ -251,7 +251,7 @@ TEST(Api, AnExactPowerTooLargeToWriteDownIsAnOverflow) {
 
 TEST(Api, AnArgumentWhoseErrorReachesAnEdgeIsRefused) {
     for (const char* text : {"sqrt(0.1+0.2-0.3)", "cbrt(0.1+0.2-0.3)", "ln(0.1+0.2-0.3)", "log(0.1+0.2-0.3)",
-                             "1/(0.1+0.2-0.3)", "(0.1+0.2-0.3)^0.5", "(0.1+0.2-0.3)^-1", "root(0.1+0.2-0.3, 3)",
+                             "1/(0.1+0.2-0.3)", "(0.1+0.2-0.3)^0.5", "(0.1+0.2-0.3)^-1", "root(0.1+0.2-0.3, 3)", "root(0.1+0.2-0.3, -1)",
                              "tan(pi/2)", "asin(0.1*3+0.7)", "acos(0.1*3+0.7)", "acosh(1.1-0.1)", "log(8, 0.1+0.2-0.3)",
                              "mod(5, 0.1+0.2-0.3)"}) {
         const Result r = evaluate(text);
@@ -267,7 +267,8 @@ TEST(Api, AnArgumentWhoseErrorReachesAnEdgeIsRefused) {
     EXPECT_EQ(evaluate("tan(90)", as(NumberType::Double, AngleUnit::Degrees)).error->code, ErrorCode::ArgumentNearEdge);
     // Far from every edge, or exactly known: computed as before.
     for (const char* text : {"sqrt(2)", "sqrt(0)", "1/3", "ln(1e-300)", "tan(1)", "asin(1)", "acos(0.5)",
-                             "(0.1+0.2-0.3)^2", "0^2", "(0.1+0.2)^0.5", "1/(0.1+0.2)", "root(-8, 3)", "atanh(0.5)"})
+                             "(0.1+0.2-0.3)^2", "0^2", "(0.1+0.2)^0.5", "1/(0.1+0.2)", "root(-8, 3)", "atanh(0.5)",
+                             "root(0.1+0.2-0.3, 1)"})  // the first root is x itself: no edge
         EXPECT_FALSE(evaluate(text).error) << text;
     Options allow;
     allow.allowUncertainDiscreteArguments = true;

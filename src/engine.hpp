@@ -93,8 +93,8 @@ inline int edgeReached(FunctionId id, const std::vector<Rational>& x, const std:
     case FunctionId::Ln:
     case FunctionId::Log10:
     case FunctionId::Csch: return near(x[0], 0, b[0]) ? 0 : -1;
-    case FunctionId::Root: {
-        const bool linear = b[1] == 0 && abs(x[1]) == 1;
+    case FunctionId::Root: {  // root(x, 1) is x; root(x, -1) is 1/x, with its pole at 0
+        const bool linear = b[1] == 0 && x[1] == 1;
         return !linear && near(x[0], 0, b[0]) ? 0 : -1;
     }
     case FunctionId::LogBase:
