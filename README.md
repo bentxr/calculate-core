@@ -203,7 +203,7 @@ Number names use the long scale in every language: `million` 10⁶, `milliard` 1
 … `decillion` 10⁶⁰, and in Spanish `millón millardo billón trillón cuatrillón … decillón` (also without the accent),
 `docena gruesa`; also `googol lakh crore dozen gross score`, `ppm` and `pcm`.
 
-A result built from constants shows its SI unit: `c*2` is in m·s⁻¹ and `h*c` in J·m. Adding quantities whose units
+A result built from constants shows its SI unit: `c*2` is in m·s⁻¹ and `h*c` in J·m; plain numbers have none. Adding quantities whose units
 differ, or giving `sin` a quantity with a unit, still computes the value and adds a note. Constants in units outside
 the SI (MeV, u) leave the unit unknown.
 
