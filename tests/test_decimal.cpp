@@ -164,6 +164,28 @@ TEST(ExactFraction, TerminatingAndRepeating) {
     expectFraction(Rational(-54767, 66192), true, "54767", "66192", false, "", "", "");  // period > 60
 }
 
+TEST(ExactFraction, DigitsBeforeAPeriodAndAfterUnevenTwosAndFives) {
+    expectFraction(Rational(7, 120), false, "7", "120", true, "0", "058", "3");        // 2^3 · 3 · 5
+    expectFraction(Rational(1, 8750), false, "1", "8750", true, "0", "0001", "142857");  // 2 · 5^4 · 7
+    expectFraction(Rational(123, 64), false, "123", "64", true, "1", "921875", "");
+    expectFraction(Rational(1, 3125), false, "1", "3125", true, "0", "00032", "");
+}
+
+// Hundreds of thousands of digits before the period: quick (ctest's time limit, tests/CMakeLists.txt).
+TEST(ExactFraction, ALongExpansionIsQuick) {
+    const unsigned k = 300000;
+    const FractionDigits half = exactFraction(Rational(Integer(1), Integer(1) << k));  // 5^k / 10^k
+    const std::string five = pow(Integer(5), k).str();
+    ASSERT_TRUE(half.hasDecimal);
+    EXPECT_EQ(half.integerPart, "0");
+    EXPECT_EQ(half.fractionDigits, std::string(k - five.size(), '0') + five);
+    EXPECT_EQ(half.repeatingDigits, "");
+    const FractionDigits third = exactFraction(Rational(Integer(1), 3 * pow(Integer(10), k)));
+    ASSERT_TRUE(third.hasDecimal);
+    EXPECT_EQ(third.fractionDigits, std::string(k, '0'));
+    EXPECT_EQ(third.repeatingDigits, "3");
+}
+
 TEST(ExactFraction, LongPeriodFallsBackToTheFraction) {
     EXPECT_FALSE(exactFraction(Rational(1, 97)).hasDecimal);  // period 96
     EXPECT_TRUE(exactFraction(Rational(1, 97), 96).hasDecimal);

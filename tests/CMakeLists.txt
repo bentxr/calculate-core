@@ -41,7 +41,8 @@ set(timed_tests
     Special.AnInverseIncompleteBetaBeyondTheTypesReachIsAnEnd 80
     Api.ACalculatorSizedExpressionIsFastInEveryType           10
     Api.AValueTooLongToWriteOutIsShownInBinary                5
-    Inspect.AZeroInBinary512StaysQuick                        5)
+    Inspect.AZeroInBinary512StaysQuick                        5
+    ExactFraction.ALongExpansionIsQuick                       10)
 set(slowdown 1)
 if(EMSCRIPTEN)
     set(slowdown 10)
