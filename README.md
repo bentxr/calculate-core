@@ -169,7 +169,7 @@ work in every number type.
 
 | Kind | Syntax |
 |---|---|
-| In a base | `… to hex`, `to bin`, `to oct`, `to duo` (12), `to base N` (2 to 36): the stored value's exact digits (`0.1 to hex` is `0x0.1999999999999A`), a period in parentheses (`0b0.(01)`), and `\|` after the trusted digits when the computation leaves some untrusted |
+| In a base | `… to hex`, `to bin`, `to oct`, `to duo` (12), `to base N` (2 to 36): the stored value's exact digits (`0.1 to hex` is `0x0.1999999999999\|A`), a period in parentheses (`0b0.(01)`), and `\|` after the digits the bound trusts, as in decimal |
 | Fixed width | `-1 to bin 16`, `to oct N`, `to hex N`: a whole number as the two's complement pattern of N bits (1 to 4096), every digit; `signed(x, bits)` and `unsigned(x, bits)` read the low bits of x with or without a sign |
 | Bitwise | `a & b`, `a \| b`, `a xor b` (also `⊻`), `~a`, `a << n`, `a >> n`: on whole numbers, as two's complement of unlimited width (`-6 & 3` is 2; `x >> n` rounds down); a shift moves at most 2^20 places |
 | Floating point | `… to fp16`, `bf16`, `fp32`, `fp64`, `fp80`, `fp128`, `fp256`, `fp512` (also `binary32`…) and `to bits` (the result's own type): the bit fields, hexadecimal pattern, class, stored value, conversion error, ulp and neighbours; `floatBits(x, fp32)`, `floatParts`, `floatValue`, `floatError` show one of them; `fromBits(0x3DCCCCCD, fp32)` is the number a pattern stands for |

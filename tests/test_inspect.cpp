@@ -361,12 +361,15 @@ TEST(FloatFunctions, FromBitsIsReadWhereverItStands) {
 }
 
 TEST(BaseTargets, ExactExpansionsOfTheStoredValue) {
-    EXPECT_EQ(evaluate("0.1 to hex").conversion->text, "0x0.1999999999999A");
+    // The bar counts the whole bound, as in decimal: 0.1's input error trusts 16 decimal digits, 13 hexadecimal, 15
+    // duodecimal (relative error 1/18014398509481985). Octal's 18 digits are all trusted (8^18 = 2^54 is just under).
+    EXPECT_EQ(evaluate("0.1 to hex").conversion->text, "0x0.1999999999999|A");
     EXPECT_EQ(evaluate("0.1 + 0.2 to hex").conversion->text, "0x0.4CCCCCCCCCCCD");
     EXPECT_EQ(evaluate("255 to hex").conversion->text, "0xFF");
     EXPECT_EQ(evaluate("-10 to bin").conversion->text, "-0b1010");
     EXPECT_EQ(evaluate("0.1 to oct").conversion->text, "0o0.0631463146314631464");
-    EXPECT_EQ(evaluate("0.1 to duo").conversion->text, "0.124972497249724A76232B004276");
+    EXPECT_EQ(evaluate("0.1 to duo").conversion->text, "0.124972497249724|A76232B004276");
+    EXPECT_EQ(field(evaluate("0.1 to duo"), "trusted"), "15");
     EXPECT_EQ(evaluate("2.5 to base 32").conversion->text, "2.G");
     Options exact;
     exact.type = NumberType::Exact;

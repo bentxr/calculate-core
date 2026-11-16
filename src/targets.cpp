@@ -108,9 +108,9 @@ std::optional<Error> inBase(const TargetInput& in, Result& result, int base, con
     const std::size_t first = digits.find_first_not_of("0.");  // the first significant digit
     long long significant = 0;
     for (std::size_t i = first; i < digits.size(); ++i) significant += digits[i] != '.';
-    // The digits are the stored value's own, so a typed number's input error does not count against them; what
-    // the computation added does (0.1 to duo: 28 exact digits; sin(1): its library error).
-    const int trusted = trustedDigits(fromRational<Ruler>(abs(in.value)), in.report.rounding + in.report.library,
+    // Trusted against the whole bound, input error included, so the bar means what it means in decimal: 0.1 to duo
+    // writes the stored value's 28 digits, of which 0.1's own input error trusts 15.
+    const int trusted = trustedDigits(fromRational<Ruler>(abs(in.value)), in.report.bound,
                                       static_cast<int>(std::min<long long>(significant, INT_MAX)), base);
     if (trusted < significant) {  // the bar right after the last trusted digit
         std::size_t at = first;

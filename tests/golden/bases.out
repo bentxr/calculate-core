@@ -1,8 +1,8 @@
 0.1 to hex
 = 0.1000000000000000|055511151231257827021181583404541015625
-→ 0x0.1999999999999A
+→ 0x0.1999999999999|A
   base 16
-  trusted 14
+  trusted 13
   ± 5.6e-18  input 5.6e-18 · rounding 0 · library 0
   measured 5.6e-18 · κ 1e+0 · 16 trusted digits
 -1 to bin 16
