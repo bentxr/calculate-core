@@ -448,6 +448,20 @@ TEST(ExactPower, AResultTooLargeToWriteDownIsAnOverflow) {
     EXPECT_EQ(out, Rational(1));
 }
 
+// The limit is the one stated, 10^±1000000, checked exactly: no power just over it passes.
+TEST(ExactPower, TheLimitIsExactlyTenToTheMillion) {
+    EXPECT_EQ(exactLimitBits, msb(pow(Integer(10), static_cast<unsigned>(exactDigitsLimit))));  // 2^3321928 ≤ 10^1000000
+    Rational out;
+    EXPECT_EQ(impl::exactPower(Rational(10), Rational(1000000), out), std::nullopt);
+    EXPECT_EQ(impl::exactPower(Rational(10), Rational(1000001), out), ErrorCode::Overflow);
+    EXPECT_EQ(impl::exactPower(Rational(10), Rational(-1000000), out), std::nullopt);
+    EXPECT_EQ(impl::exactPower(Rational(1, 10), Rational(1000001), out), ErrorCode::Overflow);  // the denominator
+    EXPECT_EQ(impl::exactPower(Rational(2), Rational(3321928), out), std::nullopt);           // 999 999.98 digits up
+    EXPECT_EQ(impl::exactPower(Rational(2), Rational(3321929), out), ErrorCode::Overflow);     // 1 000 000.28
+    EXPECT_EQ(impl::exactPower(Rational(1000), Rational(333333), out), std::nullopt);
+    EXPECT_EQ(impl::exactPower(Rational(1000), Rational(333334), out), ErrorCode::Overflow);
+}
+
 TEST(Slopes, AnInfiniteBoundGivesInfiniteSlopesAtOnce) {
     // An argument whose error is unbounded (an edge reached upstream) never reaches the ruler's kernels.
     const Ruler inf = std::numeric_limits<Ruler>::infinity();
