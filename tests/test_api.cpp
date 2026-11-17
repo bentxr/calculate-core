@@ -242,6 +242,17 @@ TEST(Api, ModuloRefusesArgumentsWhoseErrorReachesAJump) {
     EXPECT_TRUE(evaluate("mod(-7, 3)").value.negative);
 }
 
+// The reading as people write it: no pair of parentheses around the whole, and the minus sign of subtraction for a
+// negation too.
+TEST(Api, TheReadingHasNoOuterParenthesesAndOneMinusSign) {
+    EXPECT_EQ(evaluate("2^3^2+1-2").reading, "((2 ^ (3 ^ 2)) + 1) − 2");
+    EXPECT_EQ(evaluate("-2^2").reading, "−(2 ^ 2)");
+    EXPECT_EQ(evaluate("2*-3").reading, "2 × −3");
+    EXPECT_EQ(evaluate("(1+2)*(3+4)").reading, "(1 + 2) × (3 + 4)");  // two pairs, not one around the whole
+    EXPECT_EQ(evaluate("5").reading, "5");
+    EXPECT_EQ(evaluate("sqrt(4)").reading, "√(4)");  // a call keeps its own
+}
+
 TEST(Api, AnExactPowerTooLargeToWriteDownIsAnOverflow) {
     const Result r = evaluate("0.7^nPr(12, 12)", as(NumberType::Exact));
     ASSERT_TRUE(r.error);
@@ -1160,7 +1171,7 @@ TEST(Bitwise, PrecedenceFollowsC) {
 }
 
 TEST(Bitwise, ReadingAndMessagesUseTheOperators) {
-    EXPECT_EQ(evaluate("~5 & 3 | 1 ⊻ 2").reading, "((~5 & 3) | (1 xor 2))");
+    EXPECT_EQ(evaluate("~5 & 3 | 1 ⊻ 2").reading, "(~5 & 3) | (1 xor 2)");
     EXPECT_EQ(evaluate("2.5 & 1").error->message, "& needs a whole-number argument");
     EXPECT_EQ(evaluate("1 | 2.5").error->message, "| needs a whole-number argument");
     EXPECT_EQ(evaluate("1 xor 2.5").error->message, "xor needs a whole-number argument");
@@ -1197,7 +1208,7 @@ TEST(Bitwise, ShiftLimitsReadingAndMessages) {
     Options exact;
     exact.type = NumberType::Exact;
     EXPECT_FALSE(evaluate("1 << 1048576 >> 1048576", exact).error);
-    EXPECT_EQ(evaluate("1 << 2 >> 1").reading, "((1 << 2) >> 1)");
+    EXPECT_EQ(evaluate("1 << 2 >> 1").reading, "(1 << 2) >> 1");
     EXPECT_EQ(evaluate("1 << 0.5").error->message, "<< needs a whole-number argument");
     EXPECT_EQ(evaluate("1 >> 0.5").error->message, ">> needs a whole-number argument");
 }

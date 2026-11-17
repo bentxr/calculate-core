@@ -199,7 +199,7 @@ TEST(Cli, AnApproximateConversionSaysHowFarItIs) {
 }
 
 TEST(Cli, JsonCarriesTheReading) {
-    EXPECT_NE(invoke({"--json", "2^3^2"}).out.find(",\"reading\":\"(2 ^ (3 ^ 2))\""), std::string::npos);
+    EXPECT_NE(invoke({"--json", "2^3^2"}).out.find(",\"reading\":\"2 ^ (3 ^ 2)\""), std::string::npos);
     EXPECT_EQ(invoke({"--color", "never", "2^3^2"}).out.find("reading"), std::string::npos);  // human output unchanged
 }
 

@@ -13,6 +13,18 @@ namespace calculate_core {
 
 namespace {
 
+// The reading as people write it: without a pair of parentheses around the whole (the parser keeps it, as a name's
+// value is read inside other operations).
+std::string withoutOuterParentheses(const std::string& reading) {
+    if (reading.size() < 2 || reading.front() != '(' || reading.back() != ')') return reading;
+    int depth = 0;
+    for (std::size_t i = 0; i + 1 < reading.size(); ++i) {
+        depth += reading[i] == '(' ? 1 : reading[i] == ')' ? -1 : 0;
+        if (depth == 0) return reading;  // the first pair closes before the end: (1 + 2) × (3 + 4)
+    }
+    return reading.substr(1, reading.size() - 2);
+}
+
 using namespace detail;
 
 int decimalDigitsOf(int bits) { return static_cast<int>((static_cast<long long>(bits) * 30103 + 50000) / 100000); }
@@ -106,7 +118,7 @@ Result build(const Parsed& parsed, const Options& options, std::string_view text
     r.comment = parsed.comment;
     r.warnings = parsed.warnings;
     r.assigned = parsed.assigned;
-    r.reading = parsed.reading;
+    r.reading = withoutOuterParentheses(parsed.reading);
     const Uncertainty& u = report.uncertainty;
     const Ruler lead = leadUncertainty(u, options.uncertaintyRule == UncertaintyRule::Linear);
     const UncertainForms forms = uncertainForms(toRational(ev.value), report.bound + lead);
