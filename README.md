@@ -83,7 +83,7 @@ calc [options] [expression ...]
 ```
 
 `calc` evaluates each expression, or each line of standard input when none is given. They all
-share `Ans` and the memory `M`, which the lines `M+`, `M-` and `MC` update.
+share `Ans` and the memory `M`, which the lines `M+`, `M-`, `MS` (store `Ans`) and `MC` update.
 
 | Option | Effect |
 |---|---|

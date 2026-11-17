@@ -99,6 +99,16 @@ TEST(Cli, OneSessionAcrossExpressions) {
     EXPECT_EQ(invoke({"M+"}).code, 1);
 }
 
+// MS stores Ans in M, as the app's key does.
+TEST(Cli, AnMsLineStoresAns) {
+    const Outcome r = invoke({"--color", "never", "2", "M+", "5", "MS", "M*2"});
+    EXPECT_EQ(r.code, 0);
+    EXPECT_NE(r.out.find("M = 5\n"), std::string::npos) << r.out;  // after M = 2
+    EXPECT_NE(r.out.find("M*2\n= 10\n"), std::string::npos) << r.out;
+    EXPECT_EQ(invoke({"MS"}).code, 1);  // no result yet
+    EXPECT_NE(invoke({"--json", "7", "MS"}).out.find("{\"memory\":\"7\"}"), std::string::npos);
+}
+
 TEST(Cli, ReadsStandardInputWhenGivenNoExpressions) {
     const Outcome r = invoke({"--type", "exact"}, "# a comment\n1/2\n\nAns + 1/3\r\n");
     EXPECT_EQ(r.code, 0);
