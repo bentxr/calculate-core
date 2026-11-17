@@ -60,7 +60,7 @@ def generate():
     for line in open(os.path.join(here, 'physical-constants.tsv'), encoding='utf-8'):
         if line.startswith('#') or not line.strip():
             continue
-        name, quantity, definition, group = (line.rstrip('\n').split('\t') + ['', ''])[:4]
+        name, quantity, definition, group, title = (line.rstrip('\n').split('\t') + ['', '', ''])[:5]
         if quantity not in codata:
             sys.exit(f'{name}: no quantity "{quantity}" in codata-2022.txt')
         if name in names:
@@ -73,7 +73,7 @@ def generate():
         if not definition:
             definition = value if exact else value + '+/-' + uncertainty
         coherent, exponents = dimension(name, unit)
-        rows.append(f'    {{{literal(name)}, {literal(quantity)}, {literal(definition)}, {literal(value)}, '
+        rows.append(f'    {{{literal(name)}, {literal(title or quantity)}, {literal(quantity)}, {literal(definition)}, {literal(value)}, '
                     f'{literal(unit)}, {{{", ".join(str(e) for e in exponents)}}}, {"true" if coherent else "false"}, '
                     f'{"true" if exact else "false"}, {literal(group)}}},')
     return '\n'.join([
@@ -89,7 +89,8 @@ def generate():
         '',
         'struct PhysicalConstant {',
         '    std::string_view name;        // as typed: "G"',
-        '    std::string_view quantity;    // CODATA\'s name: "Newtonian constant of gravitation"',
+        '    std::string_view title;       // CODATA\'s name, spelled out where NIST abbreviates: "electron magnetic moment"',
+        '    std::string_view quantity;    // CODATA\'s name: "Newtonian constant of gravitation", "electron mag. mom."',
         '    std::string_view definition;  // what the name stands for: "6.67430e-11+/-0.00015e-11", "h/(2*pi)"',
         '    std::string_view nistValue;   // the value as NIST prints it, spaces removed: "1.054571817...e-34"',
         '    std::string_view unit;        // SI, as NIST writes it: "m^3 kg^-1 s^-2"; empty for pure numbers',

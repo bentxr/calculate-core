@@ -340,6 +340,17 @@ inline std::optional<ErrorCode> exactRoot(const Rational& x, const Integer& q, R
     return std::nullopt;
 }
 
+// Whether n^p (n ≥ 1) stays within 10^exactDigitsLimit. With 2^m ≤ n < 2^(m+1), n^p lies in [2^(pm), 2^(p(m+1))):
+// the bit lengths decide, except in the band between, where n^p is computed (a few million bits at most) and compared.
+inline bool powerFits(const Integer& n, const Integer& p) {
+    if (n == 1) return true;
+    const Integer m = msb(n);
+    if (p * m > exactLimitBits) return false;      // n^p ≥ 2^(exactLimitBits + 1) > 10^L
+    if (p * (m + 1) <= exactLimitBits) return true;  // n^p < 2^exactLimitBits ≤ 10^L
+    static const Integer limit = pow(Integer(10), static_cast<unsigned>(exactDigitsLimit));
+    return pow(n, p.convert_to<unsigned>()) <= limit;
+}
+
 inline std::optional<ErrorCode> exactPower(const Rational& x, const Rational& y, Rational& out) {
     if (y == 0) {
         out = 1;
@@ -355,9 +366,8 @@ inline std::optional<ErrorCode> exactPower(const Rational& x, const Rational& y,
         if (const auto e = exactRoot(x, denominator(y), base)) return e;
     const Integer p = abs(numerator(y));
     if (p > std::numeric_limits<unsigned>::max()) return ErrorCode::Overflow;  // cannot be stored
-    // n^p has at least p * msb(n) bits, so at least p * msb(n) * 0.30103 decimal digits.
     for (const Integer& n : {Integer(abs(numerator(base))), denominator(base)})  // both > 0: the base is not 0
-        if (p * msb(n) * 30103 > Integer(exactDigitsLimit) * 100000) return ErrorCode::Overflow;
+        if (!powerFits(n, p)) return ErrorCode::Overflow;
     const unsigned e = p.convert_to<unsigned>();
     out = Rational(pow(numerator(base), e), pow(denominator(base), e));
     if (y < 0) out = 1 / out;  // base != 0

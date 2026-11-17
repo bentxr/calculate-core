@@ -14,6 +14,7 @@
 #include <string_view>
 #include <type_traits>
 #include <utility>
+#include <vector>
 
 namespace calculate_core::detail {
 
@@ -104,6 +105,8 @@ bool isFinite(const T& x) {
 
 // Exact numbers beyond 10^±1000000 take minutes and gigabytes to compute and write down.
 inline constexpr long long exactDigitsLimit = 1000000;
+// The bits just under that limit: 2^exactLimitBits ≤ 10^1000000 < 2^(exactLimitBits + 1).
+inline constexpr unsigned long exactLimitBits = 3321928;
 
 // q * 2^e, exactly.
 inline Rational scaleByPowerOfTwo(const Rational& q, long long e) {
@@ -472,8 +475,26 @@ struct FractionDigits {
     std::string repeatingDigits;
 };
 
-// Long division: the factors 2 and 5 of the denominator give the digits before the period;
-// the period ends when the remainder comes back. Periods longer than maxPeriod are not shown.
+// How many times p divides x (> 0), dividing them out: by p, p^2, p^4, … while it divides, then by the same powers
+// back down. A few big divisions, where one by p at a time would make a million for 10^1000000.
+inline unsigned long removeFactor(Integer& x, unsigned p) {
+    std::vector<Integer> powers{Integer(p)};  // p^(2^i)
+    unsigned long count = 0;
+    Integer quotient, remainder;
+    const auto divides = [&](const Integer& power) {  // one division for both the test and the quotient
+        divide_qr(x, power, quotient, remainder);
+        if (remainder != 0) return false;
+        x = std::move(quotient);
+        return true;
+    };
+    for (; divides(powers.back()); powers.push_back(powers.back() * powers.back())) count += 1UL << (powers.size() - 1);
+    for (std::size_t i = powers.size(); i-- > 0;)
+        if (divides(powers[i])) count += 1UL << i;
+    return count;
+}
+
+// The factors 2 and 5 of the denominator give the digits before the period, all at once; then long division, until
+// the remainder comes back. Periods longer than maxPeriod are not shown.
 inline FractionDigits exactFraction(const Rational& q, int maxPeriod = 60) {
     FractionDigits f;
     f.negative = q < 0;
@@ -481,20 +502,27 @@ inline FractionDigits exactFraction(const Rational& q, int maxPeriod = 60) {
     const Integer d = denominator(q);  // >= 1
     f.numerator = n.str();
     f.denominator = d.str();
-    Integer rest = d;
-    int twos = 0;
-    int fives = 0;
-    for (; rest % 2 == 0; rest /= 2) ++twos;
-    for (; rest % 5 == 0; rest /= 5) ++fives;
-    const auto nextDigit = [&d](Integer& r) {
-        r *= 10;
-        const Integer digit = r / d;
-        r %= d;
+    // d = 2^twos · 5^fives · rest, with rest prime to 10.
+    const auto twos = static_cast<unsigned long>(lsb(d));
+    Integer rest = d >> twos;
+    const unsigned long fives = removeFactor(rest, 5);
+    const unsigned long before = std::max(twos, fives);  // the digits before the period
+    const Integer tens = (Integer(1) << twos) * pow(Integer(5), static_cast<unsigned>(fives));  // d / rest
+    f.integerPart = Integer(n / d).str();
+    // r·10^before / d = x / rest, with x = r·2^(before − twos)·5^(before − fives); the remainder r·10^before mod d is
+    // (x mod rest)·tens.
+    const Integer x = (Integer(n % d) << (before - twos)) * pow(Integer(5), static_cast<unsigned>(before - fives));
+    if (before > 0) {
+        const std::string head = Integer(x / rest).str();  // under 10^before
+        f.fractionDigits = std::string(before - head.size(), '0') + head;
+    }
+    Integer r = Integer(x % rest) * tens;
+    const auto nextDigit = [&d](Integer& remainder) {
+        remainder *= 10;
+        const Integer digit = remainder / d;
+        remainder %= d;
         return digit.str();
     };
-    f.integerPart = Integer(n / d).str();
-    Integer r = n % d;
-    for (int i = 0; i < std::max(twos, fives); ++i) f.fractionDigits += nextDigit(r);
     if (r == 0) {
         f.hasDecimal = true;
         return f;

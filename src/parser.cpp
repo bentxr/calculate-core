@@ -519,7 +519,7 @@ private:
         case FunctionId::Multiply: return infix("×");
         case FunctionId::Divide: return infix("÷");
         case FunctionId::Power: return infix("^");
-        case FunctionId::Negate: return "-" + arg(0);
+        case FunctionId::Negate: return "−" + arg(0);  // the sign of subtraction, as everywhere else
         case FunctionId::Percent: return "(" + arg(0) + "%)";
         case FunctionId::PerMille: return "(" + arg(0) + "‰)";
         case FunctionId::PerMyriad: return "(" + arg(0) + "‱)";

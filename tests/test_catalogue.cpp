@@ -5,6 +5,7 @@
 #include <calculate-core/calculate-core.hpp>
 
 #include <functional>
+#include <regex>
 #include <string>
 
 using namespace calculate_core;
@@ -576,3 +577,21 @@ TEST(Catalogue, CeilingAndFractionalPartAreTheirExpansions) {
             EXPECT_EQ(a.bound, b.bound) << t.label << ": " << lowered;
         }
 }
+
+// The texts are prose for people: no backticks, and none of NIST's abbreviations ("mag. mom.", "gyromag.") in the
+// constants' titles; NIST's own name stays the key into its table (tools/physical-constants.tsv).
+TEST(Catalogue, TextsAreSpelledOut) {
+    for (const FunctionDescription& f : functions()) EXPECT_EQ(f.description.find('`'), std::string::npos) << f.name;
+    const std::regex abbreviation("[A-Za-z]\\.( |$)");
+    for (const ConstantDescription& c : constants())
+        EXPECT_FALSE(std::regex_search(c.title, abbreviation)) << c.name << ": " << c.title;
+    for (const ConstantDescription& c : constants())
+        if (c.name == "mu_0") {
+            EXPECT_EQ(c.title, "vacuum magnetic permeability");
+        }
+    for (const FunctionDescription& f : functions())
+        if (f.name == "sum") {
+            EXPECT_EQ(f.description, "The term added up for each whole value of its variable, between the two bounds.");
+        }
+}
+

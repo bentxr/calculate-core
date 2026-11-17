@@ -723,7 +723,7 @@ TEST(Parser, TheCanonicalReading) {
     const auto reading = [](std::string_view text, const Options& o = Options{}) { return parse(text, o).reading; };
     EXPECT_EQ(reading("2^3^2"), "(2 ^ (3 ^ 2))");
     EXPECT_EQ(reading("1+2*3"), "(1 + (2 × 3))");
-    EXPECT_EQ(reading("-2^2"), "-(2 ^ 2)");
+    EXPECT_EQ(reading("-2^2"), "−(2 ^ 2)");
     EXPECT_EQ(reading("200+10%"), "(200 + (10%))");
     Options of;
     of.conventions.percent = Conventions::Percent::OfValue;

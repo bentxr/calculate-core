@@ -56,7 +56,7 @@ std::string usage() {
            "  --list-formats     describe the formats of the IEEE 754 inspector\n"
            "  --help, --version\n"
            "\n"
-           "Lines M+, M- and MC add Ans to, subtract it from, or clear the memory M.\n"
+           "Lines M+, M-, MS and MC add Ans to, subtract it from, store it in, or clear the memory M.\n"
            "An expression may end in 'to <target>' (to fraction: the exact stored value).\n"
            "'name := expression' stores an expression under a name.\n";
 }
@@ -393,9 +393,10 @@ void printBits(std::ostream& out, const Result& r) {
 
 // One expression or memory command. Returns false when it failed.
 bool handle(const std::string& line, Session& session, const Settings& s, std::ostream& out, std::ostream& err) {
-    if (line == "M+" || line == "M-" || line == "MC") {
+    if (line == "M+" || line == "M-" || line == "MS" || line == "MC") {
         bool ok = true;
         if (line == "MC") session.memoryClear();
+        else if (line == "MS") ok = session.memoryStore();
         else ok = line == "M+" ? session.memoryAdd() : session.memorySubtract();
         if (!ok) {
             err << "calc: " << line << " needs a previous result\n";
